@@ -542,21 +542,84 @@ exports.handler = async (event) => {
     if (checkbox) sheet.setCell(r, 3, '', { border: TOTAL_BORDER });
   }
 
-  // Sheet 1: All Products
+  function buildMultiClientSheet(sheet, { includeAllProducts, title }) {
+    const numClients = orders.length;
+    const lastCol = 2 + numClients; // PRODUCT + one col per client + TOTAL
+
+    sheet.setColWidth(1, 34);
+    for (let i = 0; i < numClients; i++) sheet.setColWidth(2 + i, 13);
+    sheet.setColWidth(lastCol, 12);
+
+    let r = 1;
+    if (title) {
+      sheet.mergeCells(r, 1, r, lastCol);
+      sheet.setCell(r, 1, title, { bold: true, fontSize: 14, fontColor: GREEN_COLOR });
+      r += 2;
+    }
+
+    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
+    orders.forEach((o, i) => {
+      const label = o.order_number ? `#${o.order_number} ${o.username}` : o.username;
+      sheet.setCell(r, 2 + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true } });
+    });
+    sheet.setCell(r, lastCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
+    sheet.freezeHeaderRows(r);
+    r += 1;
+
+    const colTotals = new Array(numClients).fill(0);
+    let grandTotal = 0;
+
+    for (const cat of catOrder) {
+      const prods = (productsByCat[cat.id] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+      const rowsForCat = includeAllProducts
+        ? prods
+        : prods.filter((p) => (totalQtyByProduct[p.id] || 0) > 0);
+      if (!rowsForCat.length) continue;
+
+      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL });
+      for (let i = 0; i < numClients; i++) sheet.setCell(r, 2 + i, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, lastCol, '', { fillColor: CAT_FILL });
+      r += 1;
+
+      for (const p of rowsForCat) {
+        const name = p.description ? `${p.name} (${p.description})` : p.name;
+        let rowTotal = 0;
+
+        orders.forEach((o, i) => {
+          const qty = parseInt((o.items || {})[p.id], 10) || 0;
+          rowTotal += qty;
+          colTotals[i] += qty;
+          const color = qty > 0 ? null : ZERO_COLOR;
+          sheet.setCell(r, 2 + i, qty, { bold: qty > 0, fontColor: color, align: { h: 'center' }, border: ROW_BORDER });
+        });
+
+        grandTotal += rowTotal;
+        const rowColor = rowTotal > 0 ? null : ZERO_COLOR;
+        sheet.setCell(r, 1, name, { fontColor: rowColor, border: ROW_BORDER });
+        sheet.setCell(r, lastCol, rowTotal, { bold: rowTotal > 0, fontColor: rowTotal > 0 ? GREEN_COLOR : ZERO_COLOR, align: { h: 'center' }, border: ROW_BORDER });
+        r += 1;
+      }
+    }
+
+    r += 1;
+    sheet.setCell(r, 1, 'TOTAL', { bold: true, border: TOTAL_BORDER });
+    colTotals.forEach((t, i) => {
+      sheet.setCell(r, 2 + i, t, { bold: true, fontColor: GREEN_COLOR, align: { h: 'center' }, border: TOTAL_BORDER });
+    });
+    sheet.setCell(r, lastCol, grandTotal, { bold: true, fontColor: GREEN_COLOR, fontSize: 12, align: { h: 'center' }, border: TOTAL_BORDER });
+  }
+
+  // Sheet 1: All Products (one column per client + TOTAL)
   const allSheet = wb.addSheet('All Products');
-  buildProductQtySheet(allSheet, {
+  buildMultiClientSheet(allSheet, {
     includeAllProducts: true,
-    qtyMap: totalQtyByProduct,
-    checkbox: false,
     title: `All Products — ${orders.length} order${orders.length !== 1 ? 's' : ''} combined`,
   });
 
-  // Sheet 2: Ordered Only
+  // Sheet 2: Ordered Only (one column per client + TOTAL)
   const orderedSheet = wb.addSheet('Ordered Only');
-  buildProductQtySheet(orderedSheet, {
+  buildMultiClientSheet(orderedSheet, {
     includeAllProducts: false,
-    qtyMap: totalQtyByProduct,
-    checkbox: false,
     title: `Ordered Products Only — ${orders.length} order${orders.length !== 1 ? 's' : ''} combined`,
   });
 
