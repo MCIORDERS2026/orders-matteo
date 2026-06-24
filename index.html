@@ -2190,73 +2190,106 @@ function printDeliveryPDFMulti(orders){
     const deliveryNotes=o.delivery_notes||{};
     const original=deliveryNotes.__original__||null;
 
-    let itemSections='';
+    // Build flat list of item rows per category
+    const allRows=[];
     for(const cat of CAT_ORDER){
       const prods=allProducts.filter(p=>p.cat===cat);
       const catItems=prods.filter(p=>items[String(p.id)]>0);
       if(!catItems.length)continue;
       const catLabel=(CATEGORIES.find(c=>c.id===cat)?.label||cat).toUpperCase();
-      itemSections+=`<tr><td colspan="3" style="padding:8px 10px;background:#e8e8e8;font-size:11px;font-weight:700;letter-spacing:.5px;color:#444;">${catLabel}</td></tr>`;
+      allRows.push({type:'cat',label:catLabel});
       for(const p of catItems){
         const qty=items[String(p.id)];
         const origQty=original?parseInt(original[p.id]||0):null;
         const altered=origQty!==null&&origQty!==qty;
-        const note=deliveryNotes[p.id]||(altered?`Changed from ${origQty} to ${qty}`:'');
-        itemSections+=`<tr>
-          <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;">${p.emoji?p.emoji+' ':''}${p.name}${p.description?' <span style="color:#888;font-size:11px;">('+p.description+')</span>':''}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:700;${altered?'color:#F59E0B;':''}">${qty}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:12px;color:#666;font-style:italic;">${note}</td>
-        </tr>`;
+        const note=deliveryNotes[p.id]||(altered?`→${origQty}`:'');
+        allRows.push({type:'item',p,qty,altered,note});
       }
     }
-    // Removed items (in original but not current)
+    // Removed items
     if(original){
       const removed=Object.entries(original).filter(([id,q])=>!items[id]&&parseInt(q)>0);
       if(removed.length){
-        itemSections+=`<tr><td colspan="3" style="padding:8px 10px;background:#FEF2F2;font-size:11px;font-weight:700;letter-spacing:.5px;color:#DC2626;">ITEMS NOT SENT</td></tr>`;
-        for(const [id,q] of removed){
+        allRows.push({type:'cat',label:'NOT SENT',removed:true});
+        for(const [id] of removed){
           const p=allProducts.find(x=>x.id==id)||{name:'Product #'+id,emoji:'',description:''};
-          const note=deliveryNotes[id]||'';
-          itemSections+=`<tr>
-            <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;text-decoration:line-through;color:#aaa;">${p.emoji?p.emoji+' ':''}${p.name}</td>
-            <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:700;color:#DC2626;">×0</td>
-            <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:12px;color:#DC2626;">${note||'Not available'}</td>
-          </tr>`;
+          allRows.push({type:'item',p,qty:0,removed:true,note:deliveryNotes[id]||''});
         }
       }
     }
 
-    return `<div style="${idx>0?'page-break-before:always;':''}max-width:680px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;padding:8px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:14px;border-bottom:3px solid #1D9E75;">
+    // Split rows into two columns
+    const half=Math.ceil(allRows.length/2);
+    const left=allRows.slice(0,half);
+    const right=allRows.slice(half);
+
+    function renderRows(rows){
+      return rows.map(r=>{
+        if(r.type==='cat'){
+          const bg=r.removed?'#FEF2F2':'#e8e8e8';
+          const col=r.removed?'#DC2626':'#444';
+          return `<tr><td colspan="2" style="padding:4px 6px;background:${bg};font-size:10px;font-weight:700;letter-spacing:.5px;color:${col};">${r.label}</td></tr>`;
+        }
+        const name=`${r.p.emoji?r.p.emoji+' ':''}${r.p.name}${r.p.description?` <span style="color:#999;font-size:9px;">(${r.p.description})</span>`:''}`;
+        const qtyStyle=`font-weight:700;text-align:center;${r.altered?'color:#F59E0B;':r.removed?'color:#DC2626;text-decoration:line-through;':''}`;
+        const qtyDisplay=r.removed?'✕':r.qty;
+        const noteHtml=r.note?`<span style="color:#888;font-size:9px;font-style:italic;"> ${r.note}</span>`:'';
+        return `<tr>
+          <td style="padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:11px;">${name}${noteHtml}</td>
+          <td style="padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:11px;width:30px;${qtyStyle}">${qtyDisplay}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    return `<div style="${idx>0?'page-break-before:always;':''}font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;padding:8px 12px;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;padding-bottom:8px;border-bottom:3px solid #1D9E75;">
         <div>
-          <div style="font-size:22px;font-weight:800;color:#1D9E75;">🚚 Delivery Note</div>
-          <div style="font-size:12px;color:#555;margin-top:2px;">Matteo Orders</div>
+          <div style="font-size:18px;font-weight:800;color:#1D9E75;">🚚 Delivery Note</div>
+          <div style="font-size:10px;color:#555;">Matteo Orders</div>
         </div>
         <div style="text-align:right;">
-          ${o.order_number?`<div style="font-size:20px;font-weight:800;">#${o.order_number}</div>`:''}
-          <div style="font-size:12px;color:#555;margin-top:2px;">${date}</div>
+          ${o.order_number?`<div style="font-size:18px;font-weight:800;">#${o.order_number}</div>`:''}
+          <div style="font-size:10px;color:#555;">${date}</div>
         </div>
       </div>
-      <div style="background:#f4f4f4;border-radius:8px;padding:10px 14px;margin-bottom:20px;display:inline-block;">
-        <span style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Client</span>
-        <div style="font-size:16px;font-weight:700;margin-top:2px;">${o.username}</div>
+
+      <!-- Client info -->
+      <div style="display:flex;gap:10px;margin-bottom:10px;">
+        <div style="background:#f4f4f4;border-radius:6px;padding:6px 12px;flex:1;">
+          <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Client</div>
+          <div style="font-size:15px;font-weight:700;">${o.username}</div>
+        </div>
+        ${o.ordered_by?`<div style="background:#e6f9f2;border-radius:6px;padding:6px 12px;flex:1;">
+          <div style="font-size:9px;color:#1D9E75;text-transform:uppercase;letter-spacing:.5px;">Ordered by</div>
+          <div style="font-size:15px;font-weight:700;color:#1D9E75;">${o.ordered_by}</div>
+        </div>`:''}
       </div>
-      <table style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr style="background:#ebebeb;">
-            <th style="padding:9px 10px;text-align:left;font-size:11px;color:#444;text-transform:uppercase;letter-spacing:.5px;">Product</th>
-            <th style="padding:9px 10px;text-align:center;font-size:11px;color:#444;text-transform:uppercase;letter-spacing:.5px;width:70px;">Qty</th>
-            <th style="padding:9px 10px;text-align:left;font-size:11px;color:#444;text-transform:uppercase;letter-spacing:.5px;width:200px;">Notes</th>
-          </tr>
-        </thead>
-        <tbody>${itemSections}</tbody>
-      </table>
+
+      <!-- 2-column product table -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#1D9E75;">
+            <th style="padding:5px 6px;text-align:left;font-size:10px;color:#fff;text-transform:uppercase;letter-spacing:.5px;">Product</th>
+            <th style="padding:5px 6px;text-align:center;font-size:10px;color:#fff;text-transform:uppercase;letter-spacing:.5px;width:30px;">Qty</th>
+          </tr></thead>
+          <tbody>${renderRows(left)}</tbody>
+        </table>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#1D9E75;">
+            <th style="padding:5px 6px;text-align:left;font-size:10px;color:#fff;text-transform:uppercase;letter-spacing:.5px;">Product</th>
+            <th style="padding:5px 6px;text-align:center;font-size:10px;color:#fff;text-transform:uppercase;letter-spacing:.5px;width:30px;">Qty</th>
+          </tr></thead>
+          <tbody>${renderRows(right)}</tbody>
+        </table>
+      </div>
     </div>`;
   }).join('');
 
   const html=`<div>
-    <div style="max-width:680px;margin:0 auto 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:8px;text-align:right;">
-      <span style="font-size:11px;color:#999;">${orders.length} delivery notes — Printed ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:4px 12px;text-align:right;margin-bottom:4px;">
+      <span style="font-size:10px;color:#999;">${orders.length} delivery notes — Printed ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
     </div>
     ${orderBlocks}
   </div>`;
