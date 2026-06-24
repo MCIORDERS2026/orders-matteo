@@ -2194,16 +2194,22 @@ function printDeliveryPDFMulti(orders){
     const allRows=[];
     for(const cat of CAT_ORDER){
       const prods=allProducts.filter(p=>p.cat===cat);
-      const catItems=prods.filter(p=>items[String(p.id)]>0);
+      // Include items with qty>0 OR qty=0 with an admin note
+      const catItems=prods.filter(p=>{
+        const qty=parseInt(items[String(p.id)])||0;
+        const wasOrdered=original?parseInt(original[p.id]||0)>0:qty>0;
+        return qty>0||(qty===0&&wasOrdered);
+      });
       if(!catItems.length)continue;
       const catLabel=(CATEGORIES.find(c=>c.id===cat)?.label||cat).toUpperCase();
       allRows.push({type:'cat',label:catLabel});
       for(const p of catItems){
-        const qty=items[String(p.id)];
+        const qty=parseInt(items[String(p.id)])||0;
         const origQty=original?parseInt(original[p.id]||0):null;
         const altered=origQty!==null&&origQty!==qty;
         const note=deliveryNotes[p.id]||(altered?`→${origQty}`:'');
-        allRows.push({type:'item',p,qty,altered,note});
+        const isZeroed=qty===0;
+        allRows.push({type:'item',p,qty,altered,note,isZeroed});
       }
     }
     // Removed items
@@ -2230,23 +2236,27 @@ function printDeliveryPDFMulti(orders){
           const col=r.removed?'#DC2626':'#444';
           return `<tr><td colspan="2" style="padding:4px 6px;background:${bg};font-size:10px;font-weight:700;letter-spacing:.5px;color:${col};">${r.label}</td></tr>`;
         }
-        const name=`${r.p.emoji?r.p.emoji+' ':''}${r.p.name}${r.p.description?` <span style="color:#999;font-size:9px;">(${r.p.description})</span>`:''}`;
-        const qtyStyle=`font-weight:700;text-align:center;${r.altered?'color:#F59E0B;':r.removed?'color:#DC2626;text-decoration:line-through;':''}`;
-        const qtyDisplay=r.removed?'✕':r.qty;
-        const noteHtml=r.note?`<span style="color:#888;font-size:9px;font-style:italic;"> ${r.note}</span>`:'';
+        const name=`${r.p.name}${r.p.description?` <span style="color:#999;font-size:9px;">(${r.p.description})</span>`:''}`;
+        const isZeroed=r.isZeroed||r.removed;
+        const qtyStyle=`font-weight:700;text-align:center;${r.altered&&!isZeroed?'color:#F59E0B;':isZeroed?'color:#DC2626;':'' }`;
+        const nameStyle=isZeroed?'text-decoration:line-through;color:#DC2626;':'';
+        const qtyDisplay=isZeroed?'0':r.qty;
+        const noteHtml=r.note?`<span style="color:#DC2626;font-size:9px;font-style:italic;font-weight:600;"> ${r.note}</span>`:'';
         return `<tr>
-          <td style="padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:11px;">${name}${noteHtml}</td>
+          <td style="padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:11px;${nameStyle}">${name}${noteHtml}</td>
           <td style="padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:11px;width:30px;${qtyStyle}">${qtyDisplay}</td>
         </tr>`;
       }).join('');
     }
+
+    const orderDate=o.timestamp||o.created_at||'';
 
     return `<div style="${idx>0?'page-break-before:always;':''}font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;padding:8px 12px;">
 
       <!-- Header -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;padding-bottom:8px;border-bottom:3px solid #1D9E75;">
         <div>
-          <div style="font-size:18px;font-weight:800;color:#1D9E75;">🚚 Delivery Note</div>
+          <div style="font-size:18px;font-weight:800;color:#1D9E75;">Delivery Note</div>
           <div style="font-size:10px;color:#555;">Matteo Orders</div>
         </div>
         <div style="text-align:right;">
@@ -2264,6 +2274,10 @@ function printDeliveryPDFMulti(orders){
         ${o.ordered_by?`<div style="background:#e6f9f2;border-radius:6px;padding:6px 12px;flex:1;">
           <div style="font-size:9px;color:#1D9E75;text-transform:uppercase;letter-spacing:.5px;">Ordered by</div>
           <div style="font-size:15px;font-weight:700;color:#1D9E75;">${o.ordered_by}</div>
+        </div>`:''}
+        ${orderDate?`<div style="background:#f4f4f4;border-radius:6px;padding:6px 12px;flex:1;">
+          <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Order placed</div>
+          <div style="font-size:13px;font-weight:600;">${orderDate}</div>
         </div>`:''}
       </div>
 
