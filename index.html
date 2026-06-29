@@ -234,10 +234,13 @@
             <div class="notif-item-title">💬 Chat <span class="notif-badge" id="chat-unread-badge" style="display:none;background:#DC2626;position:static;margin-left:6px;">0</span></div>
             <div class="notif-item-text">Messages to clients</div>
           </div>
+          <div class="notif-item" onclick="doLogout()">
+            <div class="notif-item-title" style="color:var(--red);">↩ Sign out</div>
+          </div>
         </div>
       </div>
       <button class="btn-sm" id="cart-toggle-btn" onclick="showCartTab()">🛒 Cart (<span id="cart-count">0</span>)</button>
-      <div style="position:relative;display:inline-block;">
+      <div style="position:relative;display:inline-block;" id="client-menu-wrap" style="display:none;">
         <button class="btn-sm" onclick="document.getElementById('client-menu-dropdown').classList.toggle('open')" style="background:var(--surface);">⚙ Menu</button>
         <div id="client-menu-dropdown" class="notif-dropdown" style="right:0;min-width:160px;">
           <div class="notif-item" onclick="openChangePasswordModal();document.getElementById('client-menu-dropdown').classList.remove('open')">
@@ -871,6 +874,7 @@ async function launch(){
   document.getElementById('app').style.display='block';
   document.getElementById('user-badge').textContent=isAdmin?'👑 admin':currentUser;
   document.getElementById('cart-toggle-btn').style.display=isAdmin?'none':'';
+  document.getElementById('client-menu-wrap').style.display=isAdmin?'none':'inline-block';
   document.getElementById('admin-menu-wrap').style.display=isAdmin?'inline-block':'none';
   document.getElementById('client-tabs').style.display=isAdmin?'none':'flex';
   document.getElementById('admin-tabs').style.display=isAdmin?'flex':'none';
