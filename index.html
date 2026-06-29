@@ -617,6 +617,16 @@
         <!-- populated dynamically by updateProdCatDropdown() -->
       </select>
     </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;">
+        <span>Visible to clients <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(leave all unchecked = visible to all)</span></span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-sm" onclick="toggleAllProductClients(true)" style="font-size:11px;padding:2px 8px;" type="button">All</button>
+          <button class="btn-sm" onclick="toggleAllProductClients(false)" style="font-size:11px;padding:2px 8px;" type="button">None</button>
+        </div>
+      </label>
+      <div id="prod-clients-list" style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;margin-top:8px;max-height:160px;overflow-y:auto;"></div>
+    </div>
     <div class="modal-error" id="add-product-error"></div>
     <div class="modal-btns"><button onclick="closeModal('add-product-modal')">Cancel</button><button class="primary" onclick="saveProduct()">Save</button></div>
   </div>
@@ -843,13 +853,20 @@ async function submitChangePassword(){
   }
 
   try{
-    // Verify current password matches stored password
+    // Verify current password against users table
     const rows=await sbGet('users',`username=ilike.${encodeURIComponent(currentUser)}`);
     if(!rows.length){err.textContent='User not found.';err.style.display='block';return;}
     if(rows[0].password!==current){
       err.textContent='Current password is incorrect.';err.style.display='block';return;
     }
-    // Update password
+    // Update password in Supabase Auth via Netlify Function (same as admin uses)
+    const res=await workerCall('/change-password',{
+      username:currentUser,
+      auth_user_id:currentUserId,
+      new_password:newPw
+    });
+    if(res&&res.error){err.textContent='Error: '+res.error;err.style.display='block';return;}
+    // Also update the visible password column in users table
     await sbPatch('users',`username=ilike.${encodeURIComponent(currentUser)}`,{password:newPw});
     closeModal('change-password-modal');
     alert('✅ Password changed successfully!');
@@ -3795,6 +3812,7 @@ function openAddProduct(){
   document.getElementById('emoji-picker').style.display='none';
   emojiPickerOpen=false;
   switchToEmoji();
+  loadProductClientsChecklist(null);
   openModal('add-product-modal');setTimeout(()=>document.getElementById('prod-name').focus(),100);
 }
 async function openEditProduct(id){
@@ -3807,7 +3825,6 @@ async function openEditProduct(id){
     document.getElementById('prod-cat').value=p.cat;
     document.getElementById('add-product-error').style.display='none';
     document.getElementById('prod-image-file').value='';
-    // Show existing image or emoji
     if(p.image_url){
       switchToImage();
       document.getElementById('prod-img-preview-el').src=p.image_url;
@@ -3820,6 +3837,7 @@ async function openEditProduct(id){
       emojiPickerOpen=false;
       document.getElementById('prod-image-preview').style.display='none';
     }
+    await loadProductClientsChecklist(String(id));
     openModal('add-product-modal');
   }catch(e){alert('Error loading product.');}
 }
@@ -3857,12 +3875,87 @@ async function saveProduct(){
 
   try{
     const payload={emoji,name,description,cat,image_url};
-    if(editingProductId)await sbPatch('products',`id=eq.${editingProductId}`,payload);
-    else await sbPost('products',{...payload,active:true});
+    let savedId=editingProductId;
+    if(editingProductId){
+      await sbPatch('products',`id=eq.${editingProductId}`,payload);
+    } else {
+      const res=await sbPost('products',{...payload,active:true});
+      savedId=res&&res[0]&&res[0].id;
+    }
+    // Save per-client visibility (update visible_products in users table)
+    if(savedId){await saveProductClientVisibility(String(savedId));}
     closeModal('add-product-modal');
     allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');
     loadAdminProducts();
   }catch(e){err.textContent='Error saving product.';err.style.display='block';}
+}
+
+// Load client checkboxes for product modal
+let _prodClientsCache=[];
+async function loadProductClientsChecklist(productId){
+  const el=document.getElementById('prod-clients-list');
+  if(!el)return;
+  el.innerHTML='<div style="font-size:12px;color:var(--text-tertiary);grid-column:1/-1;">Loading clients...</div>';
+  try{
+    const users=await sbGet('users','order=username.asc');
+    _prodClientsCache=users;
+    el.innerHTML=users.map(u=>{
+      // Check if this product is in the user's visible_products list
+      const vp=(u.visible_products||[]).map(String);
+      // If user has no restriction (vp empty) OR product is in list → checked
+      const checked=!productId||vp.length===0||vp.includes(String(productId));
+      return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:5px 8px;border:1px solid ${checked?'var(--green)':'var(--border)'};border-radius:var(--radius-sm);background:${checked?'var(--green-light)':'var(--bg)'};" id="pclient-label-${u.username}">
+        <input type="checkbox" id="pclient-${u.username}" ${checked?'checked':''} onchange="updateProductClientLabel('${u.username}',this.checked)" style="width:13px;height:13px;accent-color:var(--green);flex-shrink:0;"/>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${u.username}</span>
+      </label>`;
+    }).join('');
+    if(!users.length) el.innerHTML='<div style="font-size:12px;color:var(--text-tertiary);grid-column:1/-1;">No clients found.</div>';
+  }catch(e){el.innerHTML='<div style="font-size:12px;color:var(--red);grid-column:1/-1;">Error loading clients.</div>';}
+}
+
+function updateProductClientLabel(username,checked){
+  const label=document.getElementById('pclient-label-'+username);
+  if(label){label.style.background=checked?'var(--green-light)':'var(--bg)';label.style.borderColor=checked?'var(--green)':'var(--border)';}
+}
+
+function toggleAllProductClients(checked){
+  _prodClientsCache.forEach(u=>{
+    const cb=document.getElementById('pclient-'+u.username);
+    if(cb){cb.checked=checked;updateProductClientLabel(u.username,checked);}
+  });
+}
+
+async function saveProductClientVisibility(productId){
+  // For each user, add or remove this productId from their visible_products
+  const allChecked=_prodClientsCache.every(u=>document.getElementById('pclient-'+u.username)?.checked);
+  for(const u of _prodClientsCache){
+    const cb=document.getElementById('pclient-'+u.username);
+    if(!cb)continue;
+    const isChecked=cb.checked;
+    const current=(u.visible_products||[]).map(String);
+    let updated;
+    if(allChecked){
+      // All checked = no restriction — remove any product-level restriction for this product
+      updated=current.filter(id=>id!==productId);
+      if(updated.length===0)updated=null;
+    } else {
+      if(isChecked){
+        // Add product to user's visible list if not already there
+        if(!current.includes(productId))updated=[...current,productId];
+        else updated=current;
+      } else {
+        // Remove product from user's visible list
+        updated=current.filter(id=>id!==productId);
+        if(updated.length===0)updated=null;
+      }
+    }
+    // Only patch if changed
+    const before=JSON.stringify(u.visible_products||[]);
+    const after=JSON.stringify(updated||[]);
+    if(before!==after){
+      await sbPatch('users',`username=eq.${encodeURIComponent(u.username)}`,{visible_products:updated});
+    }
+  }
 }
 async function toggleProduct(id,current){
   try{await sbPatch('products',`id=eq.${id}`,{active:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');loadAdminProducts();}
