@@ -177,7 +177,8 @@
   .modal-btns button.primary{background:var(--green);border-color:var(--green);color:white;}
   .modal-btns button.danger{background:var(--red);border-color:var(--red);color:white;}
   .modal-error{font-size:12px;color:var(--red);display:none;}
-  @media(max-width:480px){.products{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));}.topbar{padding:0 1rem;}.main{padding:1rem;}.prod-row{grid-template-columns:28px 1fr 70px 70px auto;}}
+  @keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(8px)}45%{transform:translateX(-6px)}60%{transform:translateX(6px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}}
+  .shake-field{animation:shake 0.5s ease-in-out;}
 </style>
 </head>
 <body>
@@ -231,7 +232,7 @@
             <div class="notif-item-text" id="cutoff-menu-status">Mon & Thu at 12:00 PM</div>
           </div>
           <div class="notif-item" onclick="event.stopPropagation();document.getElementById('admin-menu-dropdown').classList.remove('open');showAdminTab('chat')">
-            <div class="notif-item-title">💬 Chat <span class="notif-badge" id="chat-unread-badge" style="display:none;background:#DC2626;position:static;margin-left:6px;">0</span></div>
+            <div class="notif-item-title">💬 Chat</div>
             <div class="notif-item-text">Messages to clients</div>
           </div>
           <div class="notif-item" onclick="doLogout()">
@@ -290,8 +291,13 @@
         <div style="margin-bottom:12px;">
           <label style="font-size:13px;font-weight:500;display:block;margin-bottom:6px;">👤 Order placed by <span style="color:var(--red);">*</span></label>
           <input type="text" id="ordered-by" placeholder="Enter the name of who placed this order"
-            style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;background:var(--surface);color:var(--text);outline:none;"
-            onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border)'"/>
+            style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;background:var(--surface);color:var(--text);outline:none;transition:border-color .2s,background .2s;"
+            onfocus="this.style.borderColor='var(--green)';this.style.background='var(--surface)';"
+            onblur="if(!this.value.trim())this.style.borderColor='var(--border)';else this.style.borderColor='var(--border)';"
+            oninput="this.style.borderColor='var(--green)';this.style.background='var(--surface)';document.getElementById('ordered-by-error').style.display='none';"/>
+          <div id="ordered-by-error" style="display:none;margin-top:8px;padding:10px 14px;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius-sm);color:#DC2626;font-size:13px;font-weight:600;">
+            ⚠️ Please enter the name of who placed this order before submitting.
+          </div>
         </div>
         <button class="checkout-btn" id="submit-btn" onclick="submitOrder()">Submit order ↗</button>
         <div class="order-success" id="order-success">✅ Order submitted successfully!</div>
@@ -1317,9 +1323,19 @@ async function submitOrder(){
   const orderedBy=document.getElementById('ordered-by').value.trim();
   if(!orderedBy){
     const inp=document.getElementById('ordered-by');
+    const errMsg=document.getElementById('ordered-by-error');
+    // Show error message
+    if(errMsg){errMsg.style.display='block';}
+    // Red border + shake
     inp.style.borderColor='var(--red)';
+    inp.style.background='#FEF2F2';
+    inp.classList.add('shake-field');
+    inp.scrollIntoView({behavior:'smooth',block:'center'});
     inp.focus();
-    setTimeout(()=>{inp.style.borderColor='var(--border)';},3000);
+    setTimeout(()=>{
+      inp.classList.remove('shake-field');
+      inp.style.borderColor='var(--red)'; // keep red until filled
+    },600);
     return;
   }
 
