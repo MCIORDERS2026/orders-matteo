@@ -2942,16 +2942,56 @@ async function loadUsers(){
   const el=document.getElementById('user-table');
   el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary)">Loading...</div>';
   try{
-    const rows=await sbGet('users','order=created_at.asc');
+    const rows=await sbGet('users','order=sort_order.asc,created_at.asc');
     allUsersCache=rows.filter(u=>u.username!==ADMIN_USERNAME);
+    const nonAdmin=rows.filter(u=>u.username!==ADMIN_USERNAME);
     el.innerHTML=`<div class="user-row header"><span>Username</span><span>Password</span><span>Change PW</span><span>Remove</span></div>`+
-      rows.map(u=>`<div class="user-row">
-        <span>${u.username}</span>
+      nonAdmin.map(u=>`<div class="user-row" draggable="true" data-user="${u.username}"
+        ondragstart="onUserDragStart(event,'${u.username}')"
+        ondragover="onUserDragOver(event)"
+        ondrop="onUserDrop(event,'${u.username}')"
+        ondragend="onUserDragEnd(event)">
+        <span style="display:flex;align-items:center;gap:8px;">
+          <span style="cursor:grab;color:var(--text-tertiary);font-size:16px;user-select:none;" title="Drag to reorder">⠿</span>
+          ${u.username}
+        </span>
         <span style="font-family:monospace">${u.password}</span>
         <button class="btn-sm" onclick="openEditUser('${u.username}','${u.auth_user_id||''}')">✏️ Edit</button>
         <button class="btn-danger" onclick="deleteUser('${u.username}','${u.auth_user_id||''}')">Remove</button>
       </div>`).join('');
   }catch(e){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--red)">Error loading users.</div>';}
+}
+
+let _dragUserId=null;
+function onUserDragStart(e,username){
+  _dragUserId=username;
+  e.dataTransfer.effectAllowed='move';
+  e.currentTarget.style.opacity='0.4';
+}
+function onUserDragEnd(e){
+  e.currentTarget.style.opacity='';
+  document.querySelectorAll('.user-row[data-user]').forEach(r=>r.style.borderTop='');
+}
+function onUserDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+  e.currentTarget.style.borderTop='2px solid var(--green)';
+}
+async function onUserDrop(e,targetUsername){
+  e.preventDefault();
+  e.currentTarget.style.borderTop='';
+  if(_dragUserId===targetUsername)return;
+  const allRows=[...document.querySelectorAll('.user-row[data-user]')];
+  const usernames=allRows.map(r=>r.dataset.user);
+  const fromIdx=usernames.indexOf(_dragUserId);
+  const toIdx=usernames.indexOf(targetUsername);
+  if(fromIdx===-1||toIdx===-1)return;
+  usernames.splice(fromIdx,1);
+  usernames.splice(toIdx,0,_dragUserId);
+  try{
+    await Promise.all(usernames.map((u,i)=>sbPatch('users',`username=eq.${encodeURIComponent(u)}`,{sort_order:i})));
+    loadUsers();
+  }catch(err){console.error('Error saving user order:',err);}
 }
 async function deleteUser(username,authUserId){
   if(!confirm(`Remove user "${username}"?`))return;
