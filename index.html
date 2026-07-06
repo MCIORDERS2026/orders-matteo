@@ -134,6 +134,7 @@
   .order-status{font-size:11px;border-radius:999px;padding:2px 8px;font-weight:500;}
   .status-pending{background:#FFF3CD;color:#92400E;}
   .status-accepted{background:#F0FDF4;color:#166534;}
+  .status-warning{background:#FFF8E1;color:#b45309;}
   .status-refused{background:var(--red-light);color:var(--red);}
   .order-card-body{display:none;padding:12px 14px;border-top:1px solid var(--border-light);}
   .order-card-body.open{display:block;}
@@ -889,7 +890,7 @@ async function launch(){
     loadChatUnreadBadge();
     loadCompleteBadge();
     // Load In Production and Delivery badge counts silently
-    sbGet('orders_history','status=eq.accepted&deleted_at=is.null').then(r=>{const b=document.getElementById('inproduction-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
+    sbGet('orders_history','status=eq.in_production&deleted_at=is.null').then(r=>{const b=document.getElementById('inproduction-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
     sbGet('orders_history','status=eq.completed&deleted_at=is.null').then(r=>{const b=document.getElementById('delivery-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
     setInterval(checkAdminPendingNotifications,30000);
   } else {
@@ -1430,7 +1431,7 @@ async function loadClientMessages(){
     for(const oid of orderIds){
       try{const o=await sbGet('orders_history',`id=eq.${oid}&select=id,order_number,timestamp,status`);if(o[0])orderMap[oid]=o[0];}catch(e){}
     }
-    const statusLabel={pending:'Pending',accepted:'In Production',refused:'Refused',completed:'Out for Delivery',delivered:'Complete'};
+    const statusLabel={pending:'Pending',accepted:'✅ Accepted',in_production:'🍳 In Production',refused:'Refused',completed:'Out for Delivery',delivered:'Complete'};
 
     el.innerHTML=msgs.map(m=>{
       const sentDate=new Date(m.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -1498,8 +1499,8 @@ async function loadClientHistory(){
     if(!rows.length){el.innerHTML='<div class="empty-state">No order history yet.</div>';return;}
     el.innerHTML=rows.map((o,i)=>{
       const count=Object.values(o.items).reduce((a,b)=>a+b,0);
-      const statusMap={pending:'⏳ Pending',accepted:'🍳 In Production',refused:'❌ Refused',completed:'🚚 Out for Delivery',delivered:'✅ Complete'};
-      const statusHtml=`<span class="order-status status-${o.status==='completed'||o.status==='delivered'||o.status==='accepted'?'accepted':o.status}">${statusMap[o.status]||o.status}</span>`;
+      const statusMap={pending:'⏳ Pending',accepted:'✅ Accepted',in_production:'🍳 In Production',refused:'❌ Refused',completed:'🚚 Out for Delivery',delivered:'✅ Complete'};
+      const statusHtml=`<span class="order-status status-${o.status==='completed'||o.status==='delivered'||o.status==='in_production'?'accepted':o.status==='accepted'?'warning':o.status}">${statusMap[o.status]||o.status}</span>`;
       const original=(o.delivery_notes&&o.delivery_notes.__original__)||null;
       const deliveryNotes=o.delivery_notes||{};
       const itemRows=Object.entries(o.items).map(([id,q])=>{
@@ -1618,11 +1619,13 @@ async function loadAdminOrders(){
   el.innerHTML='<div class="empty-state">Loading...</div>';
   try{
     // Exclude soft-deleted and completed orders
-    const rows=await sbGet('orders_history','deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&or=(status.eq.pending,status.eq.refused)&order=created_at.desc');
+    const rows=await sbGet('orders_history','deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&or=(status.eq.pending,status.eq.refused,status.eq.accepted)&order=created_at.desc');
     allOrdersCache=rows;
-    const pending=rows.filter(r=>r.status==='pending').length;
+    const pendingCount=rows.filter(r=>r.status==='pending').length;
+    const acceptedCount=rows.filter(r=>r.status==='accepted').length;
+    const totalNew=pendingCount+acceptedCount;
     const badge=document.getElementById('pending-badge');
-    if(pending>0){badge.style.display='inline';badge.textContent=pending;}else{badge.style.display='none';}
+    if(totalNew>0){badge.style.display='inline';badge.textContent=totalNew;}else{badge.style.display='none';}
     renderOrdersList();
     // Also update completed badge
     
@@ -1679,6 +1682,9 @@ function renderOrdersList(){
     const actionBtns=o.status==='pending'?`
       <button class="btn-sm green" onclick="openAcceptModal('${o.id}')">✅ Accept</button>
       <button class="btn-sm red" onclick="openRefuseModal('${o.id}')">❌ Refuse</button>`
+      :o.status==='accepted'?`
+      <button class="btn-sm" onclick="setOrderStatus('${o.id}','pending')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;">↩ Back to Pending</button>
+      <button class="btn-sm green" onclick="moveToInProduction('${o.id}')">🍳 Move to In Production</button>`
       :`<button class="btn-sm" onclick="setOrderStatus('${o.id}','pending')">↩ Revert to pending</button>`;
     const addItemHtml=`<div class="add-item-row">
       <select id="add-prod-${o.id}" class="add-item-select">
@@ -1872,7 +1878,7 @@ async function loadCompletedOrders(){
   const el=document.getElementById('completed-list');
   el.innerHTML='<div class="empty-state">Loading...</div>';
   try{
-    const rows=await sbGet('orders_history','status=eq.accepted&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&order=created_at.desc');
+    const rows=await sbGet('orders_history','status=eq.in_production&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&order=created_at.desc');
     completedOrdersCache=rows;
     const ipBadge=document.getElementById('inproduction-badge');
     if(ipBadge){if(rows.length>0){ipBadge.style.display='inline';ipBadge.textContent=rows.length;}else{ipBadge.style.display='none';}}
@@ -1922,7 +1928,7 @@ async function loadCompletedOrders(){
 }
 function loadCompletedBadge(count){
   if(count===undefined){
-    sbGet('orders_history','status=eq.accepted&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)').then(rows=>{
+    sbGet('orders_history','status=eq.in_production&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)').then(rows=>{
       const badge=document.getElementById('completed-badge');
       if(rows.length>0){badge.style.display='inline';badge.textContent=rows.length;}
       else{badge.style.display='none';}
@@ -1935,7 +1941,7 @@ function loadCompletedBadge(count){
 }
 async function completeOrder(id){
   try{
-    await sbPatch('orders_history',`id=eq.${id}`,{status:'accepted',message_read:false});
+    await sbPatch('orders_history',`id=eq.${id}`,{status:'in_production',message_read:false});
     loadAdminOrders();
     loadCompletedOrders();
   }catch(e){alert('Error: '+e.message);}
@@ -2008,12 +2014,20 @@ async function sendToDelivery(id){
   }catch(e){alert('Error: '+e.message);}
 }
 async function reactivateOrder(id){
-  if(!confirm('Move this order back to New Orders?'))return;
+  if(!confirm('Move this order back to New Orders (Accepted)?'))return;
   try{
-    await sbPatch('orders_history',`id=eq.${id}`,{status:'pending'});
+    await sbPatch('orders_history',`id=eq.${id}`,{status:'accepted'});
     loadCompletedOrders();
     loadAdminOrders();
   }catch(e){alert('Error reactivating order: '+e.message);}
+}
+
+async function moveToInProduction(id){
+  try{
+    await sbPatch('orders_history',`id=eq.${id}`,{status:'in_production',message_read:false});
+    loadAdminOrders();
+    loadCompletedOrders();
+  }catch(e){alert('Error: '+e.message);}
 }
 function toggleSelectAllCompleted(checked){
   completedOrdersCache.forEach(o=>{
@@ -2554,7 +2568,7 @@ async function backToProduction(){
   if(!deliveryOrderId){alert('No order selected.');return;}
   if(!confirm('Move this order back to In Production?'))return;
   try{
-    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'accepted'});
+    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'in_production'});
     document.getElementById('delivery-editor').innerHTML='';
     deliveryOrderId=null;
     await loadDeliveryOrders();
@@ -3405,7 +3419,7 @@ function printCompletedPDF(){
 
 function renderOrdersPDF(orders,sectionLabel){
   const statusColor={pending:'#F59E0B',accepted:'#1D9E75',refused:'#DC2626',completed:'#8B5CF6',delivered:'#1D9E75'};
-  const statusLabel={pending:'Pending',accepted:'Accepted',refused:'Refused',completed:'In Production',delivered:'Complete'};
+  const statusLabel={pending:'Pending',accepted:'Accepted',in_production:'In Production',refused:'Refused',completed:'In Production',delivered:'Complete'};
   const statusIcon={pending:'⏳',accepted:'✅',refused:'❌',completed:'🏁'};
 
   const orderBlocks=orders.map((o,idx)=>{
@@ -3555,7 +3569,7 @@ function generateOrderPDF(order){
         </div>
         <div style="text-align:right;">
           <div style="font-size:20px;font-weight:700;">${order.order_number?'#'+order.order_number:''}</div>
-          <div style="display:inline-block;margin-top:4px;padding:3px 10px;border-radius:999px;background:${col}22;color:${col};font-size:12px;font-weight:600;">${{pending:'Pending',accepted:'Accepted',refused:'Refused',completed:'In Production',delivered:'Complete'}[order.status]||order.status}</div>
+          <div style="display:inline-block;margin-top:4px;padding:3px 10px;border-radius:999px;background:${col}22;color:${col};font-size:12px;font-weight:600;">${{pending:'Pending',accepted:'Accepted',in_production:'In Production',refused:'Refused',completed:'In Production',delivered:'Complete'}[order.status]||order.status}</div>
         </div>
       </div>
 
