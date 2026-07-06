@@ -944,7 +944,9 @@ function renderAdminNotifBell(){
     dd.innerHTML=`<div class="notif-dropdown-header">New Orders</div><div class="notif-empty">No pending orders.</div>`;
     return;
   }
-  dd.innerHTML=`<div class="notif-dropdown-header">New Orders (${adminNotifItems.length})</div>`+
+  dd.innerHTML=`<div class="notif-dropdown-header">New Orders (${adminNotifItems.length})
+    <button class="btn-sm" onclick="clearAdminNotifs()" style="font-size:11px;padding:3px 8px;background:#F3F4F6;border-color:#D1D5DB;color:#374151;">✕ Clear</button>
+  </div>`+
     adminNotifItems.map(o=>{
       const count=Object.values(o.items).reduce((a,b)=>a+b,0);
       return `<div class="notif-item" onclick="goToAdminOrder('${o.id}')">
@@ -952,6 +954,12 @@ function renderAdminNotifBell(){
         <div class="notif-item-text">${o.order_number?`#${o.order_number} · `:''} ${o.timestamp} — ${count} items</div>
       </div>`;
     }).join('');
+}
+
+function clearAdminNotifs(){
+  adminNotifItems=[];
+  renderAdminNotifBell();
+  document.getElementById('notif-dropdown').classList.remove('open');
 }
 async function goToAdminOrder(orderId){
   document.getElementById('notif-dropdown').classList.remove('open');
@@ -1002,7 +1010,12 @@ function renderNotifBell(){
     dd.innerHTML=`<div class="notif-dropdown-header">Notifications</div><div class="notif-empty">No new notifications.</div>`;
     return;
   }
-  dd.innerHTML=`<div class="notif-dropdown-header">Notifications<button class="btn-sm" onclick="markAllNotifsRead()" style="font-size:11px;padding:3px 8px;">Mark all read</button></div>`+
+  dd.innerHTML=`<div class="notif-dropdown-header">Notifications
+    <div style="display:flex;gap:6px;">
+      <button class="btn-sm" onclick="clearAllNotifs()" style="font-size:11px;padding:3px 8px;background:#F3F4F6;border-color:#D1D5DB;color:#374151;">✕ Clear all</button>
+      <button class="btn-sm" onclick="markAllNotifsRead()" style="font-size:11px;padding:3px 8px;">Mark all read</button>
+    </div>
+  </div>`+
     notifItems.map(n=>{
       if(n._type==='message'){
         const onclick=n.order_id?`navigateToOrder('${n.order_id}','${n.id}')`:`markMsgRead('${n.id}')`;
@@ -1019,6 +1032,12 @@ function renderNotifBell(){
         <div class="notif-item-text">${n.admin_message}</div>
       </div>`;
     }).join('');
+}
+
+function clearAllNotifs(){
+  notifItems=[];
+  renderNotifBell();
+  document.getElementById('notif-dropdown').classList.remove('open');
 }
 function toggleNotifDropdown(){
   if(isAdmin){
@@ -1128,6 +1147,12 @@ document.addEventListener('click',function(e){
   const clientMenuWrap=document.getElementById('client-menu-wrap');
   if(clientMenuWrap&&!clientMenuWrap.contains(e.target)){
     document.getElementById('client-menu-dropdown')?.classList.remove('open');
+  }
+  // Close delivery product search results
+  const delivSearch=document.getElementById('delivery-add-search');
+  const delivResults=document.getElementById('delivery-prod-results');
+  if(delivSearch&&delivResults&&!delivSearch.contains(e.target)&&!delivResults.contains(e.target)){
+    delivResults.style.display='none';
   }
 });
 
@@ -2195,11 +2220,23 @@ function renderDeliveryEditor(order){
     ${unchangedHTML}
     <div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;background:var(--surface);">
       <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">➕ Add product to delivery</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <select id="delivery-add-prod" class="add-item-select" style="flex:1;border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;background:var(--bg);color:var(--text);">
-          <option value="">Select product...</option>
-          ${allProducts.map(p=>`<option value="${p.id}">${p.name}${p.description?' ('+p.description+')':''}</option>`).join('')}
-        </select>
+      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:180px;position:relative;">
+          <input type="text" id="delivery-add-search" placeholder="🔍 Search product..." autocomplete="off"
+            style="width:100%;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:13px;background:var(--bg);color:var(--text);box-sizing:border-box;"
+            oninput="filterDeliveryProducts(this.value)"
+            onfocus="document.getElementById('delivery-prod-results').style.display='block'"
+          />
+          <div id="delivery-prod-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.1);">
+            ${allProducts.map(p=>`
+              <div class="notif-item" onclick="selectDeliveryProduct('${p.id}','${(p.name+(p.description?' ('+p.description+')':'')).replace(/'/g,'&#39;')}')"
+                style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);">
+                ${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">(${p.description})</span>`:''}
+                <span style="float:right;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${p.cat}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+        <input type="hidden" id="delivery-add-prod"/>
         <input type="number" id="delivery-add-qty" placeholder="Qty" min="1" max="999" value="1" style="width:60px;border:1px solid var(--border);border-radius:4px;padding:6px;font-size:13px;text-align:center;background:var(--bg);"/>
         <button class="btn-sm green" onclick="addProductToDelivery()">Add</button>
       </div>
@@ -2214,18 +2251,52 @@ function renderDeliveryEditor(order){
     <div id="delivery-saved" style="display:none;margin-top:8px;font-size:12px;color:var(--green);">✅ Saved!</div>`;
 }
 
+function filterDeliveryProducts(query){
+  const results=document.getElementById('delivery-prod-results');
+  if(!results)return;
+  const q=query.trim().toLowerCase();
+  const items=allProducts.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)||(p.cat||'').toLowerCase().includes(q));
+  if(!items.length){
+    results.innerHTML='<div style="padding:10px 12px;font-size:13px;color:var(--text-tertiary);">No products found.</div>';
+  } else {
+    results.innerHTML=items.map(p=>`
+      <div onclick="selectDeliveryProduct('${p.id}','${(p.name+(p.description?' ('+p.description+')':'')).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')"
+        style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);"
+        onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background=''">
+        ${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">(${p.description})</span>`:''}
+        <span style="float:right;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${p.cat}</span>
+      </div>`).join('');
+  }
+  results.style.display='block';
+}
+
+function selectDeliveryProduct(id, name){
+  document.getElementById('delivery-add-prod').value=id;
+  document.getElementById('delivery-add-search').value=name;
+  document.getElementById('delivery-prod-results').style.display='none';
+  document.getElementById('delivery-add-qty').focus();
+}
+
 function addProductToDelivery(){
-  const sel=document.getElementById('delivery-add-prod');
+  const hiddenInput=document.getElementById('delivery-add-prod');
   const qtyInput=document.getElementById('delivery-add-qty');
-  const productId=String(sel.value);
+  const productId=String(hiddenInput.value);
   const qty=parseInt(qtyInput.value)||1;
-  if(!productId||qty<1)return;
-  // If product already exists, just update qty
+  if(!productId||qty<1){
+    document.getElementById('delivery-add-search').style.borderColor='var(--red)';
+    setTimeout(()=>document.getElementById('delivery-add-search').style.borderColor='',2000);
+    return;
+  }
   if(deliveryItems[productId]){
     deliveryItems[productId].qty+=qty;
   } else {
     deliveryItems[productId]={qty,note:'Added by admin',origQty:0};
   }
+  // Clear search
+  hiddenInput.value='';
+  document.getElementById('delivery-add-search').value='';
+  qtyInput.value='1';
+  autoSaveDelivery();
   renderDeliveryEditor({});
 }
 
