@@ -1018,7 +1018,7 @@ function renderNotifBell(){
   dd.innerHTML=`<div class="notif-dropdown-header">Notifications
     <div style="display:flex;gap:6px;">
       <button class="btn-sm" onclick="clearAllNotifs()" style="font-size:11px;padding:3px 8px;background:#F3F4F6;border-color:#D1D5DB;color:#374151;">✕ Clear all</button>
-      <button class="btn-sm" onclick="markAllNotifsRead()" style="font-size:11px;padding:3px 8px;">Mark all read</button>
+      ${!isAdmin?`<button class="btn-sm" onclick="clearAllNotifs();const t=[...document.querySelectorAll('#client-tabs .tab')].find(t=>t.textContent.includes('Messages'));showClientTab('messages',t||null);" style="font-size:11px;padding:3px 8px;">View all →</button>`:`<button class="btn-sm" onclick="markAllNotifsRead()" style="font-size:11px;padding:3px 8px;">Mark all read</button>`}
     </div>
   </div>`+
     notifItems.map(n=>{
@@ -1049,11 +1049,8 @@ function toggleNotifDropdown(){
     document.getElementById('notif-dropdown').classList.toggle('open');
     document.getElementById('admin-menu-dropdown')?.classList.remove('open');
   } else {
-    // Client: go directly to Messages tab
-    document.getElementById('notif-dropdown')?.classList.remove('open');
-    const tabs=document.querySelectorAll('#client-tabs .tab');
-    const msgTab=[...tabs].find(t=>t.textContent.includes('Messages'));
-    showClientTab('messages', msgTab||null);
+    // Client: open dropdown with clear button + link to messages
+    document.getElementById('notif-dropdown').classList.toggle('open');
   }
 }
 function goHome(){
