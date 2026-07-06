@@ -513,6 +513,21 @@
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="chat-delete-modal">
+  <div class="modal" style="max-width:380px;width:92vw;">
+    <h3>🔒 Confirm Delete</h3>
+    <div class="field">
+      <label id="chat-delete-label">Enter admin password to delete this message</label>
+      <input type="password" id="chat-delete-password" placeholder="Admin password" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;margin-top:6px;"/>
+    </div>
+    <div id="chat-delete-error" style="display:none;color:var(--red);font-size:12px;margin-top:2px;"></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('chat-delete-modal')">Cancel</button>
+      <button class="primary" style="background:var(--red);border-color:var(--red);" onclick="chatConfirmDelete()">🗑 Delete</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="cutoff-modal">
   <div class="modal" style="max-width:500px;width:95vw;">
     <h3>⏰ Cut-off Settings</h3>
@@ -759,6 +774,14 @@ async function sbGet(t,q=''){const H=await authHeaders();const r=await fetch(`${
 async function sbPost(t,b){const H=await authHeaders();const r=await fetch(`${SUPABASE_URL}/rest/v1/${t}`,{method:'POST',headers:{...H,'Prefer':'return=representation'},body:JSON.stringify(b)});if(!r.ok)throw new Error(await r.text());return r.json();}
 async function sbPatch(t,q,b){const H=await authHeaders();const r=await fetch(`${SUPABASE_URL}/rest/v1/${t}?${q}`,{method:'PATCH',headers:{...H,'Prefer':'return=representation'},body:JSON.stringify(b)});if(!r.ok)throw new Error(await r.text());return r.json();}
 async function sbDelete(t,q){const H=await authHeaders();const r=await fetch(`${SUPABASE_URL}/rest/v1/${t}?${q}`,{method:'DELETE',headers:H});if(!r.ok)throw new Error(await r.text());}
+// Same as sbDelete, but asks Postgrest to return the deleted rows so callers can detect
+// a "silent" 0-row delete (e.g. blocked by an RLS policy) instead of assuming success.
+async function sbDeleteReturning(t,q){
+  const H=await authHeaders();
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/${t}?${q}`,{method:'DELETE',headers:{...H,'Prefer':'return=representation'}});
+  if(!r.ok)throw new Error(await r.text());
+  try{return await r.json();}catch(e){return [];}
+}
 
 // ── STATE ──
 let currentUser=null,isAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null;
@@ -1287,25 +1310,18 @@ function clearSavedCart(){
   try{localStorage.removeItem('matteo-cart-'+currentUser);}catch(e){}
 }
 
-// ── LOAD EXISTING ORDER INTO CART (for editing) ──
+// ── LOAD EXISTING ORDER INTO CART (only restores an unsent local draft) ──
 async function loadExistingOrderIntoCart(){
+  // Only restore a locally-saved DRAFT (items added but never submitted).
+  // A pending order that was already submitted stays 'pending' server-side until an
+  // admin accepts/refuses it, but it should NOT be pulled back into the cart on every
+  // login — that already has an explicit, deliberate entry point via the
+  // "✏️ Edit order" button in My Orders (see editOrderFromHistory).
   const saved=loadSavedCart();
-  cart={...saved}; // start with locally saved cart
-  try{
-    const rows=await sbGet('orders_history',`username=eq.${encodeURIComponent(currentUser)}&status=eq.pending&order=created_at.desc&limit=1`);
-    if(rows.length){
-      // Merge: pending order items take priority, then add any local extras
-      const pendingItems={...rows[0].items};
-      Object.entries(saved).forEach(([id,q])=>{
-        if(!pendingItems[id])pendingItems[id]=q; // keep local items not in pending order
-      });
-      cart=pendingItems;
-    }
-    if(Object.keys(cart).length>0){
-      renderCart();
-    }
-  }catch(e){cart=saved;}
-  saveCart();
+  cart={...saved};
+  if(Object.keys(cart).length>0){
+    renderCart();
+  }
 }
 
 // ── CATALOGUE ──
@@ -2610,7 +2626,7 @@ async function exportDeliveryExcelMulti(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,order_number:o.order_number||null,ordered_by:o.ordered_by||'',items:o.items})),
-      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||''})),
+      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0})),
       categories:CATEGORIES.filter(c=>c.id!=='all').map(c=>({id:c.id,label:c.label}))
     };
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -3048,7 +3064,7 @@ async function exportClientHistoryExcel(){
         timestamp:o.timestamp,
         ordered_by:o.ordered_by||''
       })),
-      products:allProducts.map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat}))
+      products:allProducts.map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat,sort_order:p.sort_order||0}))
     };
 
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -3117,7 +3133,7 @@ async function exportCompletedExcel(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,order_number:o.order_number||null,ordered_by:o.ordered_by||'',items:o.items})),
-      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||''})),
+      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0})),
       categories:CATEGORIES.filter(c=>c.id!=='all').map(c=>({id:c.id,label:c.label}))
     };
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -3815,25 +3831,43 @@ async function chatSend(){
   btn.disabled=false;btn.textContent='Send 💬';
 }
 
-async function chatDeleteGroup(ids){
-  const pass=prompt('Enter admin password to delete this message for all recipients:');
-  if(pass===null)return;
-  if(pass!==ADMIN_PASS){alert('Incorrect password.');return;}
-  try{
-    for(const id of ids){await sbDelete('admin_messages',`id=eq.${id}`);}
-    await chatLoadHistory();
-  }catch(e){alert('Error deleting: '+e.message);}
+let _chatDeleteIds=[];
+function chatDeleteGroup(ids){
+  _chatDeleteIds=ids;
+  openChatDeleteModal(`Enter admin password to delete this message for all ${ids.length} recipients`);
 }
-
-async function chatDelete(id){
-  const pass=prompt('Enter admin password to delete this message:');
-  if(pass===null)return;
-  if(pass!==ADMIN_PASS){alert('Incorrect password.');return;}
-  try{
-    await sbDelete('admin_messages',`id=eq.${id}`);
-    await chatLoadHistory();
-  }catch(e){alert('Error deleting: '+e.message);}
+function chatDelete(id){
+  _chatDeleteIds=[id];
+  openChatDeleteModal('Enter admin password to delete this message');
 }
+function openChatDeleteModal(label){
+  document.getElementById('chat-delete-label').textContent=label;
+  document.getElementById('chat-delete-password').value='';
+  document.getElementById('chat-delete-error').style.display='none';
+  openModal('chat-delete-modal');
+  setTimeout(()=>document.getElementById('chat-delete-password')?.focus(),100);
+}
+async function chatConfirmDelete(){
+  const pass=document.getElementById('chat-delete-password').value;
+  const err=document.getElementById('chat-delete-error');
+  if(pass!==ADMIN_PASS){err.textContent='Incorrect password.';err.style.display='block';return;}
+  err.style.display='none';
+  try{
+    let deletedCount=0;
+    for(const id of _chatDeleteIds){
+      const deleted=await sbDeleteReturning('admin_messages',`id=eq.${id}`);
+      deletedCount+=(deleted||[]).length;
+    }
+    closeModal('chat-delete-modal');
+    if(deletedCount===0){
+      alert('The message could not be deleted. This is most likely blocked by a Supabase Row Level Security (RLS) policy on the admin_messages table — check that DELETE is allowed for the admin account.');
+    }
+    await chatLoadHistory();
+  }catch(e){err.textContent='Error: '+e.message;err.style.display='block';}
+}
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&document.getElementById('chat-delete-modal')?.classList.contains('open'))chatConfirmDelete();
+});
 
 // ── PDF GENERATION ──
 function printAllOrdersPDF(){
@@ -4525,7 +4559,7 @@ async function exportExcel(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,items:o.items,order_number:o.order_number,status:o.status,timestamp:o.timestamp,ordered_by:o.ordered_by||''})),
-      products:allProducts.map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat}))
+      products:allProducts.map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat,sort_order:p.sort_order||0}))
     };
 
     const res=await fetch('/.netlify/functions/generate-excel',{
