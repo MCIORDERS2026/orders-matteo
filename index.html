@@ -2385,6 +2385,14 @@ async function loadDeliveryOrder(orderId){
   }catch(e){el.innerHTML='<div class="empty-state">Error loading order.</div>';}
 }
 
+// Auto-fills the "reason for change" note when a quantity is edited, unless the admin
+// already typed something manually (never overwrite an existing note).
+function deliveryAutoNote(id){
+  const item=deliveryItems[id];
+  if(!item||item.note)return;
+  if(item.qty===0&&item.origQty>0)item.note='Out of stock';
+  else if(item.qty>item.origQty)item.note='Added by supplier';
+}
 function renderDeliveryEditor(order){
   const el=document.getElementById('delivery-editor');
   if(!el)return;
@@ -2405,7 +2413,7 @@ function renderDeliveryEditor(order){
             <span style="font-size:11px;color:#9CA3AF;text-decoration:line-through;">×${item.origQty}</span>
             <span style="font-size:13px;font-weight:700;color:#DC2626;">→ ×${item.qty}</span>
             <input type="number" value="${item.qty}" min="0" max="999"
-              oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;renderDeliveryEditor({});autoSaveDelivery();"
+              oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
               style="width:55px;border:1px solid #FCA5A5;border-radius:4px;padding:4px 6px;font-size:13px;text-align:center;background:white;"/>
           </div>
         </div>
@@ -2420,7 +2428,7 @@ function renderDeliveryEditor(order){
         <div style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:13px;color:var(--text-secondary);">×${item.qty}</span>
           <input type="number" value="${item.qty}" min="0" max="999"
-            oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;renderDeliveryEditor({});autoSaveDelivery();"
+            oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
             style="width:50px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);"/>
         </div>
       </div>`;
