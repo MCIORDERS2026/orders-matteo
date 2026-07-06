@@ -871,7 +871,7 @@ async function doLogout(){
   window.location.reload();
 }
 async function launch(){
-  try{allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');}catch(e){allProducts=[];}
+  try{allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');}catch(e){allProducts=[];}
   document.getElementById('loading-screen').style.display='none';
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='block';
@@ -1456,7 +1456,7 @@ async function loadClientMessages(){
     for(const oid of orderIds){
       try{const o=await sbGet('orders_history',`id=eq.${oid}&select=id,order_number,timestamp,status`);if(o[0])orderMap[oid]=o[0];}catch(e){}
     }
-    const statusLabel={pending:'Pending',accepted:'✅ Accepted',in_production:'🍳 In Production',refused:'Refused',completed:'Out for Delivery',delivered:'Complete'};
+    const statusLabel={pending:'Pending',accepted:'✅ Accepted',in_production:'🍳 In Production',refused:'Refused',completed:'Out for Delivery',delivered:'🏁 Delivered'};
 
     el.innerHTML=msgs.map(m=>{
       const sentDate=new Date(m.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -1524,7 +1524,7 @@ async function loadClientHistory(){
     if(!rows.length){el.innerHTML='<div class="empty-state">No order history yet.</div>';return;}
     el.innerHTML=rows.map((o,i)=>{
       const count=Object.values(o.items).reduce((a,b)=>a+b,0);
-      const statusMap={pending:'⏳ Pending',accepted:'✅ Accepted',in_production:'🍳 In Production',refused:'❌ Refused',completed:'🚚 Out for Delivery',delivered:'✅ Complete'};
+      const statusMap={pending:'⏳ Pending',accepted:'✅ Accepted',in_production:'🍳 In Production',refused:'❌ Refused',completed:'🚚 Out for Delivery',delivered:'🏁 Delivered'};
       const statusHtml=`<span class="order-status status-${o.status==='completed'||o.status==='delivered'||o.status==='in_production'?'accepted':o.status==='accepted'?'warning':o.status}">${statusMap[o.status]||o.status}</span>`;
       const original=(o.delivery_notes&&o.delivery_notes.__original__)||null;
       const deliveryNotes=o.delivery_notes||{};
@@ -1534,7 +1534,7 @@ async function loadClientHistory(){
         const origQty=original?parseInt(original[id]||0):null;
         const changed=origQty!==null&&origQty!==parseInt(q);
         const note=deliveryNotes[id]||'';
-        const isAdded=note==='Added by admin';
+        const isAdded=note==='Added by supplier';
         let dot='';
         if(isAdded)dot='<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#10B981;margin-right:6px;flex-shrink:0;" title="Added by Matteo"></span>';
         else if(changed)dot='<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F59E0B;margin-right:6px;flex-shrink:0;" title="Quantity changed by Matteo"></span>';
@@ -1676,7 +1676,7 @@ function toggleSelectAllOrders(checked){
 function renderOrdersList(){
   // Guard: if products not loaded yet, fetch and retry
   if(!allProducts.length){
-    sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc')
+    sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc')
       .then(rows=>{allProducts=rows;renderOrdersList();}).catch(()=>{});
     return;
   }
@@ -2091,10 +2091,13 @@ async function loadDeliveryOrders(){
     const dBadge=document.getElementById('delivery-badge');
     if(dBadge){if(rows.length>0){dBadge.style.display='inline';dBadge.textContent=rows.length;}else{dBadge.style.display='none';}}
     const sel=document.getElementById('delivery-order-select');
+    const prevVal=sel?sel.value:''; // preserve current selection
     sel.innerHTML='<option value="">— Select a completed order —</option>'+
       rows.map(o=>`<option value="${o.id}">${o.order_number?`#${o.order_number} `:''} ${o.username} — ${o.timestamp}</option>`).join('');
+    if(prevVal)sel.value=prevVal; // restore selection
 
-    // Multi-select checklist
+    // Multi-select checklist — preserve checked state
+    const prevChecked=new Set([...document.querySelectorAll('#delivery-multi-list input[type=checkbox]:checked')].map(c=>c.id.replace('dchk-','')));
     const multiList=document.getElementById('delivery-multi-list');
     if(multiList){
       if(!rows.length){
@@ -2102,7 +2105,7 @@ async function loadDeliveryOrders(){
       } else {
         multiList.innerHTML=rows.map(o=>`
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-            <input type="checkbox" id="dchk-${o.id}" style="width:15px;height:15px;cursor:pointer;accent-color:var(--green);"/>
+            <input type="checkbox" id="dchk-${o.id}" ${prevChecked.has(o.id)?'checked':''} style="width:15px;height:15px;cursor:pointer;accent-color:var(--green);"/>
             ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;">#${o.order_number}</span>`:''}
             <span style="font-weight:500;">${o.username}</span>
             <span style="color:var(--text-tertiary);">— ${o.timestamp}</span>
@@ -2318,7 +2321,7 @@ function addProductToDelivery(){
   if(deliveryItems[productId]){
     deliveryItems[productId].qty+=qty;
   } else {
-    deliveryItems[productId]={qty,note:'Added by admin',origQty:0};
+    deliveryItems[productId]={qty,note:'Added by supplier',origQty:0};
   }
   // Clear search
   hiddenInput.value='';
@@ -3075,8 +3078,12 @@ function productRow(p){
     ?'<img src="'+p.image_url+'" style="width:32px;height:32px;object-fit:cover;border-radius:4px;vertical-align:middle;" onerror="this.style.display=\'none\'"/>'
     :'';
   const descHtml=p.description?'<div style="font-size:11px;color:var(--text-secondary)">'+p.description+'</div>':'';
-  return `<div class="prod-row${p.active?'':' inactive-row'}">
-    <span style="font-size:20px">${imgHtml}</span>
+  return `<div class="prod-row${p.active?'':' inactive-row'}" draggable="true" data-prod-id="${p.id}" data-prod-cat="${p.cat}"
+    ondragstart="onProdDragStart(event,${p.id})"
+    ondragover="onProdDragOver(event)"
+    ondrop="onProdDrop(event,${p.id},\'${p.cat}\')"
+    ondragend="onProdDragEnd(event)">
+    <span style="cursor:grab;color:var(--text-tertiary);font-size:16px;user-select:none;" title="Drag to reorder">⠿</span>
     <span><div style="font-weight:500">${p.name}</div>${descHtml}</span>
     <span style="font-size:12px;color:var(--text-secondary)">${p.cat}</span>
     <span><button class="toggle-btn${p.active?' on':''}" onclick="toggleProduct(${p.id},${p.active})">${p.active?'✅ Active':'⛔ Hidden'}</button></span>
@@ -3091,20 +3098,17 @@ async function loadAdminProducts(){
   const el=document.getElementById('prod-table');
   el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary)">Loading...</div>';
   try{
-    const rows=await sbGet('products','order=cat.asc,name.asc');
+    const rows=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');
     document.getElementById('admin-cat-row').innerHTML=CATEGORIES.map(c=>
       `<button class="cat-btn${adminProdCat===c.id?' active':''}" onclick="filterAdminProdCat('${c.id}',this)">${c.label}</button>`
     ).join('');
     const list=adminProdCat==='all'?rows:rows.filter(p=>p.cat===adminProdCat);
     if(!list.length){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">No products in this category.</div>';return;}
-    const header=``;
-    let html=header;
+    let html='';
     if(adminProdCat==='all'){
-      // Group by category with separator rows
       const catOrder=['sauces','oven','desserts','small-packs','cheeses','cured-meat','vegg','frozen','dry','pastas','drinks','oils','packaging','chemical','office','backup'];
       const grouped={};
       list.forEach(p=>{if(!grouped[p.cat])grouped[p.cat]=[];grouped[p.cat].push(p);});
-      // Also include any cats not in catOrder
       const allCats=[...new Set([...catOrder,...Object.keys(grouped)])].filter(c=>grouped[c]);
       allCats.forEach(cat=>{
         const prods=grouped[cat];
@@ -3118,6 +3122,51 @@ async function loadAdminProducts(){
     }
     el.innerHTML=html;
   }catch(e){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--red)">Error loading products.</div>';}
+}
+
+// ── Drag & Drop product reorder ──
+let _dragProdId=null;
+
+function onProdDragStart(e, prodId){
+  _dragProdId=prodId;
+  e.dataTransfer.effectAllowed='move';
+  e.currentTarget.style.opacity='0.4';
+}
+
+function onProdDragEnd(e){
+  e.currentTarget.style.opacity='';
+  document.querySelectorAll('.prod-row').forEach(r=>r.style.borderTop='');
+}
+
+function onProdDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+  e.currentTarget.style.borderTop='2px solid var(--green)';
+}
+
+async function onProdDrop(e, targetProdId, cat){
+  e.preventDefault();
+  e.currentTarget.style.borderTop='';
+  if(_dragProdId===targetProdId)return;
+
+  // Get all prod rows in this category from the DOM, in current visual order
+  const allRows=[...document.querySelectorAll(`.prod-row[data-prod-cat="${cat}"]`)];
+  const ids=allRows.map(r=>parseInt(r.dataset.prodId));
+
+  // Reorder: move _dragProdId to position of targetProdId
+  const fromIdx=ids.indexOf(_dragProdId);
+  const toIdx=ids.indexOf(targetProdId);
+  if(fromIdx===-1||toIdx===-1)return;
+  ids.splice(fromIdx,1);
+  ids.splice(toIdx,0,_dragProdId);
+
+  // Save new sort_order to Supabase
+  try{
+    await Promise.all(ids.map((id,i)=>sbPatch('products',`id=eq.${id}`,{sort_order:i})));
+    // Update allProducts cache
+    allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
+    loadAdminProducts();
+  }catch(err){console.error('Error saving order:',err);}
 }
 function filterAdminProdCat(cat,btn){adminProdCat=cat;document.querySelectorAll('#admin-cat-row .cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');loadAdminProducts();}
 // ── EMOJI PICKER ──
@@ -3630,7 +3679,7 @@ function generateOrderPDF(order){
     const origQty=original?parseInt(original[id]||0):null;
     const changed=origQty!==null&&origQty!==parseInt(q);
     const note=deliveryNotes[id]||'';
-    const isAdded=note==='Added by admin';
+    const isAdded=note==='Added by supplier';
     const qtyCell=changed
       ?`<span style="text-decoration:line-through;color:#aaa;font-size:11px;margin-right:4px;">×${origQty}</span><span style="font-weight:700;color:#F59E0B;">×${q}</span>`
       :`<span style="font-weight:600;">${q}</span>`;
@@ -3980,7 +4029,7 @@ async function saveProduct(){
     // Save per-client visibility (update visible_products in users table)
     if(savedId){await saveProductClientVisibility(String(savedId));}
     closeModal('add-product-modal');
-    allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');
+    allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
     loadAdminProducts();
   }catch(e){err.textContent='Error saving product.';err.style.display='block';}
 }
@@ -4061,16 +4110,16 @@ async function saveProductClientVisibility(productId){
   }
 }
 async function toggleProduct(id,current){
-  try{await sbPatch('products',`id=eq.${id}`,{active:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');loadAdminProducts();}
+  try{await sbPatch('products',`id=eq.${id}`,{active:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');loadAdminProducts();}
   catch(e){alert('Error updating product.');}
 }
 async function toggleOutOfStock(id,current){
-  try{await sbPatch('products',`id=eq.${id}`,{out_of_stock:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');loadAdminProducts();}
+  try{await sbPatch('products',`id=eq.${id}`,{out_of_stock:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');loadAdminProducts();}
   catch(e){alert('Error updating stock status.');}
 }
 async function deleteProduct(id){
   if(!confirm('Delete this product permanently?'))return;
-  try{await sbDelete('products',`id=eq.${id}`);allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,name.asc');loadAdminProducts();}
+  try{await sbDelete('products',`id=eq.${id}`);allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');loadAdminProducts();}
   catch(e){alert('Error deleting product.');}
 }
 
