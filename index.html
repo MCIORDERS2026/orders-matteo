@@ -3756,7 +3756,7 @@ async function chatLoadHistory(){
 
       const deleteBtn=g.allIds.length===1
         ?`<button onclick="chatDelete('${g.allIds[0]}')" title="Delete" style="border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:14px;padding:0 4px;">✕</button>`
-        :`<button onclick="chatDeleteGroup(${JSON.stringify(g.allIds)})" title="Delete all" style="border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:14px;padding:0 4px;">✕</button>`;
+        :`<button onclick='chatDeleteGroup(${JSON.stringify(g.allIds).replace(/'/g,'&#39;')})' title="Delete all" style="border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:14px;padding:0 4px;">✕</button>`;
 
       return `<div style="background:var(--surface);border:1px solid ${!allRead?'#FCD34D':'var(--border)'};border-left:3px solid ${!allRead?'#F59E0B':'var(--border-light)'};border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
