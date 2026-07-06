@@ -556,6 +556,10 @@
     <h3>Edit user</h3>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;font-weight:500;" id="edit-user-label"></div>
     <div class="field">
+      <label>Username</label>
+      <input type="text" id="edit-username" placeholder="Username" style="margin-top:6px;"/>
+    </div>
+    <div class="field">
       <label>New password <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(leave blank to keep current)</span></label>
       <input type="text" id="edit-password" placeholder="New password" style="margin-top:6px;"/>
     </div>
@@ -2978,6 +2982,7 @@ function openEditUser(username,authUserId){
   editingUserId=authUserId;
   editingUsername=username;
   document.getElementById('edit-user-label').textContent=`User: ${username}`;
+  document.getElementById('edit-username').value=username;
   document.getElementById('edit-password').value='';
   document.getElementById('edit-user-error').style.display='none';
   document.getElementById('edit-user-products').innerHTML='<div style="font-size:12px;color:var(--text-tertiary);">Loading...</div>';
@@ -3041,9 +3046,12 @@ function toggleAllUserProducts(checked){
   });
 }
 async function saveUserSettings(){
+  const newUsername=document.getElementById('edit-username').value.trim();
   const p=document.getElementById('edit-password').value.trim();
   const err=document.getElementById('edit-user-error');
   err.style.display='none';
+
+  if(!newUsername){err.textContent='Username cannot be empty.';err.style.display='block';return;}
 
   // Get selected categories
   const cats=CATEGORIES.filter(c=>c.id!=='all');
@@ -3051,17 +3059,19 @@ async function saveUserSettings(){
   const selectedCats=allCatsChecked?[]:cats.filter(c=>document.getElementById('ucat-'+c.id)?.checked).map(c=>c.id);
 
   // Get selected products
-  const allProdsChecked=allProducts.every(p=>document.getElementById('uprod-'+p.id)?.checked);
-  const selectedProds=allProdsChecked?[]:allProducts.filter(p=>document.getElementById('uprod-'+p.id)?.checked).map(p=>String(p.id));
+  const allProdsChecked=allProducts.every(pr=>document.getElementById('uprod-'+pr.id)?.checked);
+  const selectedProds=allProdsChecked?[]:allProducts.filter(pr=>document.getElementById('uprod-'+pr.id)?.checked).map(pr=>String(pr.id));
 
   try{
-    await sbPatch('users',`username=eq.${encodeURIComponent(editingUsername)}`,{
+    const updatePayload={
       visible_categories:selectedCats.length?selectedCats:null,
       visible_products:selectedProds.length?selectedProds:null
-    });
+    };
+    if(newUsername!==editingUsername) updatePayload.username=newUsername;
+    await sbPatch('users',`username=eq.${encodeURIComponent(editingUsername)}`,updatePayload);
     if(p){
       if(!editingUserId){err.textContent='Missing user reference. Cannot update password.';err.style.display='block';return;}
-      const res=await workerCall('/change-password',{username:editingUsername,auth_user_id:editingUserId,new_password:p});
+      const res=await workerCall('/change-password',{username:newUsername,auth_user_id:editingUserId,new_password:p});
       if(res.error){err.textContent='Error: '+res.error;err.style.display='block';return;}
     }
     closeModal('edit-user-modal');loadUsers();
