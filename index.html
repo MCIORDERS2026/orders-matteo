@@ -410,6 +410,7 @@
         <button class="btn-sm" onclick="openManageCategories()">⚙️ Categories</button>
       </div>
       <div class="cat-row" id="admin-cat-row"></div>
+      <div class="cat-row" id="admin-status-row"></div>
       <div class="prod-table" id="prod-table"></div>
     </div>
 
@@ -524,7 +525,44 @@
     </div>
     <div class="modal-btns">
       <button onclick="closeModal('cutoff-modal')">Cancel</button>
-      <button class="primary" onclick="saveCutoffSettings()">Save</button>
+      <button class="primary" onclick="saveCutoffSettings()">Save default</button>
+    </div>
+
+    <div class="field" style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px;">
+      <label>👤 Custom cut-off for a specific client (optional)</label>
+      <select id="cutoff-client-select" onchange="onCutoffClientChange()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;margin-top:6px;">
+        <option value="">— Use default for everyone —</option>
+      </select>
+    </div>
+    <div id="cutoff-client-override-section" style="display:none;">
+      <div class="field">
+        <label>Status for this client</label>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <button id="cutoff-client-btn-default" onclick="setClientCutoffMode('default')" class="btn-sm" style="flex:1;">↩ Default</button>
+          <button id="cutoff-client-btn-enabled" onclick="setClientCutoffMode('enabled')" class="btn-sm" style="flex:1;">✅ Enabled</button>
+          <button id="cutoff-client-btn-disabled" onclick="setClientCutoffMode('disabled')" class="btn-sm" style="flex:1;">🔓 Disabled</button>
+        </div>
+      </div>
+      <div id="cutoff-client-time-section" class="field">
+        <label>Cut-off time</label>
+        <input type="time" id="cutoff-client-time-input" value="12:00" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;"/>
+      </div>
+      <div id="cutoff-client-days-section" class="field">
+        <label>Cut-off days</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" id="client-days-toggle-group">
+          <button type="button" data-day="1" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Mon</button>
+          <button type="button" data-day="2" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Tue</button>
+          <button type="button" data-day="3" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Wed</button>
+          <button type="button" data-day="4" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Thu</button>
+          <button type="button" data-day="5" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Fri</button>
+          <button type="button" data-day="6" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sat</button>
+          <button type="button" data-day="0" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sun</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+        <button class="primary" onclick="saveClientCutoffOverride()" style="flex:1;">💾 Save for this client</button>
+      </div>
+      <div id="cutoff-client-save-status" style="display:none;font-size:12px;color:var(--green-dark);margin-top:6px;text-align:center;"></div>
     </div>
   </div>
 </div>
@@ -707,7 +745,7 @@ async function sbPatch(t,q,b){const H=await authHeaders();const r=await fetch(`$
 async function sbDelete(t,q){const H=await authHeaders();const r=await fetch(`${SUPABASE_URL}/rest/v1/${t}?${q}`,{method:'DELETE',headers:H});if(!r.ok)throw new Error(await r.text());}
 
 // ── STATE ──
-let currentUser=null,isAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all';
+let currentUser=null,isAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null;
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
 
 // ── CLOUDFLARE WORKER CALL (user management) ──
@@ -721,40 +759,66 @@ async function workerCall(path,body){
 }
 
 // ── CUT TIME ──
+async function fetchGlobalCutoffSettings(){
+  try{
+    const rows=await sbGet('app_settings','key=eq.cutoff');
+    if(rows&&rows[0]&&rows[0].value){
+      cutoffSettings=rows[0].value;
+      saveCutoffToStorage(cutoffSettings);
+    }
+  }catch(e){/* app_settings table might not exist yet - keep local/default value */}
+}
+async function saveGlobalCutoffToSupabase(settings){
+  try{
+    const res=await sbPatch('app_settings','key=eq.cutoff',{value:settings});
+    if(!res||!res.length){
+      await sbPost('app_settings',{key:'cutoff',value:settings});
+    }
+  }catch(e){console.error('Error saving global cut-off to Supabase:',e);}
+}
+function getActiveCutoff(){
+  return (!isAdmin&&userCutoffOverride)?userCutoffOverride:cutoffSettings;
+}
 function isCutDay(){
-  if(!cutoffSettings.enabled)return false;
-  return cutoffSettings.days.includes(new Date().getDay());
+  const cs=getActiveCutoff();
+  if(!cs.enabled)return false;
+  return cs.days.includes(new Date().getDay());
 }
 function isOrderOpen(){
-  if(!cutoffSettings.enabled)return true;
+  const cs=getActiveCutoff();
+  if(!cs.enabled)return true;
   if(!isCutDay())return true;
   const now=new Date();
-  const cutMins=cutoffSettings.hour*60+(cutoffSettings.minute||0);
+  const cutMins=cs.hour*60+(cs.minute||0);
   const nowMins=now.getHours()*60+now.getMinutes();
   return nowMins<cutMins;
 }
 function canAdd(){return isOrderOpen()||isAdmin;}
 function timeLeft(){
+  const cs=getActiveCutoff();
   const now=new Date();
-  const cutMins=cutoffSettings.hour*60+(cutoffSettings.minute||0);
+  const cutMins=cs.hour*60+(cs.minute||0);
   const nowMins=now.getHours()*60+now.getMinutes();
   const t=cutMins-nowMins;
   const h=Math.floor(t/60),m=t%60;
   return h>0?`${h}h ${m}min`:`${m} min`;
 }
 function cutoffTimeStr(){
-  const h=cutoffSettings.hour;
-  const m=(cutoffSettings.minute||0).toString().padStart(2,'0');
+  const cs=getActiveCutoff();
+  const h=cs.hour;
+  const m=(cs.minute||0).toString().padStart(2,'0');
   const ampm=h>=12?'PM':'AM';
   return `${h>12?h-12:h||12}:${m} ${ampm}`;
 }
 function cutoffDaysStr(){
+  const cs=getActiveCutoff();
   const names=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  return cutoffSettings.days.map(d=>names[d]).join(' & ');
+  return cs.days.map(d=>names[d]).join(' & ');
 }
 function updateBanner(){
+  const cs=getActiveCutoff();
   const b=document.getElementById('banner'),m=document.getElementById('banner-msg');
-  if(!cutoffSettings.enabled){
+  if(!cs.enabled){
     b.className='banner open';
     m.textContent=isAdmin?'🔑 Admin — orders always open (cut-off disabled).':'✅ Orders always open — no cut-off active.';
   } else if(isAdmin&&!isOrderOpen()){
@@ -767,7 +831,7 @@ function updateBanner(){
     b.className='banner closed';
     m.textContent=`🚫 Orders closed — cut-off was ${cutoffTimeStr()}. Opens tomorrow.`;
   }
-  // Update menu status text
+  // Update menu status text (admin-only view, always reflects the GLOBAL default)
   const menuStatus=document.getElementById('cutoff-menu-status');
   if(menuStatus){
     menuStatus.textContent=cutoffSettings.enabled?`${cutoffDaysStr()} at ${cutoffTimeStr()}`:'Disabled (always open)';
@@ -877,6 +941,7 @@ async function doLogout(){
 }
 async function launch(){
   try{allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');}catch(e){allProducts=[];}
+  await fetchGlobalCutoffSettings();
   document.getElementById('loading-screen').style.display='none';
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='block';
@@ -899,9 +964,9 @@ async function launch(){
     sbGet('orders_history','status=eq.completed&deleted_at=is.null').then(r=>{const b=document.getElementById('delivery-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
     setInterval(checkAdminPendingNotifications,30000);
   } else {
-    // Load user's visible categories AND products restriction
+    // Load user's visible categories, products restriction AND cut-off override
     try{
-      const userRows=await sbGet('users',`username=eq.${encodeURIComponent(currentUser)}`);
+      const userRows=await sbGet('users',`username=ilike.${encodeURIComponent(currentUser)}`);
       const userCats=(userRows[0]&&userRows[0].visible_categories)||[];
       if(userCats.length>0){
         const allowedIds=new Set(userCats);
@@ -911,7 +976,8 @@ async function launch(){
       }
       const userProds=(userRows[0]&&userRows[0].visible_products)||[];
       window._userVisibleProducts=userProds.length>0?new Set(userProds.map(String)):null;
-    }catch(e){window._userVisibleCats=null;window._userVisibleProducts=null;}
+      userCutoffOverride=(userRows[0]&&userRows[0].cutoff_override)||null;
+    }catch(e){window._userVisibleCats=null;window._userVisibleProducts=null;userCutoffOverride=null;}
     await loadExistingOrderIntoCart();
     renderCats();renderProducts();renderCart();
     await checkUnreadNotifications();
@@ -1039,10 +1105,21 @@ function renderNotifBell(){
     }).join('');
 }
 
-function clearAllNotifs(){
+async function clearAllNotifs(){
+  try{
+    for(const n of notifItems){
+      if(n._type==='message'){
+        await sbPatch('admin_messages',`id=eq.${n.id}`,{read:true,read_at:new Date().toISOString()});
+      } else {
+        await sbPatch('orders_history',`id=eq.${n.id}`,{message_read:true});
+      }
+    }
+  }catch(e){}
   notifItems=[];
   renderNotifBell();
   document.getElementById('notif-dropdown').classList.remove('open');
+  const msgBadge=document.getElementById('client-msg-badge');
+  if(msgBadge)msgBadge.style.display='none';
 }
 function toggleNotifDropdown(){
   if(isAdmin){
@@ -1905,7 +1982,7 @@ async function loadCompletedOrders(){
   const el=document.getElementById('completed-list');
   el.innerHTML='<div class="empty-state">Loading...</div>';
   try{
-    const rows=await sbGet('orders_history','status=eq.in_production&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&order=created_at.desc');
+    const rows=await sbGet('orders_history','status=eq.in_production&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&order=queue_order.asc,created_at.desc');
     completedOrdersCache=rows;
     const ipBadge=document.getElementById('inproduction-badge');
     if(ipBadge){if(rows.length>0){ipBadge.style.display='inline';ipBadge.textContent=rows.length;}else{ipBadge.style.display='none';}}
@@ -1928,7 +2005,7 @@ function loadCompletedBadge(count){
 
 // ── In Production reorder ──
 let _dragIPId=null;
-function moveIPOrder(orderId, direction){
+async function moveIPOrder(orderId, direction){
   const idx=completedOrdersCache.findIndex(o=>o.id===orderId);
   if(idx===-1)return;
   const newIdx=idx+direction;
@@ -1936,6 +2013,10 @@ function moveIPOrder(orderId, direction){
   const [moved]=completedOrdersCache.splice(idx,1);
   completedOrdersCache.splice(newIdx,0,moved);
   renderIPList();
+  // Persist new order to Supabase
+  try{
+    await Promise.all(completedOrdersCache.map((o,i)=>sbPatch('orders_history',`id=eq.${o.id}`,{queue_order:i})));
+  }catch(err){console.error('Error saving in-production order:',err);}
 }
 
 function renderIPList(){
@@ -2110,7 +2191,7 @@ function switchCompletedSubTab(tab){
 
 async function loadDeliveryOrders(){
   try{
-    const rows=await sbGet('orders_history','status=eq.completed&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&order=created_at.desc');
+    const rows=await sbGet('orders_history','status=eq.completed&deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&order=queue_order.asc,created_at.desc');
     deliveryOrdersCache=rows;
     const dBadge=document.getElementById('delivery-badge');
     if(dBadge){if(rows.length>0){dBadge.style.display='inline';dBadge.textContent=rows.length;}else{dBadge.style.display='none';}}
@@ -2150,7 +2231,7 @@ function renderDelivList(preserveChecked){
     </div>`).join('');
 }
 
-function moveDelivOrder(orderId, direction){
+async function moveDelivOrder(orderId, direction){
   const idx=deliveryOrdersCache.findIndex(o=>o.id===orderId);
   if(idx===-1)return;
   const newIdx=idx+direction;
@@ -2158,6 +2239,10 @@ function moveDelivOrder(orderId, direction){
   const [moved]=deliveryOrdersCache.splice(idx,1);
   deliveryOrdersCache.splice(newIdx,0,moved);
   renderDelivList();
+  // Persist new order to Supabase
+  try{
+    await Promise.all(deliveryOrdersCache.map((o,i)=>sbPatch('orders_history',`id=eq.${o.id}`,{queue_order:i})));
+  }catch(err){console.error('Error saving delivery order:',err);}
 }
 
 async function refreshDeliveryData(){
@@ -3160,17 +3245,17 @@ async function saveUserPassword(){
 }
 
 // ── ADMIN: PRODUCTS ──
+let adminProductsCache=[];
 function productRow(p){
   const imgHtml=p.image_url
     ?'<img src="'+p.image_url+'" style="width:32px;height:32px;object-fit:cover;border-radius:4px;vertical-align:middle;" onerror="this.style.display=\'none\'"/>'
     :'';
   const descHtml=p.description?'<div style="font-size:11px;color:var(--text-secondary)">'+p.description+'</div>':'';
-  return `<div class="prod-row${p.active?'':' inactive-row'}" draggable="true" data-prod-id="${p.id}" data-prod-cat="${p.cat}"
-    ondragstart="onProdDragStart(event,${p.id})"
-    ondragover="onProdDragOver(event)"
-    ondrop="onProdDrop(event,${p.id},\'${p.cat}\')"
-    ondragend="onProdDragEnd(event)">
-    <span style="cursor:grab;color:var(--text-tertiary);font-size:16px;user-select:none;" title="Drag to reorder">⠿</span>
+  return `<div class="prod-row${p.active?'':' inactive-row'}" data-prod-id="${p.id}" data-prod-cat="${p.cat}">
+    <div style="display:flex;flex-direction:column;gap:0;">
+      <button onclick="moveProduct(${p.id},-1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move up">⌃</button>
+      <button onclick="moveProduct(${p.id},1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move down">⌄</button>
+    </div>
     <span><div style="font-weight:500">${p.name}</div>${descHtml}</span>
     <span style="font-size:12px;color:var(--text-secondary)">${p.cat}</span>
     <span><button class="toggle-btn${p.active?' on':''}" onclick="toggleProduct(${p.id},${p.active})">${p.active?'✅ Active':'⛔ Hidden'}</button></span>
@@ -3186,11 +3271,26 @@ async function loadAdminProducts(){
   el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary)">Loading...</div>';
   try{
     const rows=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');
+    adminProductsCache=rows;
     document.getElementById('admin-cat-row').innerHTML=CATEGORIES.map(c=>
       `<button class="cat-btn${adminProdCat===c.id?' active':''}" onclick="filterAdminProdCat('${c.id}',this)">${c.label}</button>`
     ).join('');
-    const list=adminProdCat==='all'?rows:rows.filter(p=>p.cat===adminProdCat);
-    if(!list.length){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">No products in this category.</div>';return;}
+    const STATUS_FILTERS=[
+      {id:'all',label:'All'},
+      {id:'active',label:'✅ Active'},
+      {id:'hidden',label:'⛔ Hidden'},
+      {id:'out_of_stock',label:'🚫 Out of stock'},
+      {id:'in_stock',label:'✅ In stock'}
+    ];
+    document.getElementById('admin-status-row').innerHTML=STATUS_FILTERS.map(s=>
+      `<button class="cat-btn${adminProdStatus===s.id?' active':''}" onclick="filterAdminProdStatus('${s.id}',this)">${s.label}</button>`
+    ).join('');
+    let list=adminProdCat==='all'?rows:rows.filter(p=>p.cat===adminProdCat);
+    if(adminProdStatus==='active') list=list.filter(p=>!!p.active);
+    else if(adminProdStatus==='hidden') list=list.filter(p=>!p.active);
+    else if(adminProdStatus==='out_of_stock') list=list.filter(p=>!!p.out_of_stock);
+    else if(adminProdStatus==='in_stock') list=list.filter(p=>!p.out_of_stock);
+    if(!list.length){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">No products match this filter.</div>';return;}
     let html='';
     if(adminProdCat==='all'){
       const catOrder=['sauces','oven','desserts','small-packs','cheeses','cured-meat','vegg','frozen','dry','pastas','drinks','oils','packaging','chemical','office','backup'];
@@ -3211,51 +3311,26 @@ async function loadAdminProducts(){
   }catch(e){el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--red)">Error loading products.</div>';}
 }
 
-// ── Drag & Drop product reorder ──
-let _dragProdId=null;
-
-function onProdDragStart(e, prodId){
-  _dragProdId=prodId;
-  e.dataTransfer.effectAllowed='move';
-  e.currentTarget.style.opacity='0.4';
-}
-
-function onProdDragEnd(e){
-  e.currentTarget.style.opacity='';
-  document.querySelectorAll('.prod-row').forEach(r=>r.style.borderTop='');
-}
-
-function onProdDragOver(e){
-  e.preventDefault();
-  e.dataTransfer.dropEffect='move';
-  e.currentTarget.style.borderTop='2px solid var(--green)';
-}
-
-async function onProdDrop(e, targetProdId, cat){
-  e.preventDefault();
-  e.currentTarget.style.borderTop='';
-  if(_dragProdId===targetProdId)return;
-
-  // Get all prod rows in this category from the DOM, in current visual order
-  const allRows=[...document.querySelectorAll(`.prod-row[data-prod-cat="${cat}"]`)];
-  const ids=allRows.map(r=>parseInt(r.dataset.prodId));
-
-  // Reorder: move _dragProdId to position of targetProdId
-  const fromIdx=ids.indexOf(_dragProdId);
-  const toIdx=ids.indexOf(targetProdId);
-  if(fromIdx===-1||toIdx===-1)return;
-  ids.splice(fromIdx,1);
-  ids.splice(toIdx,0,_dragProdId);
-
-  // Save new sort_order to Supabase
+// ── Product reorder (arrows, same pattern as In Production / Users) ──
+async function moveProduct(prodId, direction){
+  const p=adminProductsCache.find(x=>x.id===prodId);
+  if(!p)return;
+  const catProducts=adminProductsCache.filter(x=>x.cat===p.cat);
+  const idx=catProducts.findIndex(x=>x.id===prodId);
+  if(idx===-1)return;
+  const newIdx=idx+direction;
+  if(newIdx<0||newIdx>=catProducts.length)return;
+  const [moved]=catProducts.splice(idx,1);
+  catProducts.splice(newIdx,0,moved);
+  // Save new sort_order for this category to Supabase
   try{
-    await Promise.all(ids.map((id,i)=>sbPatch('products',`id=eq.${id}`,{sort_order:i})));
-    // Update allProducts cache
+    await Promise.all(catProducts.map((x,i)=>sbPatch('products',`id=eq.${x.id}`,{sort_order:i})));
     allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
     loadAdminProducts();
   }catch(err){console.error('Error saving order:',err);}
 }
 function filterAdminProdCat(cat,btn){adminProdCat=cat;document.querySelectorAll('#admin-cat-row .cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');loadAdminProducts();}
+function filterAdminProdStatus(status,btn){adminProdStatus=status;document.querySelectorAll('#admin-status-row .cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');loadAdminProducts();}
 // ── EMOJI PICKER ──
 const EMOJI_CATEGORIES = {
   '😀 Smileys': ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','🫠','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🫡','🤭','🫢','🫣','🤫','🤔','🫤','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','🫥','😟','🙁','☹️','😮','😯','😲','😳','🥺','🫹','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'],
@@ -3863,6 +3938,8 @@ function generateOrderPDF(order){
 
 // ── CUT-OFF SETTINGS ──
 let cutoffMode='enabled';
+let cutoffClientMode='default';
+let cutoffClientsCache=[];
 function setCutoffMode(mode){
   cutoffMode=mode;
   updateCutoffModeUI();
@@ -3878,7 +3955,7 @@ function updateCutoffModeUI(){
   if(timeSection)timeSection.style.opacity=enabled?'1':'0.4';
   if(daysSection)daysSection.style.opacity=enabled?'1':'0.4';
 }
-function openCutoffSettings(){
+async function openCutoffSettings(){
   document.getElementById('admin-menu-dropdown').classList.remove('open');
   cutoffMode=cutoffSettings.enabled?'enabled':'disabled';
   const h=cutoffSettings.hour.toString().padStart(2,'0');
@@ -3890,6 +3967,13 @@ function openCutoffSettings(){
     btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--green)':'var(--border)'};background:${active?'var(--green-light)':'var(--bg)'};color:${active?'var(--green-dark)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
   });
   updateCutoffModeUI();
+  // Load clients for the per-client override section
+  document.getElementById('cutoff-client-override-section').style.display='none';
+  document.getElementById('cutoff-client-select').innerHTML='<option value="">Loading clients...</option>';
+  try{
+    cutoffClientsCache=(await sbGet('users','order=username.asc')).filter(u=>u.username!==ADMIN_USERNAME);
+    populateCutoffClientSelect('');
+  }catch(e){cutoffClientsCache=[];populateCutoffClientSelect('');}
   // Force show the modal directly
   const modal=document.getElementById('cutoff-modal');
   if(modal){modal.classList.add('open');}else{alert('Modal not found!');}
@@ -3902,7 +3986,7 @@ function toggleDayBtn(btn){
     btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--green);background:var(--green-light);color:var(--green-dark);font-size:13px;cursor:pointer;font-weight:600;`;
   }
 }
-function saveCutoffSettings(){
+async function saveCutoffSettings(){
   const timeVal=document.getElementById('cutoff-time-input').value||'12:00';
   const [h,m]=timeVal.split(':').map(Number);
   // Get selected days from toggle buttons
@@ -3914,9 +3998,82 @@ function saveCutoffSettings(){
   });
   cutoffSettings={enabled:cutoffMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4]};
   saveCutoffToStorage(cutoffSettings);
+  try{await saveGlobalCutoffToSupabase(cutoffSettings);}catch(e){console.error(e);}
   closeModal('cutoff-modal');
   updateBanner();
   renderProducts();
+}
+
+// ── Per-client cut-off override ──
+function populateCutoffClientSelect(selectedUsername){
+  const sel=document.getElementById('cutoff-client-select');
+  if(!sel)return;
+  sel.innerHTML='<option value="">— Use default for everyone —</option>'+
+    cutoffClientsCache.map(u=>`<option value="${u.username}"${u.username===selectedUsername?' selected':''}>${u.cutoff_override?'⏰ ':''}${u.username}</option>`).join('');
+}
+function onCutoffClientChange(){
+  const sel=document.getElementById('cutoff-client-select');
+  const username=sel.value;
+  const section=document.getElementById('cutoff-client-override-section');
+  const status=document.getElementById('cutoff-client-save-status');
+  if(status)status.style.display='none';
+  if(!username){section.style.display='none';return;}
+  section.style.display='block';
+  const u=cutoffClientsCache.find(x=>x.username===username);
+  const ov=u&&u.cutoff_override;
+  cutoffClientMode=ov?(ov.enabled?'enabled':'disabled'):'default';
+  const base=ov||cutoffSettings;
+  const h=(base.hour!==undefined?base.hour:cutoffSettings.hour).toString().padStart(2,'0');
+  const m=((base.minute!==undefined?base.minute:cutoffSettings.minute)||0).toString().padStart(2,'0');
+  document.getElementById('cutoff-client-time-input').value=`${h}:${m}`;
+  const days=base.days||cutoffSettings.days;
+  document.querySelectorAll('#client-days-toggle-group button').forEach(btn=>{
+    const day=parseInt(btn.dataset.day);
+    const active=days.includes(day);
+    btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--green)':'var(--border)'};background:${active?'var(--green-light)':'var(--bg)'};color:${active?'var(--green-dark)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
+  });
+  updateClientCutoffModeUI();
+}
+function setClientCutoffMode(mode){
+  cutoffClientMode=mode;
+  updateClientCutoffModeUI();
+}
+function updateClientCutoffModeUI(){
+  const btnDef=document.getElementById('cutoff-client-btn-default');
+  const btnEn=document.getElementById('cutoff-client-btn-enabled');
+  const btnDis=document.getElementById('cutoff-client-btn-disabled');
+  if(btnDef)btnDef.style.cssText=`flex:1;${cutoffClientMode==='default'?'border-color:#9CA3AF;background:#F3F4F6;font-weight:600;':''}`;
+  if(btnEn)btnEn.style.cssText=`flex:1;${cutoffClientMode==='enabled'?'border-color:var(--green);background:var(--green-light);color:var(--green-dark);':''}`;
+  if(btnDis)btnDis.style.cssText=`flex:1;${cutoffClientMode==='disabled'?'border-color:var(--amber);background:#FFFBEB;color:#92400E;':''}`;
+  const timeSection=document.getElementById('cutoff-client-time-section');
+  const daysSection=document.getElementById('cutoff-client-days-section');
+  const on=cutoffClientMode==='enabled';
+  if(timeSection)timeSection.style.opacity=on?'1':'0.4';
+  if(daysSection)daysSection.style.opacity=on?'1':'0.4';
+}
+async function saveClientCutoffOverride(){
+  const username=document.getElementById('cutoff-client-select').value;
+  if(!username){alert('Select a client first.');return;}
+  let override=null;
+  if(cutoffClientMode!=='default'){
+    const timeVal=document.getElementById('cutoff-client-time-input').value||'12:00';
+    const [h,m]=timeVal.split(':').map(Number);
+    const days=[];
+    document.querySelectorAll('#client-days-toggle-group button').forEach(btn=>{
+      if(btn.style.borderColor.includes('var(--green)')||btn.style.background.includes('green')){
+        days.push(parseInt(btn.dataset.day));
+      }
+    });
+    override={enabled:cutoffClientMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4]};
+  }
+  try{
+    await sbPatch('users',`username=eq.${encodeURIComponent(username)}`,{cutoff_override:override});
+    const u=cutoffClientsCache.find(x=>x.username===username);
+    if(u)u.cutoff_override=override;
+    populateCutoffClientSelect(username);
+    const status=document.getElementById('cutoff-client-save-status');
+    if(status){status.textContent=`✓ Saved for ${username}`;status.style.display='block';setTimeout(()=>{if(status)status.style.display='none';},2500);}
+  }catch(e){alert('Error saving client override: '+e.message);}
 }
 
 // ── CATEGORY MANAGEMENT ──
