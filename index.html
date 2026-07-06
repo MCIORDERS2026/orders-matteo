@@ -2112,7 +2112,34 @@ async function loadDeliveryOrders(){
   }catch(e){console.error(e);}
 }
 
-function printSelectedDeliveryPDFs(){
+async function refreshDeliveryData(){
+  // Reload current single-order editor data from Supabase
+  if(deliveryOrderId){
+    const rows=await sbGet('orders_history',`id=eq.${deliveryOrderId}`);
+    if(rows[0]){
+      const o=rows[0];
+      const notes=o.delivery_notes||{};
+      const original=notes.__original__||null;
+      Object.keys(deliveryItems).forEach(id=>{
+        deliveryItems[id]={
+          qty:parseInt((o.items||{})[id])||0,
+          note:notes[id]||'',
+          origQty:original?parseInt(original[id])||0:parseInt((o.items||{})[id])||0
+        };
+      });
+      // Also pick up any new items saved
+      Object.entries(o.items||{}).forEach(([id,q])=>{
+        if(!deliveryItems[id]) deliveryItems[id]={qty:parseInt(q)||0,note:notes[id]||'',origQty:original?parseInt(original[id])||0:parseInt(q)||0};
+        else deliveryItems[id].qty=parseInt(q)||0;
+      });
+    }
+  }
+  // Reload multi-order cache
+  await loadDeliveryOrders();
+}
+
+async function printSelectedDeliveryPDFs(){
+  await refreshDeliveryData();
   const checked=deliveryOrdersCache.filter(o=>{
     const c=document.getElementById('dchk-'+o.id);
     return c&&c.checked;
@@ -2177,7 +2204,8 @@ function renderDeliveryEditor(order){
             <span style="font-size:11px;color:#9CA3AF;text-decoration:line-through;">×${item.origQty}</span>
             <span style="font-size:13px;font-weight:700;color:#DC2626;">→ ×${item.qty}</span>
             <input type="number" value="${item.qty}" min="0" max="999"
-              oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;renderDeliveryEditor({});autoSaveDelivery();"border-radius:4px;padding:4px 6px;font-size:13px;text-align:center;background:white;"/>
+              oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;renderDeliveryEditor({});autoSaveDelivery();"
+              style="width:55px;border:1px solid #FCA5A5;border-radius:4px;padding:4px 6px;font-size:13px;text-align:center;background:white;"/>
           </div>
         </div>
         <input type="text" value="${item.note}" placeholder="⚠️ Reason for change (required)..."
@@ -2330,6 +2358,7 @@ function autoSaveDelivery(){
 
 async function exportDeliveryExcel(){
   if(!deliveryOrderId){alert('Please select an order first.');return;}
+  await refreshDeliveryData();
   const sel=document.getElementById('delivery-order-select');
   const optText=sel.options[sel.selectedIndex]?.text||'order';
   const username=optText.split(' — ')[0]||'client';
@@ -2384,6 +2413,7 @@ async function exportDeliveryExcel(){
 }
 
 async function exportDeliveryExcelMulti(){
+  await refreshDeliveryData();
   const checked=deliveryOrdersCache.filter(o=>{
     const c=document.getElementById('dchk-'+o.id);
     return c&&c.checked;
@@ -2543,15 +2573,18 @@ function printDeliveryPDFMulti(orders){
   area.innerHTML=html;
   area.style.display='block';
   window._pdfOrigTitle=document.title;
-  document.title=`Delivery Notes (${orders.length} orders)`;
+  const d=new Date();
+  const dateStr=`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  document.title=`Delivery Notes (${dateStr})`;
   requestAnimationFrame(()=>setTimeout(()=>{
     window.print();
     document.getElementById('pdf-back-btn-wrap').style.display='block';
   },150));
 }
 
-function printDeliveryPDF(){
+async function printDeliveryPDF(){
   if(!deliveryOrderId){alert('Please select an order first.');return;}
+  await refreshDeliveryData();
   const sel=document.getElementById('delivery-order-select');
   const optText=sel.options[sel.selectedIndex]?.text||'order';
   const username=optText.split(' — ')[0]||'client';
@@ -2628,7 +2661,8 @@ function printDeliveryPDF(){
   area.innerHTML=html;
   area.style.display='block';
   window._pdfOrigTitle=document.title;
-  document.title=`Delivery Note ${username}${orderNum?' #'+orderNum:''}`;
+  const _d=new Date();const _ds=`${String(_d.getDate()).padStart(2,'0')}-${String(_d.getMonth()+1).padStart(2,'0')}`;
+  document.title=`Delivery Note ${username}${orderNum?' #'+orderNum:''} (${_ds})`;
   requestAnimationFrame(()=>setTimeout(()=>{
     window.print();
     document.getElementById('pdf-back-btn-wrap').style.display='block';
