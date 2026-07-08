@@ -547,15 +547,13 @@
     <h3>🗄️ Monthly Security Backup</h3>
     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">It's a new month — have you exported a backup copy of your data from Supabase this month?</p>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text-secondary);">
-      In the Supabase <b>SQL Editor</b>, run each of these and click <b>Export → CSV</b> on the results:
-      <div style="font-family:monospace;background:var(--surface);border-radius:4px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.6;">
-        SELECT * FROM orders_history;<br/>
-        SELECT * FROM users;<br/>
-        SELECT * FROM products;<br/>
-        SELECT * FROM admin_messages;<br/>
-        SELECT * FROM app_settings;
-      </div>
-      <div style="margin-top:8px;">Also go to <b>Storage → product-images</b>, select all files and download them (product photos aren't included in the tables above).</div>
+      In the Supabase <b>SQL Editor</b>, run this once, then click <b>Export → CSV</b> on the result (a single file with every table):
+      <div style="font-family:monospace;background:var(--surface);border-radius:4px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.6;white-space:pre-wrap;">select 'orders_history' as table_name, to_jsonb(t) as row_data from orders_history t
+union all select 'users', to_jsonb(t) from users t
+union all select 'products', to_jsonb(t) from products t
+union all select 'admin_messages', to_jsonb(t) from admin_messages t
+union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
+      <div style="margin-top:8px;">Also go to <b>Storage → product-images</b>, select all files and download them (product photos aren't included in the query above).</div>
     </div>
     <div class="field">
       <label>Enter admin password to confirm and archive this reminder for this month</label>
