@@ -556,7 +556,7 @@
       <input type="time" id="cutoff-time-input" value="12:00" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;"/>
     </div>
     <div id="cutoff-days-section" class="field">
-      <label>Cut-off days</label>
+      <label>Cut-off days <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(orders open until the time above)</span></label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" id="days-toggle-group">
         <button type="button" data-day="1" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Mon</button>
         <button type="button" data-day="2" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Tue</button>
@@ -565,6 +565,18 @@
         <button type="button" data-day="5" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Fri</button>
         <button type="button" data-day="6" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sat</button>
         <button type="button" data-day="0" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sun</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>🚫 Fully closed days <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(no orders accepted at all that day, regardless of time)</span></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" id="closed-days-toggle-group">
+        <button type="button" data-day="1" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Mon</button>
+        <button type="button" data-day="2" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Tue</button>
+        <button type="button" data-day="3" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Wed</button>
+        <button type="button" data-day="4" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Thu</button>
+        <button type="button" data-day="5" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Fri</button>
+        <button type="button" data-day="6" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sat</button>
+        <button type="button" data-day="0" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sun</button>
       </div>
     </div>
     <div class="modal-btns">
@@ -601,6 +613,18 @@
           <button type="button" data-day="5" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Fri</button>
           <button type="button" data-day="6" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sat</button>
           <button type="button" data-day="0" onclick="toggleDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sun</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>🚫 Fully closed days for this client <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(no orders at all that day)</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;" id="client-closed-days-toggle-group">
+          <button type="button" data-day="1" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Mon</button>
+          <button type="button" data-day="2" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Tue</button>
+          <button type="button" data-day="3" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Wed</button>
+          <button type="button" data-day="4" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Thu</button>
+          <button type="button" data-day="5" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Fri</button>
+          <button type="button" data-day="6" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sat</button>
+          <button type="button" data-day="0" onclick="toggleClosedDayBtn(this)" style="padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;">Sun</button>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
@@ -750,8 +774,8 @@ const WORKER_SECRET='mt-9f8x2-secret-2026';
 function loadCutoffSettings(){
   try{
     const s=localStorage.getItem('matteo-cutoff');
-    return s?JSON.parse(s):{enabled:true,hour:12,minute:0,days:[1,4]};
-  }catch(e){return {enabled:true,hour:12,minute:0,days:[1,4]};}
+    return s?JSON.parse(s):{enabled:true,hour:12,minute:0,days:[1,4],closedDays:[]};
+  }catch(e){return {enabled:true,hour:12,minute:0,days:[1,4],closedDays:[]};}
 }
 function saveCutoffToStorage(s){
   try{localStorage.setItem('matteo-cutoff',JSON.stringify(s));}catch(e){}
@@ -852,12 +876,17 @@ async function saveGlobalCutoffToSupabase(settings){
 function getActiveCutoff(){
   return (!isAdmin&&userCutoffOverride)?userCutoffOverride:cutoffSettings;
 }
+function isClosedDay(){
+  const cs=getActiveCutoff();
+  return (cs.closedDays||[]).includes(new Date().getDay());
+}
 function isCutDay(){
   const cs=getActiveCutoff();
   if(!cs.enabled)return false;
   return cs.days.includes(new Date().getDay());
 }
 function isOrderOpen(){
+  if(isClosedDay())return false; // fully closed day overrides everything else
   const cs=getActiveCutoff();
   if(!cs.enabled)return true;
   if(!isCutDay())return true;
@@ -888,10 +917,23 @@ function cutoffDaysStr(){
   const names=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   return cs.days.map(d=>names[d]).join(' & ');
 }
+function closedDaysStr(){
+  const cs=getActiveCutoff();
+  const names=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return (cs.closedDays||[]).map(d=>names[d]).join(' & ');
+}
 function updateBanner(){
   const cs=getActiveCutoff();
   const b=document.getElementById('banner'),m=document.getElementById('banner-msg');
-  if(!cs.enabled){
+  if(isClosedDay()){
+    if(isAdmin){
+      b.className='banner admin-mode';
+      m.textContent=`🔑 Admin mode — closed day for clients (no orders on ${DAYS[new Date().getDay()]}).`;
+    } else {
+      b.className='banner closed';
+      m.textContent=`🚫 Orders closed today (${DAYS[new Date().getDay()]}) — we don't take orders this day. Please try again on another day.`;
+    }
+  } else if(!cs.enabled){
     b.className='banner open';
     m.textContent=isAdmin?'🔑 Admin — orders always open (cut-off disabled).':'✅ Orders always open — no cut-off active.';
   } else if(isAdmin&&!isOrderOpen()){
@@ -907,7 +949,8 @@ function updateBanner(){
   // Update menu status text (admin-only view, always reflects the GLOBAL default)
   const menuStatus=document.getElementById('cutoff-menu-status');
   if(menuStatus){
-    menuStatus.textContent=cutoffSettings.enabled?`${cutoffDaysStr()} at ${cutoffTimeStr()}`:'Disabled (always open)';
+    const closedPart=(cutoffSettings.closedDays&&cutoffSettings.closedDays.length)?` • Closed: ${closedDaysStr()}`:'';
+    menuStatus.textContent=(cutoffSettings.enabled?`${cutoffDaysStr()} at ${cutoffTimeStr()}`:'Disabled (always open)')+closedPart;
   }
 }
 
@@ -4304,6 +4347,12 @@ async function openCutoffSettings(){
     const active=cutoffSettings.days.includes(day);
     btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--green)':'var(--border)'};background:${active?'var(--green-light)':'var(--bg)'};color:${active?'var(--green-dark)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
   });
+  const closedDays=cutoffSettings.closedDays||[];
+  document.querySelectorAll('#closed-days-toggle-group button').forEach(btn=>{
+    const day=parseInt(btn.dataset.day);
+    const active=closedDays.includes(day);
+    btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--red)':'var(--border)'};background:${active?'var(--red-light)':'var(--bg)'};color:${active?'var(--red)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
+  });
   updateCutoffModeUI();
   // Load clients for the per-client override section
   document.getElementById('cutoff-client-override-section').style.display='none';
@@ -4324,6 +4373,14 @@ function toggleDayBtn(btn){
     btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--green);background:var(--green-light);color:var(--green-dark);font-size:13px;cursor:pointer;font-weight:600;`;
   }
 }
+function toggleClosedDayBtn(btn){
+  const active=btn.style.background.includes('red-light')||btn.style.borderColor.includes('var(--red)');
+  if(active){
+    btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;font-weight:400;`;
+  } else {
+    btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid var(--red);background:var(--red-light);color:var(--red);font-size:13px;cursor:pointer;font-weight:600;`;
+  }
+}
 async function saveCutoffSettings(){
   const timeVal=document.getElementById('cutoff-time-input').value||'12:00';
   const [h,m]=timeVal.split(':').map(Number);
@@ -4334,7 +4391,13 @@ async function saveCutoffSettings(){
       days.push(parseInt(btn.dataset.day));
     }
   });
-  cutoffSettings={enabled:cutoffMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4]};
+  const closedDays=[];
+  document.querySelectorAll('#closed-days-toggle-group button').forEach(btn=>{
+    if(btn.style.borderColor.includes('var(--red)')||btn.style.background.includes('red')){
+      closedDays.push(parseInt(btn.dataset.day));
+    }
+  });
+  cutoffSettings={enabled:cutoffMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4],closedDays};
   saveCutoffToStorage(cutoffSettings);
   try{await saveGlobalCutoffToSupabase(cutoffSettings);}catch(e){console.error(e);}
   closeModal('cutoff-modal');
@@ -4370,6 +4433,12 @@ function onCutoffClientChange(){
     const active=days.includes(day);
     btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--green)':'var(--border)'};background:${active?'var(--green-light)':'var(--bg)'};color:${active?'var(--green-dark)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
   });
+  const closedDays=(ov&&ov.closedDays)||cutoffSettings.closedDays||[];
+  document.querySelectorAll('#client-closed-days-toggle-group button').forEach(btn=>{
+    const day=parseInt(btn.dataset.day);
+    const active=closedDays.includes(day);
+    btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--red)':'var(--border)'};background:${active?'var(--red-light)':'var(--bg)'};color:${active?'var(--red)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
+  });
   updateClientCutoffModeUI();
 }
 function setClientCutoffMode(mode){
@@ -4402,7 +4471,13 @@ async function saveClientCutoffOverride(){
         days.push(parseInt(btn.dataset.day));
       }
     });
-    override={enabled:cutoffClientMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4]};
+    const closedDays=[];
+    document.querySelectorAll('#client-closed-days-toggle-group button').forEach(btn=>{
+      if(btn.style.borderColor.includes('var(--red)')||btn.style.background.includes('red')){
+        closedDays.push(parseInt(btn.dataset.day));
+      }
+    });
+    override={enabled:cutoffClientMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4],closedDays};
   }
   try{
     await sbPatch('users',`username=eq.${encodeURIComponent(username)}`,{cutoff_override:override});
