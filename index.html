@@ -513,6 +513,18 @@
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="share-order-modal">
+  <div class="modal" style="max-width:380px;width:92vw;text-align:center;">
+    <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+    <h3 style="margin-bottom:6px;">Order submitted!</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;">Would you like to save a PDF copy of your order to share (e.g. on WhatsApp)?</p>
+    <div class="modal-btns" style="flex-direction:column;gap:8px;">
+      <button class="primary" style="width:100%;" onclick="shareSubmittedOrderPDF()">📄 Save / Share PDF</button>
+      <button style="width:100%;" onclick="closeModal('share-order-modal')">Not now</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="chat-delete-modal">
   <div class="modal" style="max-width:380px;width:92vw;">
     <h3>🔒 Confirm Delete</h3>
@@ -1532,10 +1544,13 @@ async function submitOrder(){
     );
     if(!confirmed){btn.disabled=false;btn.textContent='Submit order ↗';return;}
 
+    let savedOrder;
     if(updateExisting&&existing.length>0){
-      await sbPatch('orders_history',`id=eq.${existing[0].id}`,{items:cart,timestamp:ts,ordered_by:orderedBy});
+      const rows=await sbPatch('orders_history',`id=eq.${existing[0].id}`,{items:cart,timestamp:ts,ordered_by:orderedBy});
+      savedOrder=(rows&&rows[0])||{...existing[0],items:cart,timestamp:ts,ordered_by:orderedBy};
     } else {
-      await sbPost('orders_history',{username:currentUser,user_id:currentUserId,items:cart,timestamp:ts,status:'pending',ordered_by:orderedBy});
+      const rows=await sbPost('orders_history',{username:currentUser,user_id:currentUserId,items:cart,timestamp:ts,status:'pending',ordered_by:orderedBy});
+      savedOrder=rows&&rows[0];
     }
 
     document.getElementById('order-success').style.display='block';
@@ -1546,8 +1561,18 @@ async function submitOrder(){
     document.getElementById('ordered-by').value='';
     renderCart();
     showClientCartBack();
+    if(savedOrder){
+      _lastSubmittedOrder=savedOrder;
+      openModal('share-order-modal');
+    }
   }catch(e){alert('Error submitting order. Please try again.');}
   btn.disabled=false;btn.textContent='Submit order ↗';
+}
+
+let _lastSubmittedOrder=null;
+function shareSubmittedOrderPDF(){
+  closeModal('share-order-modal');
+  if(_lastSubmittedOrder)generateOrderPDF(_lastSubmittedOrder);
 }
 
 
