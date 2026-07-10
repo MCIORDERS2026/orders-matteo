@@ -189,6 +189,49 @@
   .modal-error{font-size:12px;color:var(--red);display:none;}
   @keyframes shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(8px)}45%{transform:translateX(-6px)}60%{transform:translateX(6px)}75%{transform:translateX(-3px)}90%{transform:translateX(3px)}}
   .shake-field{animation:shake 0.5s ease-in-out;}
+  .modal{max-width:92vw;}
+
+  /* ── MOBILE RESPONSIVE (phones, Android + iOS) ── */
+  @media (max-width:600px){
+    html{-webkit-text-size-adjust:100%;}
+    /* Topbar: shrink everything so it always fits on one line, never wraps */
+    .topbar{padding:0 .6rem;gap:4px;}
+    .topbar-left{gap:6px;min-width:0;}
+    .topbar-right{gap:4px;}
+    .logo{font-size:14px;white-space:nowrap;flex-shrink:0;}
+    .user-badge{font-size:10px;padding:2px 7px;white-space:nowrap;}
+    .btn-sm{padding:6px 8px;font-size:11px;}
+    .notif-bell{padding:6px 7px;font-size:13px;}
+    #cart-toggle-btn,#client-menu-btn{padding:6px 8px;font-size:11px;}
+
+    /* Dropdowns (notifications / admin menu / client menu): pin under the topbar,
+       full-width-ish and centered, instead of anchoring to the bell/button position.
+       This prevents them from being clipped off the left edge of the screen when
+       their trigger button sits away from the true right edge on narrow layouts. */
+    .notif-dropdown{position:fixed!important;top:56px!important;left:8px!important;right:8px!important;width:auto!important;max-width:none!important;max-height:75vh;}
+
+    /* Category filter chips: scroll horizontally in one row instead of wrapping,
+       which used to push product cards down and look cramped. */
+    .cat-row{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;margin-bottom:1rem;}
+    .cat-row::-webkit-scrollbar{display:none;}
+    .cat-row{scrollbar-width:none;}
+
+    .main{padding:.85rem;}
+    .products{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:8px;}
+    .product-card{padding:.7rem;}
+
+    /* Admin tables (Users / Products): allow horizontal scroll instead of
+       squeezing fixed-width grid columns into an unreadably narrow phone screen. */
+    .user-table,#prod-table{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    .user-row,.prod-row{min-width:520px;}
+
+    .modal{width:100%;max-width:94vw;padding:1.1rem;}
+    .auth-card{padding:1.4rem;}
+  }
+  @media (max-width:360px){
+    .logo{font-size:12.5px;}
+    .user-badge{display:none;}
+  }
 </style>
 </head>
 <body>
