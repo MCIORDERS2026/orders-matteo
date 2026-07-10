@@ -505,8 +505,14 @@ exports.handler = async (event) => {
 
   // Print layout: force a new printed page to start right when this category's
   // section begins (categories before it share the earlier page(s)).
+  // Matched case/whitespace-insensitively, and against id OR label, since the live
+  // category list comes from Supabase (app_settings) and may not match the id casing
+  // used in DEFAULT_CAT_ORDER exactly.
   const PAGE_BREAK_BEFORE_CAT_ID = 'pastas';
-  const breakCatIndex = catOrder.findIndex((c) => c.id === PAGE_BREAK_BEFORE_CAT_ID);
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const breakCatIndex = catOrder.findIndex(
+    (c) => norm(c.id) === PAGE_BREAK_BEFORE_CAT_ID || norm(c.label) === PAGE_BREAK_BEFORE_CAT_ID
+  );
 
   const productsByCat = {};
   for (const cat of catOrder) productsByCat[cat.id] = [];
