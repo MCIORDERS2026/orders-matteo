@@ -905,7 +905,7 @@ async function sbDeleteReturning(t,q){
 }
 
 // ── STATE ──
-let currentUser=null,isAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null;
+let currentUser=null,isAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null,editingExistingOrderId=null;
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
 
 // ── CLOUDFLARE WORKER CALL (user management) ──
@@ -1759,12 +1759,29 @@ async function submitOrder(){
 
     let savedOrder;
     if(updateExisting&&existing.length>0){
-      const rows=await sbPatch('orders_history',`id=eq.${existing[0].id}`,{items:cart,timestamp:ts,ordered_by:orderedBy});
-      savedOrder=(rows&&rows[0])||{...existing[0],items:cart,timestamp:ts,ordered_by:orderedBy};
+      let finalItems;
+      if(editingExistingOrderId&&editingExistingOrderId===existing[0].id){
+        // Came from the explicit "✏️ Edit order" button — cart already holds the full,
+        // deliberately-edited snapshot of this order, so replace items as-is.
+        finalItems=cart;
+      } else {
+        // Client just added new items from the catalogue while an older pending order was
+        // still sitting there. Merge into the existing order's items instead of overwriting
+        // them — otherwise previously submitted items silently disappear. Quantities for
+        // items present in both are summed (same convention as the admin "Merge" action in
+        // New Orders).
+        finalItems={...(existing[0].items||{})};
+        Object.entries(cart).forEach(([id,q])=>{
+          finalItems[id]=(finalItems[id]||0)+q;
+        });
+      }
+      const rows=await sbPatch('orders_history',`id=eq.${existing[0].id}`,{items:finalItems,timestamp:ts,ordered_by:orderedBy});
+      savedOrder=(rows&&rows[0])||{...existing[0],items:finalItems,timestamp:ts,ordered_by:orderedBy};
     } else {
       const rows=await sbPost('orders_history',{username:currentUser,user_id:currentUserId,items:cart,timestamp:ts,status:'pending',ordered_by:orderedBy});
       savedOrder=rows&&rows[0];
     }
+    editingExistingOrderId=null;
 
     document.getElementById('order-success').style.display='block';
     document.getElementById('order-success').textContent=updateExisting?'✅ Order updated successfully!':'✅ New order submitted!';
@@ -1982,6 +1999,9 @@ function editOrderFromHistory(orderId){
     const newCart={};
     Object.entries(rows[0].items).forEach(([k,v])=>{newCart[k]=parseInt(v)||0;});
     cart=newCart;
+    // Cart now holds a full snapshot of this order's items (not just newly-added ones) —
+    // submitOrder() needs to know to REPLACE rather than MERGE when this order is saved.
+    editingExistingOrderId=orderId;
     showClientTab('order',document.querySelectorAll('#client-tabs .tab')[0]);
     renderProducts();renderCart();
     showCartTab();
@@ -2094,7 +2114,7 @@ function renderOrdersList(){
     return `<div class="order-card ${o.status}" id="ocard-${o.id}">
       <div class="order-card-header" onclick="toggleBody('ob-${o.id}')">
         <input type="checkbox" id="chk-${o.id}" onclick="event.stopPropagation()"/>
-        <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
+        <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
         ${statusHtml}
         <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
       </div>
@@ -2198,7 +2218,7 @@ async function mergeSelectedOrders(){
   }
 
   const username=usernames[0];
-  if(!confirm(`Merge ${selected.length} orders from "${username}" into one?\n\nQuantities will be summed. All other orders will be deleted. This cannot be undone.`))return;
+  if(!confirm(`Merge ${selected.length} orders from "${username}" into one?\n\nQuantities will be summed. The oldest order's number and date will be kept. All other orders will be deleted. This cannot be undone.`))return;
 
   // Merge items: sum quantities
   const mergedItems={};
@@ -2208,23 +2228,26 @@ async function mergeSelectedOrders(){
     });
   });
 
-  // Use most recent timestamp
-  const latest=selected.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0];
-  const now=new Date();
-  const ts=now.toLocaleDateString('en-GB')+' '+now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  // Keep the FIRST (oldest) order's number and date — sort ascending by created_at
+  const sorted=[...selected].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+  const first=sorted[0];
+  const others=sorted.slice(1);
+
+  // Record every order number + date that went into this merge, so it stays visible
+  // even though only the oldest order's row survives
+  const mergeNote='Merged: '+sorted.map(o=>`#${o.order_number||'?'} (${o.timestamp})`).join(' + ');
 
   try{
-    // Update the first (most recent) order with merged items
-    await sbPatch('orders_history',`id=eq.${latest.id}`,{items:mergedItems,timestamp:ts});
+    // Update the oldest order with merged items — keep its own order_number/timestamp as-is
+    await sbPatch('orders_history',`id=eq.${first.id}`,{items:mergedItems,merge_note:mergeNote});
 
     // Delete the rest
-    const toDelete=selected.filter(o=>o.id!==latest.id);
-    for(const o of toDelete){
+    for(const o of others){
       await sbDelete('orders_history',`id=eq.${o.id}`);
     }
 
     await loadAdminOrders();
-    alert(`✅ ${selected.length} orders from "${username}" merged successfully!`);
+    alert(`✅ ${selected.length} orders from "${username}" merged successfully!\n\nKept order #${first.order_number||''} (${first.timestamp}).`);
   }catch(e){alert('Error merging orders: '+e.message);}
 }
 
@@ -2346,7 +2369,7 @@ function renderIPList(){
           <button onclick="moveIPOrder('${o.id}',-1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move up">⌃</button>
           <button onclick="moveIPOrder('${o.id}',1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move down">⌄</button>
         </div>
-        <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
+        <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
         <span class="order-status status-accepted">🍳 In Production</span>
         <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
       </div>
@@ -2531,6 +2554,7 @@ function renderDelivList(preserveChecked){
       </div>
       <input type="checkbox" id="dchk-${o.id}" ${prevChecked.has(o.id)?'checked':''} style="width:15px;height:15px;cursor:pointer;accent-color:var(--green);"/>
       ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;">#${o.order_number}</span>`:''}
+      ${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;cursor:help;">🔀 Merged</span>`:''}
       <span style="font-weight:500;">${o.username}</span>
       <span style="color:var(--text-tertiary);">— ${o.timestamp}</span>
     </div>`).join('');
@@ -3204,7 +3228,7 @@ async function loadCompleteOrders(){
       return `<div class="order-card delivered" style="border-color:#6B6B6B;">
         <div class="order-card-header" onclick="toggleBody('zcb-${o.id}')">
           <span class="order-card-user">
-            ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}
+            ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''}
             ${o.username}
             ${o.ordered_by?`<span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''}
             <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${date}</span>
@@ -3429,7 +3453,7 @@ async function loadTrash(){
       return `<div class="order-card refused" style="opacity:.85;">
         <div class="order-card-header" onclick="toggleBody('tb-${o.id}')">
           <input type="checkbox" id="tchk-${o.id}" onclick="event.stopPropagation()"/>
-          <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
+          <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
           <span style="font-size:11px;color:var(--text-tertiary)">Deleted: ${deletedDate}</span>
           <span class="order-card-count" style="background:#FEE2E2;color:#991B1B;">${count} items</span>
         </div>
