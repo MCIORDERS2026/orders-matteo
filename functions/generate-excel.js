@@ -371,10 +371,23 @@ class Sheet {
     this.maxCol = 0;
     this.rowBreaks = []; // row numbers AFTER which a manual print page break occurs
     this.printTitleRows = null; // [startRow, endRow] to repeat at the top of every printed page
+    this.fitWidthToPage = false; // scale content to fit exactly 1 page wide (height unbounded)
+    this.orientation = 'portrait';
   }
 
   setColWidth(col, width) {
     this.colWidths[col] = width;
+  }
+
+  // Scales printed content so all columns always fit on a single page width,
+  // regardless of how many client columns exist — otherwise sheets with several
+  // clients get split into extra left/right printed pages on top of our row breaks.
+  fitToPageWidth() {
+    this.fitWidthToPage = true;
+  }
+
+  setOrientation(o) {
+    this.orientation = o;
   }
 
   freezeHeaderRows(n) {
@@ -454,14 +467,25 @@ class Sheet {
           .join('')}</rowBreaks>`
       : '';
 
+    // sheetPr/pageSetUpPr must come first (right after the opening tag) — it's what
+    // tells the app "scale to fit" instead of printing at 100%. fitToHeight="0" means
+    // unlimited pages tall, so only the width is constrained to a single page; our
+    // manual row break still controls where the vertical page split happens.
+    const sheetPrXml = this.fitWidthToPage ? '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' : '';
+    const pageSetupXml = this.fitWidthToPage
+      ? `<pageSetup orientation="${this.orientation}" fitToWidth="1" fitToHeight="0"/>`
+      : `<pageSetup orientation="${this.orientation}"/>`;
+
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+${sheetPrXml}
 <dimension ref="${dim}"/>
 ${paneXml}
 <cols>${colsXml}</cols>
 <sheetData>${rowsXml}</sheetData>
 ${mergesXml}
 ${pageMarginsXml}
+${pageSetupXml}
 ${rowBreaksXml}
 </worksheet>`;
   }
@@ -536,9 +560,19 @@ exports.handler = async (event) => {
   const GREEN_COLOR = 'FF1D9E75';
   const WHITE_COLOR = 'FFFFFFFF';
   const TOTAL_BORDER = { top: { style: 'medium', color: GREEN_COLOR } };
-  const ROW_BORDER = { bottom: { style: 'thin', color: 'FFDDDDDD' } };
+  // Bold, clearly visible grid — every cell (header, category, data) gets a solid
+  // medium border on all 4 sides so columns and rows are unmistakably separated,
+  // regardless of whether the app printing/viewing the file shows gridlines.
+  const GRID_COLOR = 'FF888888';
+  const ROW_BORDER = {
+    top: { style: 'medium', color: GRID_COLOR },
+    bottom: { style: 'medium', color: GRID_COLOR },
+    left: { style: 'medium', color: GRID_COLOR },
+    right: { style: 'medium', color: GRID_COLOR },
+  };
 
   function buildProductQtySheet(sheet, { includeAllProducts, qtyMap, checkbox, title }) {
+    sheet.fitToPageWidth();
     const lastCol = checkbox ? 3 : 2;
     sheet.setColWidth(1, 34);
     sheet.setColWidth(2, 12);
@@ -553,9 +587,9 @@ exports.handler = async (event) => {
     }
 
     const headerRow = r;
-    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
-    sheet.setCell(r, 2, 'QTY', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
-    if (checkbox) sheet.setCell(r, 3, 'CHECK', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
+    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, border: ROW_BORDER });
+    sheet.setCell(r, 2, 'QTY', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' }, border: ROW_BORDER });
+    if (checkbox) sheet.setCell(r, 3, 'CHECK', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' }, border: ROW_BORDER });
     sheet.freezeHeaderRows(r);
     // Repeat the title (if any) + header row at the top of every printed page.
     sheet.setPrintTitleRows(titleRow || headerRow, headerRow);
@@ -577,9 +611,9 @@ exports.handler = async (event) => {
         breakInserted = true;
       }
 
-      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL });
-      sheet.setCell(r, 2, '', { fillColor: CAT_FILL });
-      if (checkbox) sheet.setCell(r, 3, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL, border: ROW_BORDER });
+      sheet.setCell(r, 2, '', { fillColor: CAT_FILL, border: ROW_BORDER });
+      if (checkbox) sheet.setCell(r, 3, '', { fillColor: CAT_FILL, border: ROW_BORDER });
       r += 1;
 
       for (const p of rowsForCat) {
@@ -597,6 +631,8 @@ exports.handler = async (event) => {
   }
 
   function buildMultiClientSheet(sheet, { includeAllProducts, title }) {
+    sheet.fitToPageWidth();
+    sheet.setOrientation('landscape'); // many client columns — give them more width to work with
     const numClients = orders.length;
     const lastCol = 2 + numClients; // PRODUCT + one col per client + TOTAL
 
@@ -613,12 +649,12 @@ exports.handler = async (event) => {
     }
 
     const headerRow = r;
-    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
+    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, border: ROW_BORDER });
     orders.forEach((o, i) => {
       const label = o.display_name || o.username;
-      sheet.setCell(r, 2 + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true } });
+      sheet.setCell(r, 2 + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true }, border: ROW_BORDER });
     });
-    sheet.setCell(r, lastCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
+    sheet.setCell(r, lastCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' }, border: ROW_BORDER });
     sheet.freezeHeaderRows(r);
     // Repeat the title (if any) + PRODUCT/client header row at the top of every printed page.
     sheet.setPrintTitleRows(titleRow || headerRow, headerRow);
@@ -643,9 +679,9 @@ exports.handler = async (event) => {
         breakInserted = true;
       }
 
-      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL });
-      for (let i = 0; i < numClients; i++) sheet.setCell(r, 2 + i, '', { fillColor: CAT_FILL });
-      sheet.setCell(r, lastCol, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL, border: ROW_BORDER });
+      for (let i = 0; i < numClients; i++) sheet.setCell(r, 2 + i, '', { fillColor: CAT_FILL, border: ROW_BORDER });
+      sheet.setCell(r, lastCol, '', { fillColor: CAT_FILL, border: ROW_BORDER });
       r += 1;
 
       for (const p of rowsForCat) {
@@ -674,6 +710,8 @@ exports.handler = async (event) => {
   // plus a blank OBSERVATION column right next to the product name (column B) for
   // handwritten notes after printing.
   function buildProductionSheet(sheet, { includeAllProducts, productionProducts, title }) {
+    sheet.fitToPageWidth();
+    sheet.setOrientation('landscape');
     const idsSet = new Set(productionProducts.map((p) => String(p.id)));
     const numClients = orders.length;
     const obsCol = 2;
@@ -695,13 +733,13 @@ exports.handler = async (event) => {
     }
 
     const headerRow = r;
-    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
-    sheet.setCell(r, obsCol, 'OBSERVATION', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
+    sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, border: ROW_BORDER });
+    sheet.setCell(r, obsCol, 'OBSERVATION', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, border: ROW_BORDER });
     orders.forEach((o, i) => {
       const label = o.display_name || o.username;
-      sheet.setCell(r, clientColStart + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true } });
+      sheet.setCell(r, clientColStart + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true }, border: ROW_BORDER });
     });
-    sheet.setCell(r, totalCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
+    sheet.setCell(r, totalCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' }, border: ROW_BORDER });
     sheet.freezeHeaderRows(r);
     sheet.setPrintTitleRows(titleRow || headerRow, headerRow);
     r += 1;
@@ -722,10 +760,10 @@ exports.handler = async (event) => {
         breakInserted = true;
       }
 
-      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL });
-      sheet.setCell(r, obsCol, '', { fillColor: CAT_FILL });
-      for (let i = 0; i < numClients; i++) sheet.setCell(r, clientColStart + i, '', { fillColor: CAT_FILL });
-      sheet.setCell(r, totalCol, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL, border: ROW_BORDER });
+      sheet.setCell(r, obsCol, '', { fillColor: CAT_FILL, border: ROW_BORDER });
+      for (let i = 0; i < numClients; i++) sheet.setCell(r, clientColStart + i, '', { fillColor: CAT_FILL, border: ROW_BORDER });
+      sheet.setCell(r, totalCol, '', { fillColor: CAT_FILL, border: ROW_BORDER });
       r += 1;
 
       for (const p of rowsForCat) {
