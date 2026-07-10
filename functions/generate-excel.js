@@ -663,16 +663,20 @@ exports.handler = async (event) => {
     }
   }
 
-  // Production sheet: only products flagged for production tracking (managed from
-  // the admin Products tab). Always lists every flagged product (like "All Products"),
-  // with a blank OBSERVATION column for handwritten notes after printing.
-  function buildProductionSheet(sheet, { productionProducts, title }) {
-    const lastCol = 3; // PRODUCT, QTY, OBSERVATION
-    sheet.setColWidth(1, 34);
-    sheet.setColWidth(2, 10);
-    sheet.setColWidth(3, 30);
-
+  // Production sheet(s): only products flagged for production tracking (managed from
+  // the admin Products tab). Same per-client breakdown as All Products / Ordered Only,
+  // plus a blank OBSERVATION column at the end for handwritten notes after printing.
+  function buildProductionSheet(sheet, { includeAllProducts, productionProducts, title }) {
     const idsSet = new Set(productionProducts.map((p) => String(p.id)));
+    const numClients = orders.length;
+    const totalCol = 2 + numClients;
+    const obsCol = totalCol + 1;
+    const lastCol = obsCol;
+
+    sheet.setColWidth(1, 34);
+    for (let i = 0; i < numClients; i++) sheet.setColWidth(2 + i, 13);
+    sheet.setColWidth(totalCol, 12);
+    sheet.setColWidth(obsCol, 30);
 
     let r = 1;
     const titleRow = title ? 1 : null;
@@ -684,8 +688,12 @@ exports.handler = async (event) => {
 
     const headerRow = r;
     sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
-    sheet.setCell(r, 2, 'QTY', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
-    sheet.setCell(r, 3, 'OBSERVATION', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
+    orders.forEach((o, i) => {
+      const label = o.display_name || o.username;
+      sheet.setCell(r, 2 + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true } });
+    });
+    sheet.setCell(r, totalCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
+    sheet.setCell(r, obsCol, 'OBSERVATION', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
     sheet.freezeHeaderRows(r);
     sheet.setPrintTitleRows(titleRow || headerRow, headerRow);
     r += 1;
@@ -698,7 +706,8 @@ exports.handler = async (event) => {
         .filter((p) => idsSet.has(String(p.id)))
         .slice()
         .sort((a, b) => ((a.sort_order || 0) - (b.sort_order || 0)) || a.name.localeCompare(b.name));
-      if (!prods.length) continue;
+      const rowsForCat = includeAllProducts ? prods : prods.filter((p) => (totalQtyByProduct[p.id] || 0) > 0);
+      if (!rowsForCat.length) continue;
 
       if (!breakInserted && breakCatIndex !== -1 && ci >= breakCatIndex) {
         sheet.addPageBreakBeforeRow(r);
@@ -706,16 +715,26 @@ exports.handler = async (event) => {
       }
 
       sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL });
-      sheet.setCell(r, 2, '', { fillColor: CAT_FILL });
-      sheet.setCell(r, 3, '', { fillColor: CAT_FILL });
+      for (let i = 0; i < numClients; i++) sheet.setCell(r, 2 + i, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, totalCol, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, obsCol, '', { fillColor: CAT_FILL });
       r += 1;
 
-      for (const p of prods) {
-        const qty = totalQtyByProduct[p.id] || 0;
+      for (const p of rowsForCat) {
         const name = p.description ? `${p.name} (${p.description})` : p.name;
-        sheet.setCell(r, 1, name, { border: ROW_BORDER });
-        sheet.setCell(r, 2, qty, { bold: qty > 0, fontColor: qty > 0 ? GREEN_COLOR : ZERO_COLOR, align: { h: 'center' }, border: ROW_BORDER });
-        sheet.setCell(r, 3, '', { border: ROW_BORDER }); // left blank — filled in by hand after printing
+        let rowTotal = 0;
+
+        orders.forEach((o, i) => {
+          const qty = parseInt((o.items || {})[p.id], 10) || 0;
+          rowTotal += qty;
+          const color = qty > 0 ? null : ZERO_COLOR;
+          sheet.setCell(r, 2 + i, qty, { bold: qty > 0, fontColor: color, align: { h: 'center' }, border: ROW_BORDER });
+        });
+
+        const rowColor = rowTotal > 0 ? null : ZERO_COLOR;
+        sheet.setCell(r, 1, name, { fontColor: rowColor, border: ROW_BORDER });
+        sheet.setCell(r, totalCol, rowTotal, { bold: rowTotal > 0, fontColor: rowTotal > 0 ? GREEN_COLOR : ZERO_COLOR, align: { h: 'center' }, border: ROW_BORDER });
+        sheet.setCell(r, obsCol, '', { border: ROW_BORDER }); // left blank — filled in by hand after printing
         r += 1;
       }
     }
@@ -735,19 +754,29 @@ exports.handler = async (event) => {
     title: `Ordered Products Only — ${orders.length} order${orders.length !== 1 ? 's' : ''} combined`,
   });
 
-  // Sheet 3 (optional): Production — only products flagged in the admin's
-  // Production Management list (Products tab). Skipped entirely if none are flagged.
+  // Sheet 3+4 (optional): Production / Production Ordered Only — only products flagged
+  // in the admin's Production Management list (Products tab). Skipped entirely if none
+  // are flagged. Same client-column breakdown as All Products / Ordered Only, plus a
+  // blank OBSERVATION column.
   const productionProducts = products.filter((p) => p.production_tracked);
   if (productionProducts.length) {
     const productionSheet = wb.addSheet('Production');
     buildProductionSheet(productionSheet, {
+      includeAllProducts: true,
       productionProducts,
       title: `Production List — ${orders.length} order${orders.length !== 1 ? 's' : ''} combined`,
     });
+
+    const productionOrderedSheet = wb.addSheet('Production Ordered Only');
+    buildProductionSheet(productionOrderedSheet, {
+      includeAllProducts: false,
+      productionProducts,
+      title: `Production Ordered Only — ${orders.length} order${orders.length !== 1 ? 's' : ''} combined`,
+    });
   }
 
-  // Sheet 4+: one per client order
-  const usedNames = new Set(['All Products', 'Ordered Only', 'Production']);
+  // Sheet 5+: one per client order
+  const usedNames = new Set(['All Products', 'Ordered Only', 'Production', 'Production Ordered Only']);
   function safeSheetName(raw) {
     let name = raw.replace(/[\\/?*\[\]:]/g, ' ').trim().substring(0, 28) || 'Order';
     let candidate = name;
