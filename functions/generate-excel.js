@@ -665,18 +665,20 @@ exports.handler = async (event) => {
 
   // Production sheet(s): only products flagged for production tracking (managed from
   // the admin Products tab). Same per-client breakdown as All Products / Ordered Only,
-  // plus a blank OBSERVATION column at the end for handwritten notes after printing.
+  // plus a blank OBSERVATION column right next to the product name (column B) for
+  // handwritten notes after printing.
   function buildProductionSheet(sheet, { includeAllProducts, productionProducts, title }) {
     const idsSet = new Set(productionProducts.map((p) => String(p.id)));
     const numClients = orders.length;
-    const totalCol = 2 + numClients;
-    const obsCol = totalCol + 1;
-    const lastCol = obsCol;
+    const obsCol = 2;
+    const clientColStart = 3;
+    const totalCol = clientColStart + numClients;
+    const lastCol = totalCol;
 
     sheet.setColWidth(1, 34);
-    for (let i = 0; i < numClients; i++) sheet.setColWidth(2 + i, 13);
-    sheet.setColWidth(totalCol, 12);
     sheet.setColWidth(obsCol, 30);
+    for (let i = 0; i < numClients; i++) sheet.setColWidth(clientColStart + i, 13);
+    sheet.setColWidth(totalCol, 12);
 
     let r = 1;
     const titleRow = title ? 1 : null;
@@ -688,12 +690,12 @@ exports.handler = async (event) => {
 
     const headerRow = r;
     sheet.setCell(r, 1, 'PRODUCT', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
+    sheet.setCell(r, obsCol, 'OBSERVATION', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
     orders.forEach((o, i) => {
       const label = o.display_name || o.username;
-      sheet.setCell(r, 2 + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true } });
+      sheet.setCell(r, clientColStart + i, label, { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center', wrap: true } });
     });
     sheet.setCell(r, totalCol, 'TOTAL', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL, align: { h: 'center' } });
-    sheet.setCell(r, obsCol, 'OBSERVATION', { bold: true, fontColor: WHITE_COLOR, fillColor: HEADER_FILL });
     sheet.freezeHeaderRows(r);
     sheet.setPrintTitleRows(titleRow || headerRow, headerRow);
     r += 1;
@@ -715,9 +717,9 @@ exports.handler = async (event) => {
       }
 
       sheet.setCell(r, 1, cat.label.toUpperCase(), { bold: true, fillColor: CAT_FILL });
-      for (let i = 0; i < numClients; i++) sheet.setCell(r, 2 + i, '', { fillColor: CAT_FILL });
-      sheet.setCell(r, totalCol, '', { fillColor: CAT_FILL });
       sheet.setCell(r, obsCol, '', { fillColor: CAT_FILL });
+      for (let i = 0; i < numClients; i++) sheet.setCell(r, clientColStart + i, '', { fillColor: CAT_FILL });
+      sheet.setCell(r, totalCol, '', { fillColor: CAT_FILL });
       r += 1;
 
       for (const p of rowsForCat) {
@@ -728,13 +730,13 @@ exports.handler = async (event) => {
           const qty = parseInt((o.items || {})[p.id], 10) || 0;
           rowTotal += qty;
           const color = qty > 0 ? null : ZERO_COLOR;
-          sheet.setCell(r, 2 + i, qty, { bold: qty > 0, fontColor: color, align: { h: 'center' }, border: ROW_BORDER });
+          sheet.setCell(r, clientColStart + i, qty, { bold: qty > 0, fontColor: color, align: { h: 'center' }, border: ROW_BORDER });
         });
 
         const rowColor = rowTotal > 0 ? null : ZERO_COLOR;
         sheet.setCell(r, 1, name, { fontColor: rowColor, border: ROW_BORDER });
-        sheet.setCell(r, totalCol, rowTotal, { bold: rowTotal > 0, fontColor: rowTotal > 0 ? GREEN_COLOR : ZERO_COLOR, align: { h: 'center' }, border: ROW_BORDER });
         sheet.setCell(r, obsCol, '', { border: ROW_BORDER }); // left blank — filled in by hand after printing
+        sheet.setCell(r, totalCol, rowTotal, { bold: rowTotal > 0, fontColor: rowTotal > 0 ? GREEN_COLOR : ZERO_COLOR, align: { h: 'center' }, border: ROW_BORDER });
         r += 1;
       }
     }
