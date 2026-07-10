@@ -3228,8 +3228,7 @@ async function markDeliveryDone(){
   if(!deliveryOrderId){alert('No order selected.');return;}
   if(!confirm('Mark this delivery as complete? It will move to the Complete tab.'))return;
   try{
-    const now=new Date(),deliveredTs=now.toLocaleDateString('en-GB')+' '+now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'delivered',delivered_at:deliveredTs});
+    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'delivered',delivered_at:new Date().toISOString()});
     document.getElementById('delivery-editor').innerHTML='<div class="empty-state">Order marked as complete ✅</div>';
     deliveryOrderId=null;
     await loadDeliveryOrders();
@@ -3263,7 +3262,7 @@ async function loadCompleteOrders(){
     if(!rows.length){el.innerHTML='<div class="empty-state">No completed deliveries yet.</div>';return;}
     el.innerHTML=rows.map(o=>{
       const count=Object.values(o.items||{}).reduce((a,b)=>a+b,0);
-      const date=o.delivered_at||o.timestamp||'';
+      const date=o.delivered_at?(new Date(o.delivered_at).toLocaleDateString('en-GB')+' '+new Date(o.delivered_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):(o.timestamp||'');
       const itemRows=Object.entries(o.items||{}).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
         return `<div class="order-item-row">
@@ -3383,8 +3382,8 @@ async function exportClientHistoryExcel(){
   const fromVal=document.getElementById('complete-hist-date-from')?.value||'';
   const toVal=document.getElementById('complete-hist-date-to')?.value||'';
   let dateFilter='';
-  if(fromVal)dateFilter+=`&created_at=gte.${fromVal}T00:00:00`;
-  if(toVal)dateFilter+=`&created_at=lte.${toVal}T23:59:59.999`;
+  if(fromVal)dateFilter+=`&delivered_at=gte.${fromVal}T00:00:00`;
+  if(toVal)dateFilter+=`&delivered_at=lte.${toVal}T23:59:59.999`;
 
   const btn=event?.target;
   if(btn){btn.disabled=true;btn.textContent='⏳ Generating...';}
@@ -3394,7 +3393,7 @@ async function exportClientHistoryExcel(){
     // independent of whatever is currently filtered/loaded on screen. Done per-client (case-insensitive)
     // to stay consistent with the rest of the app rather than relying on an exact-match "in" filter.
     const perClientResults=await Promise.all(usernames.map(u=>
-      sbGet('orders_history',`username=ilike.${encodeURIComponent(u)}&status=eq.delivered&deleted_at=is.null${dateFilter}&order=created_at.asc`)
+      sbGet('orders_history',`username=ilike.${encodeURIComponent(u)}&status=eq.delivered&deleted_at=is.null${dateFilter}&order=delivered_at.asc`)
     ));
     const orders=perClientResults.flat();
     if(!orders.length){alert(`No delivered order history found for the selected client(s)${(fromVal||toVal)?' in that date range':''}.`);if(btn){btn.disabled=false;btn.textContent='⬇ Excel (client history)';}return;}
