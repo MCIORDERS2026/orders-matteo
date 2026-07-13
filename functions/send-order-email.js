@@ -26,6 +26,13 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+// Wraps a product description in parentheses, unless it already has its own
+// (e.g. "Box (24)") — avoids showing doubled parens like "Box ((24))".
+function wrapDesc(d) {
+  if (!d) return '';
+  return /[()]/.test(d) ? d : '(' + d + ')';
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
@@ -59,7 +66,7 @@ exports.handler = async (event) => {
   const itemRows = items
     .map(
       (i) => `<tr>
-        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:13px;">${esc(i.name)}${i.description ? ` <span style="color:#888;font-size:11px;">(${esc(i.description)})</span>` : ''}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:13px;">${esc(i.name)}${i.description ? ` <span style="color:#888;font-size:11px;">${wrapDesc(esc(i.description))}</span>` : ''}</td>
         <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:700;">${esc(i.qty)}</td>
       </tr>`
     )
