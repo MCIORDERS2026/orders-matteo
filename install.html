@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Install Matteo Orders</title>
 <link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1D9E75">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Matteo Orders">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root{--green:#1D9E75;--bg:#F9F9F8;--ink:#1a1a1a;--muted:#666;}
   *{box-sizing:border-box;}
@@ -68,6 +75,15 @@
     document.getElementById('panel-'+which).classList.add('active');
     document.getElementById('tab-'+which).classList.add('active');
     try{localStorage.setItem('installTab',which);}catch(e){}
+  }
+
+  // Register the service worker from this page too (not just index.html) — Chrome
+  // only offers "Install app" / fires beforeinstallprompt on a page load where a
+  // manifest is linked AND a service worker is registered under its scope. Without
+  // this, visiting /install.html directly (e.g. from a shared link) never shows the
+  // install option at all, even though index.html registers it elsewhere.
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').catch(function(){});
   }
 
   // Auto-detect platform
