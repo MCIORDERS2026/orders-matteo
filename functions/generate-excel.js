@@ -1,5 +1,13 @@
 // netlify/functions/generate-excel.js
 //
+// wrapDesc: wraps a product description in parentheses for display next to its
+// name, UNLESS the description already contains its own parentheses (e.g.
+// "Box (24)") — otherwise it would show as doubled parens: "Box ((24))".
+function wrapDesc(d) {
+  if (!d) return '';
+  return /[()]/.test(d) ? d : '(' + d + ')';
+}
+//
 // Generates an .xlsx workbook for the "In Production" tab with:
 //   1. "All Products" sheet  — every catalogue product, grouped by category, qty=0 if not ordered
 //   2. "Ordered Only" sheet  — same layout but only products that were actually ordered (qty > 0)
@@ -619,7 +627,7 @@ exports.handler = async (event) => {
       for (const p of rowsForCat) {
         const qty = qtyMap[p.id] || 0;
         grandTotal += qty;
-        const name = p.description ? `${p.name} (${p.description})` : p.name;
+        const name = p.description ? `${p.name} ${wrapDesc(p.description)}` : p.name;
         const color = qty > 0 ? null : ZERO_COLOR;
 
         sheet.setCell(r, 1, name, { fontColor: color, border: ROW_BORDER });
@@ -685,7 +693,7 @@ exports.handler = async (event) => {
       r += 1;
 
       for (const p of rowsForCat) {
-        const name = p.description ? `${p.name} (${p.description})` : p.name;
+        const name = p.description ? `${p.name} ${wrapDesc(p.description)}` : p.name;
         let rowTotal = 0;
 
         orders.forEach((o, i) => {
@@ -767,7 +775,7 @@ exports.handler = async (event) => {
       r += 1;
 
       for (const p of rowsForCat) {
-        const name = p.description ? `${p.name} (${p.description})` : p.name;
+        const name = p.description ? `${p.name} ${wrapDesc(p.description)}` : p.name;
         let rowTotal = 0;
 
         orders.forEach((o, i) => {
