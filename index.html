@@ -2228,10 +2228,7 @@ function renderOrdersList(){
       <button class="btn-sm green" onclick="moveToInProduction('${o.id}')">🍳 Move to In Production</button>`
       :`<button class="btn-sm" onclick="setOrderStatus('${o.id}','pending')">↩ Revert to pending</button>`;
     const addItemHtml=`<div class="add-item-row">
-      <select id="add-prod-${o.id}" class="add-item-select">
-        <option value="">+ Add product to this order...</option>
-        ${productsInCatalogOrder().map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
-      </select>
+      ${productPickerHtml('add',o.id)}
       <input type="number" id="add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
       <button class="btn-sm green" onclick="addItemToOrder('${o.id}')">Add</button>
     </div>`;
@@ -2480,10 +2477,7 @@ function renderIPList(){
       </div>`;
     }).join('');
     const addItemHtml=`<div class="add-item-row">
-      <select id="ip-add-prod-${o.id}" class="add-item-select">
-        <option value="">+ Add product to this order...</option>
-        ${productsInCatalogOrder().map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
-      </select>
+      ${productPickerHtml('ip-add',o.id)}
       <input type="number" id="ip-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
       <button class="btn-sm green" onclick="addIPItem('${o.id}')">Add</button>
     </div>`;
@@ -3351,10 +3345,7 @@ async function loadCompleteOrders(){
         </div>`;
       }).join('');
       const addItemHtml=`<div class="add-item-row">
-        <select id="zc-add-prod-${o.id}" class="add-item-select">
-          <option value="">+ Add product to this order...</option>
-          ${productsInCatalogOrder().map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
-        </select>
+        ${productPickerHtml('zc-add',o.id)}
         <input type="number" id="zc-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
         <button class="btn-sm green" onclick="addCompleteItem('${o.id}')">Add</button>
       </div>`;
@@ -3696,6 +3687,53 @@ function productsInCatalogOrder(){
   const rank=c=>{const i=catOrder.indexOf(c);return i===-1?catOrder.length:i;};
   return [...allProducts].sort((a,b)=>rank(a.cat)-rank(b.cat));
 }
+
+// ── Searchable "add product to this order" picker (New Orders / In Production / Complete) ──
+// A text input + filtered dropdown that replaces the old giant <select>, so admins can type
+// a product name instead of scrolling. Keeps the same hidden-input id pattern the existing
+// addItemToOrder / addIPItem / addCompleteItem functions already read from (`${prefix}-prod-${orderId}`),
+// so those functions needed no changes at all.
+function productPickerHtml(prefix, orderId){
+  return `<div class="prod-picker-wrap" style="flex:1;min-width:160px;position:relative;">
+    <input type="text" id="${prefix}-search-${orderId}" class="add-item-select" placeholder="🔍 Search product..." autocomplete="off"
+      style="width:100%;box-sizing:border-box;"
+      oninput="filterProductPicker('${prefix}','${orderId}',this.value)"
+      onfocus="filterProductPicker('${prefix}','${orderId}',this.value)"/>
+    <input type="hidden" id="${prefix}-prod-${orderId}"/>
+    <div id="${prefix}-results-${orderId}" class="prod-picker-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:4px;max-height:220px;overflow-y:auto;z-index:60;box-shadow:0 4px 12px rgba(0,0,0,.1);"></div>
+  </div>`;
+}
+function filterProductPicker(prefix, orderId, query){
+  const results=document.getElementById(`${prefix}-results-${orderId}`);
+  if(!results)return;
+  const q=query.trim().toLowerCase();
+  const items=q?allProducts.filter(p=>p.name.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)):productsInCatalogOrder();
+  if(!items.length){
+    results.innerHTML='<div style="padding:8px 12px;font-size:13px;color:var(--text-tertiary);">No products found.</div>';
+  } else {
+    results.innerHTML=items.map(p=>`
+      <div onclick="selectProductPicker('${prefix}','${orderId}','${p.id}','${(p.name+fmtDesc(p.description)).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')"
+        style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);"
+        onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background=''">
+        ${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">${wrapDesc(p.description)}</span>`:''}
+        <span style="float:right;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${p.cat}</span>
+      </div>`).join('');
+  }
+  results.style.display='block';
+}
+function selectProductPicker(prefix, orderId, id, name){
+  document.getElementById(`${prefix}-prod-${orderId}`).value=id;
+  document.getElementById(`${prefix}-search-${orderId}`).value=name;
+  document.getElementById(`${prefix}-results-${orderId}`).style.display='none';
+}
+document.addEventListener('click',function(e){
+  document.querySelectorAll('.prod-picker-wrap').forEach(function(wrap){
+    if(!wrap.contains(e.target)){
+      const r=wrap.querySelector('.prod-picker-results');
+      if(r)r.style.display='none';
+    }
+  });
+});
 
 // Wraps a product description in parentheses for display next to its name —
 // UNLESS the description already contains its own parentheses (e.g. "Box (24)"),
