@@ -274,7 +274,8 @@
         <div class="notif-dropdown" id="notif-dropdown"></div>
       </div>
       <!-- ONLINE CLIENTS -->
-      <div class="notif-bell-wrap" id="online-bell-wrap" style="display:none;">
+      <div class="notif-bell-wrap" id="online-bell-wrap" style="display:none;"
+        onmouseenter="openOnlineDropdown()" onmouseleave="document.getElementById('online-dropdown').classList.remove('open')">
         <button class="btn-sm notif-bell" onclick="toggleOnlineDropdown()" title="Clients online now">👁 <span id="online-count">0</span></button>
         <div class="notif-dropdown" id="online-dropdown"></div>
       </div>
@@ -1524,6 +1525,14 @@ function toggleOnlineDropdown(){
   document.getElementById('notif-dropdown')?.classList.remove('open');
   document.getElementById('admin-menu-dropdown')?.classList.remove('open');
   checkOnlineClients(); // refresh right when opened
+}
+// Hover-to-open (mouse leaving the button+dropdown area closes it automatically —
+// see onmouseleave on #online-bell-wrap). Click still works as a fallback on touch.
+function openOnlineDropdown(){
+  document.getElementById('online-dropdown').classList.add('open');
+  document.getElementById('notif-dropdown')?.classList.remove('open');
+  document.getElementById('admin-menu-dropdown')?.classList.remove('open');
+  checkOnlineClients();
 }
 function goHome(){
   if(isAdmin){
@@ -3616,7 +3625,7 @@ async function loadTrash(){
           <span style="font-size:11px;color:var(--text-tertiary)">Deleted: ${deletedDate}</span>
           <span class="order-card-count" style="background:#FEE2E2;color:#991B1B;">${count} items</span>
         </div>
-        <div class="order-card-body" id="tb-${o.id}">${o.merge_note?`<div style="font-size:11px;color:#6D28D9;background:#F5F3FF;border-radius:6px;padding:6px 10px;margin-bottom:8px;">🔀 ${o.merge_note}</div>`:''}${itemRows}</div>
+        <div class="order-card-body" id="tb-${o.id}">${o.merge_note?`<div style="font-size:11px;color:#6D28D9;background:#F5F3FF;border-radius:6px;padding:6px 10px;margin-bottom:8px;">🔀 ${o.merge_note}</div>`:''}${(o.admin_message||o.refuse_reason)?`<div style="font-size:12px;color:${o.status==='refused'?'var(--red)':'#085041'};background:${o.status==='refused'?'var(--red-light)':'var(--green-light)'};border-radius:6px;padding:8px 10px;margin-bottom:8px;"><b>${o.status==='refused'?'Refusal note':'Admin note'}:</b> ${o.admin_message||o.refuse_reason}</div>`:''}${itemRows}</div>
       </div>`;
     }).join('');
   }catch(e){el.innerHTML='<div class="empty-state">Error loading trash.</div>';}
