@@ -2230,7 +2230,7 @@ function renderOrdersList(){
     const addItemHtml=`<div class="add-item-row">
       <select id="add-prod-${o.id}" class="add-item-select">
         <option value="">+ Add product to this order...</option>
-        ${allProducts.map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
+        ${productsInCatalogOrder().map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
       </select>
       <input type="number" id="add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
       <button class="btn-sm green" onclick="addItemToOrder('${o.id}')">Add</button>
@@ -2482,7 +2482,7 @@ function renderIPList(){
     const addItemHtml=`<div class="add-item-row">
       <select id="ip-add-prod-${o.id}" class="add-item-select">
         <option value="">+ Add product to this order...</option>
-        ${allProducts.map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
+        ${productsInCatalogOrder().map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
       </select>
       <input type="number" id="ip-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
       <button class="btn-sm green" onclick="addIPItem('${o.id}')">Add</button>
@@ -3353,7 +3353,7 @@ async function loadCompleteOrders(){
       const addItemHtml=`<div class="add-item-row">
         <select id="zc-add-prod-${o.id}" class="add-item-select">
           <option value="">+ Add product to this order...</option>
-          ${allProducts.map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
+          ${productsInCatalogOrder().map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('')}
         </select>
         <input type="number" id="zc-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
         <button class="btn-sm green" onclick="addCompleteItem('${o.id}')">Add</button>
@@ -3685,6 +3685,16 @@ async function fetchDisplayNameMap(){
 }
 function displayNameFor(username){
   return usersDisplayNameMap[username]||username;
+}
+
+// Returns allProducts re-ordered to match the same category order shown in the
+// Products catalogue (Sauces, Oven, Desserts, ... Backup) instead of the raw
+// alphabetical-by-category order the database query returns. Products keep
+// their existing relative order within each category (stable sort).
+function productsInCatalogOrder(){
+  const catOrder=['sauces','oven','desserts','small-packs','cheeses','cured-meat','vegg','frozen','dry','pastas','drinks','oils','packaging','chemical','office','backup'];
+  const rank=c=>{const i=catOrder.indexOf(c);return i===-1?catOrder.length:i;};
+  return [...allProducts].sort((a,b)=>rank(a.cat)-rank(b.cat));
 }
 
 // Wraps a product description in parentheses for display next to its name —
