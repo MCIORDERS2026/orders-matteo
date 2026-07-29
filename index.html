@@ -1735,6 +1735,7 @@ function productCardHtml(p,locked){
       :`<div style="display:flex;align-items:center;gap:4px;">
           <button class="qty-btn" onclick="stepQty(${p.id},-1)" style="width:28px;height:28px;border:1px solid var(--border);border-radius:4px;background:var(--bg);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">−</button>
           <input class="qty-input" type="number" id="qty-${p.id}" min="0" max="999" placeholder="0"
+            value="${cart[p.id]||''}"
             style="width:46px;text-align:center;"
             oninput="syncQtyDisplay(${p.id})" onchange="syncQtyDisplay(${p.id})" />
           <button class="add-btn" onclick="stepQty(${p.id},1)">+</button>
