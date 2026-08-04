@@ -441,7 +441,7 @@
         <h2>New Orders</h2>
         <button class="btn-sm" onclick="loadAdminOrders()">↻ Refresh</button>
         <button class="btn-sm" onclick="mergeSelectedOrders()" title="Select 2+ orders from the same client to merge">🔀 Merge</button>
-        <button class="btn-sm red" onclick="promptDeleteSelected()">🗑 Delete</button>
+        <button class="btn-sm red kitchen-hide-delete" onclick="promptDeleteSelected()">🗑 Delete</button>
         <button class="btn-sm amber" onclick="exportToGoogleSheets()">📊 Google Sheets</button>
         <button class="btn-sm amber" onclick="exportExcel()">⬇ Excel</button>
         <button class="btn-sm" onclick="printAllOrdersPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF</button>
@@ -467,7 +467,7 @@
           <button class="btn-sm" onclick="loadCompletedOrders()">↻ Refresh</button>
           <button class="btn-sm amber" onclick="exportCompletedExcel()">⬇ Excel</button>
           <button class="btn-sm" onclick="printCompletedPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF</button>
-          <button class="btn-sm red" onclick="promptDeleteCompleted()">🗑 Delete selected</button>
+          <button class="btn-sm red kitchen-hide-delete" onclick="promptDeleteCompleted()">🗑 Delete selected</button>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
@@ -1522,6 +1522,9 @@ async function launch(){
   document.querySelectorAll('.admin-menu-full-item').forEach(el=>{el.style.display=isAdmin?'':'none';});
   const menuHeader=document.getElementById('admin-menu-header');
   if(menuHeader)menuHeader.textContent=isAdmin?'Admin':(isKitchenAdmin?'Kitchen':'Menu');
+  // Kitchen staff can't delete orders (New Orders / In Production toolbar buttons —
+  // the Complete tab's per-order delete button is handled inline in its own template).
+  document.querySelectorAll('.kitchen-hide-delete').forEach(el=>{el.style.display=isKitchenAdmin?'none':'';});
   if(isAdmin){
     showAdminTab('orders');
     await checkAdminPendingNotifications();
@@ -2655,6 +2658,7 @@ async function mergeSelectedOrders(){
 
 let ordersToDelete=[];
 function promptDeleteSelected(){
+  if(isKitchenAdmin)return; // Kitchen staff cannot delete orders
   // Get selected orders
   const selected=allOrdersCache.filter(o=>{
     const chk=document.getElementById('chk-'+o.id);
@@ -2882,6 +2886,7 @@ function toggleSelectAllCompleted(checked){
   });
 }
 async function promptDeleteCompleted(){
+  if(isKitchenAdmin)return; // Kitchen staff cannot delete orders
   const selected=completedOrdersCache.filter(o=>{
     const chk=document.getElementById('cchk-'+o.id);
     return chk&&chk.checked;
@@ -3648,7 +3653,7 @@ async function loadCompleteOrders(){
           <div class="order-actions">
             <button class="btn-sm" onclick="generateOrderPDF(completeOrdersCache.find(x=>x.id==='${o.id}'),{pickingSlipNotice:true})">🖨 PDF</button>
             <button class="btn-sm" onclick="backToDelivery('${o.id}')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;">↩ Back to Delivery</button>
-            <button class="btn-sm red" onclick="deleteCompleteOrder('${o.id}')">🗑 Delete</button>
+            ${!isKitchenAdmin?`<button class="btn-sm red" onclick="deleteCompleteOrder('${o.id}')">🗑 Delete</button>`:''}
           </div>
         </div>
       </div>`;
@@ -3803,6 +3808,7 @@ async function backToDelivery(id){
 }
 
 function deleteCompleteOrder(id){
+  if(isKitchenAdmin)return; // Kitchen staff cannot delete orders
   const o=completeOrdersCache.find(x=>x.id===id);
   ordersToDelete=o?[o]:[{id}];
   document.getElementById('delete-modal-title').textContent='🗑 Delete order';
