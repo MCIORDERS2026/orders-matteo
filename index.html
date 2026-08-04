@@ -1273,6 +1273,25 @@ let currentUser=null,isAdmin=false,isKitchenAdmin=false,currentUserId=null,cart=
 function isStaff(){return isAdmin||isKitchenAdmin;}
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
 
+// Order items are stored as a {productId: qty} object, and object keys that look
+// like integers are always iterated by JS in ascending NUMERIC order — regardless
+// of insertion order. Product ids only ever go up, so a brand-new product's id is
+// always the highest, and every raw `Object.entries(order.items)` silently pushed
+// it to the very end of every item list in the app instead of its real catalog
+// position. This sorts [id,qty] entries (as returned by Object.entries) into the
+// same category → sort_order → name order used for the catalog everywhere else,
+// via allProducts' own array order (it's always fetched pre-sorted that way).
+// Unknown/deleted product ids fall back to the end, in their original order.
+function sortItemEntries(entries){
+  const idx=new Map();
+  allProducts.forEach((p,i)=>idx.set(String(p.id),i));
+  return [...entries].sort((a,b)=>{
+    const ia=idx.has(String(a[0]))?idx.get(String(a[0])):Infinity;
+    const ib=idx.has(String(b[0]))?idx.get(String(b[0])):Infinity;
+    return ia-ib;
+  });
+}
+
 // ── KITCHEN ACTIVITY LOG ──
 // Every status move (between New Orders / In Production / Delivery / Complete) and
 // every item addition/removal/qty change made by a Kitchen sub-admin gets recorded
@@ -2199,7 +2218,7 @@ function renderCart(){
 // order flow and never surfaces an error to the client if the email fails to send.
 function notifyAdminNewOrder(order,isUpdate){
   try{
-    const items=Object.entries(order.items||{}).map(([id,q])=>{
+    const items=sortItemEntries(Object.entries(order.items||{})).map(([id,q])=>{
       const p=allProducts.find(x=>x.id==id);
       return {name:p?p.name:'Product #'+id,description:p?p.description||'':'',qty:q};
     });
@@ -2434,7 +2453,7 @@ async function loadClientHistory(){
       const statusHtml=`<span class="order-status status-${o.status==='completed'||o.status==='delivered'||o.status==='in_production'?'accepted':o.status==='accepted'?'warning':o.status}">${statusMap[o.status]||o.status}</span>`;
       const original=(o.delivery_notes&&o.delivery_notes.__original__)||null;
       const deliveryNotes=o.delivery_notes||{};
-      const itemRows=Object.entries(o.items).map(([id,q])=>{
+      const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
         const name=`${p?p.name:'#'+id}`;
         const origQty=original?parseInt(original[id]||0):null;
@@ -2614,7 +2633,7 @@ function renderOrdersList(){
   el.innerHTML=list.map(o=>{
     const count=Object.values(o.items).reduce((a,b)=>a+b,0);
     const statusHtml=`<span class="order-status status-${o.status==='accepted'?'warning':o.status}">${o.status==='pending'?'⏳ Pending':o.status==='accepted'?'✅ Accepted':'❌ Refused'}</span>`;
-    const itemRows=Object.entries(o.items).map(([id,q])=>{
+    const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
       const p=allProducts.find(x=>x.id==id);
       return `<div class="order-item-row">
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
@@ -2882,7 +2901,7 @@ function renderIPList(){
   if(!rows.length){el.innerHTML='<div class="empty-state">No orders in production yet.</div>';return;}
   el.innerHTML=rows.map(o=>{
     const count=Object.values(o.items).reduce((a,b)=>a+b,0);
-    const itemRows=Object.entries(o.items).map(([id,q])=>{
+    const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
       const p=allProducts.find(x=>x.id==id);
       return `<div class="order-item-row">
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
@@ -3227,8 +3246,9 @@ function renderDeliveryEditor(order){
   if(!el)return;
 
   // Separate altered vs unchanged
-  const altered=Object.entries(deliveryItems).filter(([id,item])=>item.qty!==item.origQty||item.note);
-  const unchanged=Object.entries(deliveryItems).filter(([id,item])=>item.qty===item.origQty&&!item.note);
+  const sortedDeliveryEntries=sortItemEntries(Object.entries(deliveryItems));
+  const altered=sortedDeliveryEntries.filter(([id,item])=>item.qty!==item.origQty||item.note);
+  const unchanged=sortedDeliveryEntries.filter(([id,item])=>item.qty===item.origQty&&!item.note);
 
   function productRow(id,item,isAltered){
     const p=allProducts.find(x=>x.id==id)||{name:'Product #'+id,emoji:'📦',description:''};
@@ -3773,7 +3793,7 @@ async function loadCompleteOrders(){
     el.innerHTML=rows.map(o=>{
       const count=Object.values(o.items||{}).reduce((a,b)=>a+b,0);
       const date=o.delivered_at?(new Date(o.delivered_at).toLocaleDateString('en-GB')+' '+new Date(o.delivered_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):(o.timestamp||'');
-      const itemRows=Object.entries(o.items||{}).map(([id,q])=>{
+      const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
@@ -4836,7 +4856,7 @@ async function loadTrash(){
     el.innerHTML=rows.map(o=>{
       const count=Object.values(o.items).reduce((a,b)=>a+b,0);
       const deletedDate=new Date(o.deleted_at).toLocaleDateString('en-GB')+' '+new Date(o.deleted_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-      const itemRows=Object.entries(o.items).map(([id,q])=>{
+      const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
         return `<div class="history-item"><span>${p?p.name:'#'+id}</span><span>×${q}</span></div>`;
       }).join('');
@@ -5873,7 +5893,7 @@ function renderOrdersPDF(orders,sectionLabel){
 
   const orderBlocks=orders.map((o,idx)=>{
     const col=statusColor[o.status]||'#6b6b6b';
-    const items=Object.entries(o.items||{});
+    const items=sortItemEntries(Object.entries(o.items||{}));
     const notes=o.delivery_notes||{};
 
     const itemRows=items.map(([id,q])=>{
@@ -5965,7 +5985,7 @@ function renderOrdersPDF(orders,sectionLabel){
 
 function generateOrderPDF(order,opts={}){
   const showPickingSlipNotice=!!opts.pickingSlipNotice;
-  const items=Object.entries(order.items||{});
+  const items=sortItemEntries(Object.entries(order.items||{}));
   const original=(order.delivery_notes&&order.delivery_notes.__original__)||null;
   const deliveryNotes=order.delivery_notes||{};
 
