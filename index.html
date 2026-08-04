@@ -3849,7 +3849,21 @@ async function loadSalesMetrics(){
   contentEl.style.display='block';
   emptyEl.style.display='none';
 
-  const catalog=allProducts.map(p=>({id:p.id,name:p.name+fmtDesc(p.description),qty:perProduct[p.id]||0}));
+  // ONLY these specific products are shown as "packs" (raw units ÷ their order
+  // multiple) in Sales Metrics — e.g. Lasagna sold in trays of 12 shows as 1 per
+  // tray. This is intentionally NOT automatic for every "multiples of N" product
+  // (other products use that field just to enforce a minimum order size, not a
+  // pack/tray count worth reporting). Never affects the catalogue, cart, or orders.
+  const SM_PACK_PRODUCTS=['lasagna','focaccia','foccacia'];
+  const catalog=allProducts.map(p=>{
+    const raw=perProduct[p.id]||0;
+    const nameLower=(p.name||'').toLowerCase();
+    const isPackProduct=SM_PACK_PRODUCTS.some(k=>nameLower.includes(k));
+    const mult=(isPackProduct&&p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
+    const qty=mult>1?Math.round((raw/mult)*100)/100:raw;
+    const name=p.name+fmtDesc(p.description)+(mult>1?` (pack of ${mult})`:'');
+    return{id:p.id,name,qty};
+  });
   const best=[...catalog].sort((a,b)=>b.qty-a.qty).slice(0,10);
   const worst=[...catalog].sort((a,b)=>a.qty-b.qty).slice(0,10);
 
