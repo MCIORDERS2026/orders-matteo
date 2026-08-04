@@ -5241,6 +5241,7 @@ async function saveUserSettings(){
   const allProdsChecked=allProducts.every(pr=>document.getElementById('uprod-'+pr.id)?.checked);
   const selectedProds=allProdsChecked?[]:allProducts.filter(pr=>document.getElementById('uprod-'+pr.id)?.checked).map(pr=>String(pr.id));
 
+  const usernameChanged=newUsername.toLowerCase()!==(editingUsername||'').toLowerCase();
   try{
     const updatePayload={
       visible_categories:selectedCats.length?selectedCats:null,
@@ -5248,11 +5249,19 @@ async function saveUserSettings(){
       display_name:document.getElementById('edit-display-name').value.trim()||null,
       role:document.getElementById('edit-user-kitchen').checked?'kitchen':null
     };
-    if(newUsername!==editingUsername) updatePayload.username=newUsername;
+    if(usernameChanged) updatePayload.username=newUsername;
     await sbPatch('users',`username=eq.${encodeURIComponent(editingUsername)}`,updatePayload);
-    if(p){
-      if(!editingUserId){err.textContent='Missing user reference. Cannot update password.';err.style.display='block';return;}
-      const res=await workerCall('/change-password',{username:newUsername,auth_user_id:editingUserId,new_password:p});
+    // A username rename must also rename the underlying Supabase Auth login email
+    // (login always signs in with <username>+EMAIL_DOMAIN — see doLogin()), so the
+    // Worker has to be called on every rename, not only when a password is set too.
+    // Requires the matching worker.js update (adds new_username handling to
+    // /change-password) — see chat for the updated Worker source.
+    if(p||usernameChanged){
+      if(!editingUserId){err.textContent='Missing user reference. Cannot update login.';err.style.display='block';return;}
+      const body={username:newUsername,auth_user_id:editingUserId};
+      if(p)body.new_password=p;
+      if(usernameChanged)body.new_username=newUsername;
+      const res=await workerCall('/change-password',body);
       if(res.error){err.textContent='Error: '+res.error;err.style.display='block';return;}
     }
     closeModal('edit-user-modal');loadUsers();fetchDisplayNameMap();
