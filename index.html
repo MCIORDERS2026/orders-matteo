@@ -239,6 +239,25 @@
     .logo{font-size:12.5px;}
     .user-badge{display:none;}
   }
+
+  /* ── Sales Metrics tab ── */
+  .sm-filters{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;}
+  .sm-filter-group{display:flex;flex-direction:column;gap:5px;}
+  .sm-filter-group label{font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.3px;}
+  .sm-filter-group select,.sm-filter-group input[type=date]{border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;font-size:13px;background:var(--surface);color:var(--text);}
+  .sm-btn-row{display:flex;gap:6px;flex-wrap:wrap;}
+  .sm-btn-row .btn-sm.active{background:var(--green);border-color:var(--green);color:#fff;font-weight:600;}
+  .sm-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;}
+  .sm-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+  .sm-card-label{font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+  .sm-card-value{font-size:26px;font-weight:800;color:var(--text);}
+  .sm-charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .sm-chart-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+  .sm-chart-box h3{font-size:14px;font-weight:600;margin:0 0 12px;}
+  @media (max-width:700px){
+    .sm-charts-row{grid-template-columns:1fr;}
+    .sm-filters{gap:12px;}
+  }
 </style>
 </head>
 <body>
@@ -295,6 +314,10 @@
           <div class="notif-item" onclick="event.stopPropagation();goAdminMenu('trash')">
             <div class="notif-item-title">🗑 Trash <span class="notif-badge" id="trash-badge" style="display:inline-flex;position:static;margin-left:6px;">0</span></div>
             <div class="notif-item-text">Deleted orders</div>
+          </div>
+          <div class="notif-item" onclick="event.stopPropagation();goAdminMenu('sales')">
+            <div class="notif-item-title">📊 Sales Metrics</div>
+            <div class="notif-item-text">Best/worst sellers by client & date</div>
           </div>
           <div class="notif-item" onclick="event.stopPropagation();openCutoffSettings()">
             <div class="notif-item-title">⏰ Cut-off Settings</div>
@@ -504,6 +527,75 @@
         <h3 style="font-size:15px;margin-bottom:10px;">👤 Deleted Users</h3>
         <div id="trash-users-list"></div>
       </div>
+    </div>
+
+    <!-- ADMIN: SALES METRICS -->
+    <div id="tab-sales" style="display:none;">
+      <div class="section-toolbar">
+        <h2>📊 Sales Metrics</h2>
+        <button class="btn-sm" onclick="loadSalesMetrics()">↻ Refresh</button>
+        <button class="btn-sm" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;" onclick="printSalesMetricsPDF()">🖨 PDF</button>
+      </div>
+
+      <div class="sm-filters">
+        <div class="sm-filter-group">
+          <label>Client</label>
+          <select id="sm-client" onchange="loadSalesMetrics()">
+            <option value="">All clients</option>
+          </select>
+        </div>
+        <div class="sm-filter-group">
+          <label>Period</label>
+          <div class="sm-btn-row" id="sm-period-row">
+            <button class="btn-sm" id="sm-period-today" onclick="setSalesPeriod('today')">Today</button>
+            <button class="btn-sm" id="sm-period-week" onclick="setSalesPeriod('week')">This week</button>
+            <button class="btn-sm" id="sm-period-month" onclick="setSalesPeriod('month')">This month</button>
+            <button class="btn-sm active" id="sm-period-year" onclick="setSalesPeriod('year')">This year</button>
+          </div>
+        </div>
+      </div>
+      <div class="sm-filters">
+        <div class="sm-filter-group">
+          <label>From</label>
+          <input type="date" id="sm-date-from" onchange="clearSalesPeriodActive();loadSalesMetrics()"/>
+        </div>
+        <div class="sm-filter-group">
+          <label>To</label>
+          <input type="date" id="sm-date-to" onchange="clearSalesPeriodActive();loadSalesMetrics()"/>
+        </div>
+        <div class="sm-filter-group">
+          <label>Trend by</label>
+          <div class="sm-btn-row">
+            <button class="btn-sm" id="sm-trend-day" onclick="setSalesTrend('day')">Day</button>
+            <button class="btn-sm active" id="sm-trend-month" onclick="setSalesTrend('month')">Month</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sm-cards">
+        <div class="sm-card"><div class="sm-card-label">Delivered orders</div><div class="sm-card-value" id="sm-kpi-orders">0</div></div>
+        <div class="sm-card"><div class="sm-card-label">Units sold</div><div class="sm-card-value" id="sm-kpi-units">0</div></div>
+        <div class="sm-card"><div class="sm-card-label">Products sold</div><div class="sm-card-value" id="sm-kpi-products">0</div></div>
+      </div>
+
+      <div id="sm-content">
+        <div class="sm-charts-row">
+          <div class="sm-chart-box">
+            <h3>⬆ Best sellers</h3>
+            <div style="position:relative;height:340px;"><canvas id="sm-chart-best"></canvas></div>
+          </div>
+          <div class="sm-chart-box">
+            <h3>⬇ Worst sellers</h3>
+            <div style="position:relative;height:340px;"><canvas id="sm-chart-worst"></canvas></div>
+          </div>
+        </div>
+
+        <div class="sm-chart-box" style="margin-top:16px;">
+          <h3>📈 Sales over time <span style="font-weight:400;font-size:12px;color:var(--text-tertiary);">— units sold per period</span></h3>
+          <div style="position:relative;height:280px;"><canvas id="sm-chart-trend"></canvas></div>
+        </div>
+      </div>
+      <div id="sm-empty" class="empty-state" style="display:none;">No delivered orders in this period.</div>
     </div>
 
     <!-- ADMIN: COMPLETE (delivered orders) -->
@@ -912,6 +1004,7 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const SUPABASE_URL='https://kiqkosvwgnbugzqtwrem.supabase.co';
@@ -2178,7 +2271,7 @@ function editOrderFromHistory(orderId){
 // ── ADMIN TABS ──
 let _usersPollInterval=null;
 function showAdminTab(t,el){
-  ['orders','completed','users','products','trash','chat','delivery','complete'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -2191,6 +2284,10 @@ function showAdminTab(t,el){
   if(t==='users'){loadUsers();}
   if(t==='products')loadAdminProducts();
   if(t==='trash'){loadTrash();loadTrashedUsers();}
+  if(t==='sales'){
+    const fromEl=document.getElementById('sm-date-from');
+    if(fromEl&&!fromEl.value){setSalesPeriod('year');}else{loadSalesMetrics();}
+  }
   if(t==='chat'){chatHideComposePage();chatLoadHistory();chatEnsureUsers();}
   // Keep "online now" dots fresh while the Users tab is open; stop polling elsewhere.
   if(_usersPollInterval){clearInterval(_usersPollInterval);_usersPollInterval=null;}
@@ -3600,6 +3697,212 @@ async function exportCompletedExcel(){
     document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
   }catch(e){alert('Error generating Excel: '+e.message);}
   if(btn){btn.disabled=false;btn.textContent='⬇ Excel';}
+}
+
+// ── ADMIN: SALES METRICS ──
+// Aggregates delivered orders (orders_history where status='delivered') into
+// best/worst seller charts and a sales-over-time trend, filterable by client
+// and date range. No price data exists in this app, so metrics are quantity-based
+// only (units sold), unlike the revenue-based version built for VRC Orders.
+let salesActivePeriod='year';
+let salesTrendBy='month';
+let salesChartBest=null,salesChartWorst=null,salesChartTrend=null;
+let salesLastAggregate=null;
+
+function smPad2(n){return String(n).padStart(2,'0');}
+function smFmtDateInput(d){return `${d.getFullYear()}-${smPad2(d.getMonth()+1)}-${smPad2(d.getDate())}`;}
+
+function setSalesPeriod(p){
+  salesActivePeriod=p;
+  const today=new Date();
+  let from=new Date(today);
+  const to=new Date(today);
+  if(p==='today'){/* from=today already */}
+  else if(p==='week'){const day=(from.getDay()+6)%7;from.setDate(from.getDate()-day);}
+  else if(p==='month'){from=new Date(today.getFullYear(),today.getMonth(),1);}
+  else if(p==='year'){from=new Date(today.getFullYear(),0,1);}
+  document.getElementById('sm-date-from').value=smFmtDateInput(from);
+  document.getElementById('sm-date-to').value=smFmtDateInput(to);
+  updateSalesPeriodButtons();
+  loadSalesMetrics();
+}
+function updateSalesPeriodButtons(){
+  ['today','week','month','year'].forEach(p=>{
+    const b=document.getElementById('sm-period-'+p);
+    if(b)b.classList.toggle('active',salesActivePeriod===p);
+  });
+}
+function clearSalesPeriodActive(){
+  salesActivePeriod=null;
+  updateSalesPeriodButtons();
+}
+function setSalesTrend(t){
+  salesTrendBy=t;
+  document.getElementById('sm-trend-day').classList.toggle('active',t==='day');
+  document.getElementById('sm-trend-month').classList.toggle('active',t==='month');
+  loadSalesMetrics();
+}
+function smPeriodKey(dateStr,by){
+  const d=new Date(dateStr);
+  if(by==='day')return `${d.getFullYear()}-${smPad2(d.getMonth()+1)}-${smPad2(d.getDate())}`;
+  return `${d.getFullYear()}-${smPad2(d.getMonth()+1)}`;
+}
+function smPeriodLabel(key,by){
+  const parts=key.split('-');
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if(by==='day')return `${parts[2]}/${parts[1]}`;
+  return `${months[parseInt(parts[1],10)-1]} ${parts[0]}`;
+}
+async function ensureSalesClientOptions(){
+  const sel=document.getElementById('sm-client');
+  if(!sel)return;
+  try{
+    const rows=await sbGet('users','deleted_at=is.null&order=username.asc');
+    rows.forEach(u=>{if(u.display_name)usersDisplayNameMap[u.username]=u.display_name;});
+    const nonAdmin=rows.filter(u=>u.username!==ADMIN_USERNAME);
+    const current=sel.value;
+    sel.innerHTML='<option value="">All clients</option>'+nonAdmin.map(u=>`<option value="${u.username}">${displayNameFor(u.username)}</option>`).join('');
+    sel.value=nonAdmin.some(u=>u.username===current)?current:'';
+  }catch(e){}
+}
+function smBarChart(canvasId,existing,labels,data,color){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas)return existing;
+  if(existing)existing.destroy();
+  return new Chart(canvas.getContext('2d'),{
+    type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:color,borderRadius:4,maxBarThickness:26}]},
+    options:{
+      indexAxis:'y',
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{beginAtZero:true,ticks:{precision:0}}}
+    }
+  });
+}
+function smTrendChart(labels,data){
+  const canvas=document.getElementById('sm-chart-trend');
+  if(!canvas)return null;
+  if(salesChartTrend)salesChartTrend.destroy();
+  return new Chart(canvas.getContext('2d'),{
+    type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:'#1D9E75',borderRadius:4,maxBarThickness:44}]},
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{y:{beginAtZero:true,ticks:{precision:0}}}
+    }
+  });
+}
+async function loadSalesMetrics(){
+  await ensureSalesClientOptions();
+  const clientEl=document.getElementById('sm-client');
+  const fromEl=document.getElementById('sm-date-from');
+  const toEl=document.getElementById('sm-date-to');
+  if(!clientEl||!fromEl||!toEl)return;
+  const client=clientEl.value;
+  const fromVal=fromEl.value;
+  const toVal=toEl.value;
+
+  let query='status=eq.delivered&deleted_at=is.null';
+  if(client)query+=`&username=eq.${encodeURIComponent(client)}`;
+  if(fromVal)query+=`&delivered_at=gte.${fromVal}T00:00:00`;
+  if(toVal)query+=`&delivered_at=lte.${toVal}T23:59:59.999`;
+  query+='&order=delivered_at.asc';
+
+  let rows=[];
+  try{rows=await sbGet('orders_history',query);}catch(e){rows=[];}
+
+  const ordersCount=rows.length;
+  const perProduct={};
+  const trendBuckets={};
+  let unitsSold=0;
+  rows.forEach(o=>{
+    let rowUnits=0;
+    Object.entries(o.items||{}).forEach(([id,q])=>{
+      const qty=Number(q)||0;
+      perProduct[id]=(perProduct[id]||0)+qty;
+      rowUnits+=qty;
+    });
+    unitsSold+=rowUnits;
+    if(o.delivered_at){
+      const key=smPeriodKey(o.delivered_at,salesTrendBy);
+      trendBuckets[key]=(trendBuckets[key]||0)+rowUnits;
+    }
+  });
+  const productsSoldCount=Object.values(perProduct).filter(q=>q>0).length;
+
+  document.getElementById('sm-kpi-orders').textContent=ordersCount;
+  document.getElementById('sm-kpi-units').textContent=unitsSold;
+  document.getElementById('sm-kpi-products').textContent=productsSoldCount;
+
+  const contentEl=document.getElementById('sm-content');
+  const emptyEl=document.getElementById('sm-empty');
+  if(!ordersCount){
+    contentEl.style.display='none';
+    emptyEl.style.display='block';
+    salesLastAggregate=null;
+    return;
+  }
+  contentEl.style.display='block';
+  emptyEl.style.display='none';
+
+  const catalog=allProducts.map(p=>({id:p.id,name:p.name+fmtDesc(p.description),qty:perProduct[p.id]||0}));
+  const best=[...catalog].sort((a,b)=>b.qty-a.qty).slice(0,10);
+  const worst=[...catalog].sort((a,b)=>a.qty-b.qty).slice(0,10);
+
+  salesChartBest=smBarChart('sm-chart-best',salesChartBest,best.map(p=>p.name),best.map(p=>p.qty),'#1D9E75');
+  salesChartWorst=smBarChart('sm-chart-worst',salesChartWorst,worst.map(p=>p.name),worst.map(p=>p.qty),'#DC2626');
+
+  const trendKeys=Object.keys(trendBuckets).sort();
+  const trendLabels=trendKeys.map(k=>smPeriodLabel(k,salesTrendBy));
+  const trendData=trendKeys.map(k=>trendBuckets[k]);
+  salesChartTrend=smTrendChart(trendLabels,trendData);
+
+  salesLastAggregate={
+    ordersCount,unitsSold,productsSoldCount,best,worst,trendLabels,trendData,
+    client:client?displayNameFor(client):'All clients',
+    fromVal,toVal
+  };
+}
+function printSalesMetricsPDF(){
+  if(!salesLastAggregate){alert('No data to print for the current filters.');return;}
+  const a=salesLastAggregate;
+  const periodStr=(a.fromVal||a.toVal)?`${a.fromVal||'…'} → ${a.toVal||'…'}`:'All time';
+  const rowHtml=(label,val)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;text-align:right;font-weight:700;">${val}</td></tr>`;
+  const bestRows=a.best.map(p=>rowHtml(p.name,p.qty)).join('');
+  const worstRows=a.worst.map(p=>rowHtml(p.name,p.qty)).join('');
+  const html=`
+    <div style="max-width:760px;margin:0 auto;">
+      <h1 style="font-size:22px;margin-bottom:4px;">📊 Sales Metrics</h1>
+      <p style="font-size:13px;color:#555;margin-bottom:20px;">Client: <b>${a.client}</b> &nbsp;•&nbsp; Period: <b>${periodStr}</b></p>
+      <div style="display:flex;gap:16px;margin-bottom:24px;">
+        <div style="flex:1;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Delivered orders</div><div style="font-size:22px;font-weight:800;">${a.ordersCount}</div></div>
+        <div style="flex:1;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Units sold</div><div style="font-size:22px;font-weight:800;">${a.unitsSold}</div></div>
+        <div style="flex:1;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Products sold</div><div style="font-size:22px;font-weight:800;">${a.productsSoldCount}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div>
+          <h3 style="font-size:14px;margin-bottom:8px;">⬆ Best sellers</h3>
+          <table style="width:100%;border-collapse:collapse;">${bestRows}</table>
+        </div>
+        <div>
+          <h3 style="font-size:14px;margin-bottom:8px;">⬇ Worst sellers</h3>
+          <table style="width:100%;border-collapse:collapse;">${worstRows}</table>
+        </div>
+      </div>
+    </div>`;
+  const area=document.getElementById('pdf-print-area');
+  area.innerHTML=html;
+  area.style.display='block';
+  window._pdfOrigTitle=document.title;
+  document.title='Matteo Orders - Sales Metrics';
+  requestAnimationFrame(()=>setTimeout(()=>{
+    window.print();
+    document.getElementById('pdf-back-btn-wrap').style.display='block';
+  },150));
 }
 
 // ── ADMIN: TRASH ──
