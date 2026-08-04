@@ -320,32 +320,32 @@
       <div class="notif-bell-wrap" id="admin-menu-wrap" style="display:none;">
         <button class="btn-sm" onclick="toggleAdminMenu()">⚙️ Menu</button>
         <div class="notif-dropdown" id="admin-menu-dropdown">
-          <div class="notif-dropdown-header">Admin</div>
-          <div class="notif-item" onclick="event.stopPropagation();goAdminMenu('users')">
+          <div class="notif-dropdown-header" id="admin-menu-header">Admin</div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('users')">
             <div class="notif-item-title">👥 Users</div>
             <div class="notif-item-text">Manage client accounts</div>
           </div>
-          <div class="notif-item" onclick="event.stopPropagation();goAdminMenu('products')">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('products')">
             <div class="notif-item-title">📦 Products</div>
             <div class="notif-item-text">Edit catalogue</div>
           </div>
-          <div class="notif-item" onclick="event.stopPropagation();goAdminMenu('trash')">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('trash')">
             <div class="notif-item-title">🗑 Trash <span class="notif-badge" id="trash-badge" style="display:inline-flex;position:static;margin-left:6px;">0</span></div>
             <div class="notif-item-text">Deleted orders</div>
           </div>
-          <div class="notif-item" onclick="event.stopPropagation();goAdminMenu('sales')">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('sales')">
             <div class="notif-item-title">📊 Sales Metrics</div>
             <div class="notif-item-text">Best/worst sellers by client & date</div>
           </div>
-          <div class="notif-item" onclick="event.stopPropagation();openCutoffSettings()">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();openCutoffSettings()">
             <div class="notif-item-title">⏰ Cut-off Settings</div>
             <div class="notif-item-text" id="cutoff-menu-status">Mon & Thu at 12:00 PM</div>
           </div>
-          <div class="notif-item" onclick="event.stopPropagation();openBackupHistory()">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();openBackupHistory()">
             <div class="notif-item-title">🗄️ Backup History</div>
             <div class="notif-item-text" id="backup-menu-status">Monthly confirmation log</div>
           </div>
-          <div class="notif-item" onclick="event.stopPropagation();document.getElementById('admin-menu-dropdown').classList.remove('open');showAdminTab('chat')">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('admin-menu-dropdown').classList.remove('open');showAdminTab('chat')">
             <div class="notif-item-title">💬 Chat</div>
             <div class="notif-item-text">Messages to clients</div>
           </div>
@@ -1010,6 +1010,13 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
       <label>Name on PDF / Excel <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(optional — e.g. "01 - Battersea". Leave blank to just use the username)</span></label>
       <input type="text" id="edit-display-name" placeholder="e.g. 01 - Battersea" style="margin-top:6px;"/>
     </div>
+    <div class="field" style="background:var(--green-light);border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 12px;">
+      <label style="display:flex;align-items:center;gap:9px;font-size:13px;cursor:pointer;font-weight:500;">
+        <input type="checkbox" id="edit-user-kitchen" style="width:16px;height:16px;accent-color:var(--green);cursor:pointer;flex-shrink:0;"/>
+        🍳 Kitchen staff (sub-admin)
+      </label>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;margin-left:25px;">Gets access to New Orders, In Production, Delivery and Complete only — no Users, Products, Trash, Sales Metrics or Settings. Keeps the 👁 online-clients button, no notification bell.</div>
+    </div>
     <div class="field">
       <label style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;">
         <span>Visible categories</span>
@@ -1181,7 +1188,12 @@ async function sbDeleteReturning(t,q){
 }
 
 // ── STATE ──
-let currentUser=null,isAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null,editingExistingOrderId=null;
+let currentUser=null,isAdmin=false,isKitchenAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null,editingExistingOrderId=null;
+// "Staff" = full admin OR Kitchen sub-admin — both get the same 4 operational tabs
+// (New Orders / In Production / Delivery / Complete) and the same order-management
+// actions. Only true admin (isAdmin) gets the notification bell and the rest of the
+// admin menu (Users / Products / Trash / Sales Metrics / Settings / Chat).
+function isStaff(){return isAdmin||isKitchenAdmin;}
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
 
 // ── CLOUDFLARE WORKER CALL (user management) ──
@@ -1339,16 +1351,19 @@ function updateBanner(){
     if(isAdmin){
       b.className='banner admin-mode';
       m.textContent=`🔑 Admin mode — closed day for clients (no orders on ${DAYS[new Date().getDay()]}).`;
+    } else if(isKitchenAdmin){
+      b.className='banner admin-mode';
+      m.textContent=`🍳 Kitchen mode — closed day for clients (no orders on ${DAYS[new Date().getDay()]}).`;
     } else {
       b.className='banner closed';
       m.textContent=`🚫 Orders closed today (${DAYS[new Date().getDay()]}) — we don't take orders this day. Please try again on another day.`;
     }
   } else if(!cs.enabled){
     b.className='banner open';
-    m.textContent=isAdmin?'🔑 Admin — orders always open (cut-off disabled).':'✅ Orders always open — no cut-off active.';
-  } else if(isAdmin&&!isOrderOpen()){
+    m.textContent=isAdmin?'🔑 Admin — orders always open (cut-off disabled).':(isKitchenAdmin?'🍳 Kitchen — orders always open (cut-off disabled).':'✅ Orders always open — no cut-off active.');
+  } else if((isAdmin||isKitchenAdmin)&&!isOrderOpen()){
     b.className='banner admin-mode';
-    m.textContent='🔑 Admin mode — orders closed for clients.';
+    m.textContent=isAdmin?'🔑 Admin mode — orders closed for clients.':'🍳 Kitchen mode — orders closed for clients.';
   } else if(isOrderOpen()){
     b.className='banner open';
     m.textContent=isCutDay()?`✅ Orders open — cut-off ${cutoffTimeStr()} (${DAYS[new Date().getDay()]}). ${timeLeft()} remaining.`:`✅ Orders open — no cut-off today (${DAYS[new Date().getDay()]}). Cut-off: ${cutoffDaysStr()}.`;
@@ -1375,13 +1390,14 @@ async function init(){
       currentUser=u;
       currentUserId=data.session.user.id;
       isAdmin=(u===ADMIN_USERNAME);
+      isKitchenAdmin=isAdmin?false:await fetchIsKitchenAdmin(u);
       try{
         await launch();
         return;
       }catch(launchErr){
         // Session might be stale/invalid - sign out and show login
         try{await sbClient.auth.signOut();}catch(e){}
-        currentUser=null;currentUserId=null;isAdmin=false;
+        currentUser=null;currentUserId=null;isAdmin=false;isKitchenAdmin=false;
       }
     }
   }catch(e){/* fall through to login */}
@@ -1394,6 +1410,15 @@ async function isUserDeleted(username){
   try{
     const rows=await sbGet('users',`username=ilike.${encodeURIComponent(username)}`);
     return !!(rows[0]&&rows[0].deleted_at);
+  }catch(e){return false;}
+}
+// "Kitchen" accounts are a sub-admin role (see Users → Edit → 🍳 Kitchen staff): same
+// order-management tabs as the real admin, but without Users/Products/Trash/Sales
+// Metrics/Settings/Chat and without the notification bell.
+async function fetchIsKitchenAdmin(username){
+  try{
+    const rows=await sbGet('users',`username=ilike.${encodeURIComponent(username)}`);
+    return !!(rows[0]&&rows[0].role==='kitchen');
   }catch(e){return false;}
 }
 async function doLogin(){
@@ -1414,6 +1439,7 @@ async function doLogin(){
       currentUser=u;
       currentUserId=data.user.id;
       isAdmin=(u===ADMIN_USERNAME);
+      isKitchenAdmin=isAdmin?false:await fetchIsKitchenAdmin(u);
       await launch();
     }
   }catch(e){err.textContent='Connection error. Please try again.';err.style.display='block';}
@@ -1483,13 +1509,19 @@ async function launch(){
   document.getElementById('loading-screen').style.display='none';
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='block';
-  document.getElementById('user-badge').textContent=isAdmin?'👑 admin':currentUser;
-  document.getElementById('cart-toggle-btn').style.display=isAdmin?'none':'';
-  document.getElementById('client-menu-wrap').style.display=isAdmin?'none':'inline-block';
-  document.getElementById('admin-menu-wrap').style.display=isAdmin?'inline-block':'none';
-  document.getElementById('client-tabs').style.display=isAdmin?'none':'flex';
-  document.getElementById('admin-tabs').style.display=isAdmin?'flex':'none';
-  document.getElementById('tab-order').style.display=isAdmin?'none':'block';
+  const staff=isStaff();
+  document.getElementById('user-badge').textContent=isAdmin?'👑 admin':(isKitchenAdmin?'🍳 '+(displayNameFor(currentUser)||currentUser):currentUser);
+  document.getElementById('cart-toggle-btn').style.display=staff?'none':'';
+  document.getElementById('client-menu-wrap').style.display=staff?'none':'inline-block';
+  document.getElementById('admin-menu-wrap').style.display=staff?'inline-block':'none';
+  document.getElementById('client-tabs').style.display=staff?'none':'flex';
+  document.getElementById('admin-tabs').style.display=staff?'flex':'none';
+  document.getElementById('tab-order').style.display=staff?'none':'block';
+  // Kitchen sub-admins only see the 4 operational tabs via the admin menu — hide
+  // every other admin-menu item and show just "Sign out".
+  document.querySelectorAll('.admin-menu-full-item').forEach(el=>{el.style.display=isAdmin?'':'none';});
+  const menuHeader=document.getElementById('admin-menu-header');
+  if(menuHeader)menuHeader.textContent=isAdmin?'Admin':(isKitchenAdmin?'Kitchen':'Menu');
   if(isAdmin){
     showAdminTab('orders');
     await checkAdminPendingNotifications();
@@ -1505,6 +1537,15 @@ async function launch(){
     setInterval(checkAdminPendingNotifications,30000);
     checkOnlineClients();
     setInterval(checkOnlineClients,15000); // keeps the 👁 count fresh on every admin tab, not just Users
+  } else if(isKitchenAdmin){
+    // Same 4 operational tabs as admin, no notification bell, keeps the 👁 online-clients button.
+    showAdminTab('orders');
+    loadCompleteBadge();
+    fetchDisplayNameMap();
+    sbGet('orders_history','status=eq.in_production&deleted_at=is.null').then(r=>{const b=document.getElementById('inproduction-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
+    sbGet('orders_history','status=eq.completed&deleted_at=is.null').then(r=>{const b=document.getElementById('delivery-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
+    checkOnlineClients();
+    setInterval(checkOnlineClients,15000);
   } else {
     // Load user's visible categories, products restriction AND cut-off override
     try{
@@ -1723,7 +1764,7 @@ function openOnlineDropdown(){
   checkOnlineClients();
 }
 function goHome(){
-  if(isAdmin){
+  if(isStaff()){
     showAdminTab('orders', document.querySelectorAll('#admin-tabs .tab')[0]);
   } else {
     showClientTab('order', document.querySelectorAll('#client-tabs .tab')[0]);
@@ -2365,7 +2406,11 @@ function editOrderFromHistory(orderId){
 
 // ── ADMIN TABS ──
 let _usersPollInterval=null;
+const KITCHEN_ALLOWED_TABS=['orders','completed','delivery','complete'];
 function showAdminTab(t,el){
+  // Kitchen sub-admins only ever get the 4 operational tabs — even if something
+  // tries to navigate elsewhere (e.g. a stale menu click), fall back to New Orders.
+  if(isKitchenAdmin&&!KITCHEN_ALLOWED_TABS.includes(t)){t='orders';el=null;}
   ['orders','completed','users','products','trash','chat','delivery','complete','sales'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
@@ -4496,7 +4541,7 @@ async function loadUsers(){
             <button onclick="moveUser('${u.username}',1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move down">⌄</button>
           </div>
           ${dot}
-          ${u.username}${u.display_name?` <span style="color:var(--text-tertiary);font-size:11px;font-weight:400;">(${u.display_name})</span>`:''}
+          ${u.username}${u.display_name?` <span style="color:var(--text-tertiary);font-size:11px;font-weight:400;">(${u.display_name})</span>`:''}${u.role==='kitchen'?` <span style="background:var(--green-light);color:var(--green-dark);font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;">🍳 Kitchen</span>`:''}
         </span>
         <span style="font-family:monospace">${u.password}</span>
         <button class="btn-sm" onclick="openEditUser('${u.username}','${u.auth_user_id||''}')">✏️ Edit</button>
@@ -4538,7 +4583,7 @@ function isUserOnline(u){
 // Polls who's online and updates the 👁 button in the topbar (visible on every admin
 // tab, not just Users) — separate from loadUsers() so the count stays fresh everywhere.
 async function checkOnlineClients(){
-  if(!isAdmin)return;
+  if(!isStaff())return;
   document.getElementById('online-bell-wrap').style.display='inline-block';
   try{
     const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
@@ -4733,10 +4778,12 @@ function openEditUser(username,authUserId){
   document.getElementById('edit-username').value=username;
   document.getElementById('edit-password').value='';
   document.getElementById('edit-display-name').value='';
+  document.getElementById('edit-user-kitchen').checked=false;
   document.getElementById('edit-user-error').style.display='none';
   document.getElementById('edit-user-products').innerHTML='<div style="font-size:12px;color:var(--text-tertiary);">Loading...</div>';
   sbGet('users',`username=eq.${encodeURIComponent(username)}`).then(rows=>{
     document.getElementById('edit-display-name').value=(rows[0]&&rows[0].display_name)||'';
+    document.getElementById('edit-user-kitchen').checked=!!(rows[0]&&rows[0].role==='kitchen');
     const userCats=(rows[0]&&rows[0].visible_categories)||[];
     const userProds=(rows[0]&&rows[0].visible_products)||[];
     const userProdSet=new Set(userProds.map(String));
@@ -4816,7 +4863,8 @@ async function saveUserSettings(){
     const updatePayload={
       visible_categories:selectedCats.length?selectedCats:null,
       visible_products:selectedProds.length?selectedProds:null,
-      display_name:document.getElementById('edit-display-name').value.trim()||null
+      display_name:document.getElementById('edit-display-name').value.trim()||null,
+      role:document.getElementById('edit-user-kitchen').checked?'kitchen':null
     };
     if(newUsername!==editingUsername) updatePayload.username=newUsername;
     await sbPatch('users',`username=eq.${encodeURIComponent(editingUsername)}`,updatePayload);
