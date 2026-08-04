@@ -4293,6 +4293,15 @@ function generateSalesMetricsPDF(){
   const a=salesLastAggregate;
   const periodStr=(a.fromVal||a.toVal)?`${a.fromVal||'…'} → ${a.toVal||'…'}`:'All time';
   const rowHtml=(label,val)=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;">${label}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;text-align:right;font-weight:700;">${val}</td></tr>`;
+  // Chart.js draws to <canvas>, and a fresh HTML string built for the print area
+  // never carries live canvases with it — only a snapshot image will. toBase64Image()
+  // captures exactly what's currently on screen as a PNG data URL we can embed.
+  const chartImg=(chart,maxWidth)=>{
+    if(!chart)return '';
+    try{
+      return `<img src="${chart.toBase64Image('image/png',1)}" style="width:100%;max-width:${maxWidth||'100%'};display:block;margin:0 auto 12px;"/>`;
+    }catch(e){return '';}
+  };
 
   let sections='';
 
@@ -4310,12 +4319,14 @@ function generateSalesMetricsPDF(){
     if(opts.best){
       sections+=`<div>
         <h3 style="font-size:14px;margin-bottom:8px;">⬆ Best sellers</h3>
+        ${chartImg(salesChartBest)}
         <table style="width:100%;border-collapse:collapse;">${a.best.map(p=>rowHtml(p.name,p.qty)).join('')}</table>
       </div>`;
     }
     if(opts.worst){
       sections+=`<div>
         <h3 style="font-size:14px;margin-bottom:8px;">⬇ Worst sellers</h3>
+        ${chartImg(salesChartWorst)}
         <table style="width:100%;border-collapse:collapse;">${a.worst.map(p=>rowHtml(p.name,p.qty)).join('')}</table>
       </div>`;
     }
@@ -4323,8 +4334,9 @@ function generateSalesMetricsPDF(){
   }
 
   if(opts.trend&&a.trendLabels&&a.trendLabels.length){
-    sections+=`<div style="margin-bottom:24px;">
+    sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">📈 Sales over time <span style="font-weight:400;font-size:11px;color:#888;">(units sold per period)</span></h3>
+      ${chartImg(salesChartTrend,'520px')}
       <table style="width:100%;max-width:360px;border-collapse:collapse;">${a.trendLabels.map((l,i)=>rowHtml(l,a.trendData[i])).join('')}</table>
     </div>`;
   }
@@ -4336,9 +4348,10 @@ function generateSalesMetricsPDF(){
       const name=e.isOthers?`Others (${b.restCount} client${b.restCount===1?'':'s'})`:displayNameFor(e.username);
       return `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;">${name}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;text-align:right;">${e.qty}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:13px;text-align:right;font-weight:700;">${pct}%</td></tr>`;
     }).join('');
-    sections+=`<div style="margin-bottom:24px;">
+    sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:4px;">🥧 Sales by client — ${b.productName}</h3>
       <p style="font-size:12px;color:#666;margin-bottom:8px;">${b.isPack?'Total packs sold':'Total units sold'}: <b>${b.total}</b></p>
+      <div style="display:flex;justify-content:center;">${chartImg(salesChartBreakdown,'280px')}</div>
       <table style="width:100%;max-width:460px;border-collapse:collapse;">
         <tr><th style="text-align:left;padding:6px 12px;font-size:11px;color:#888;text-transform:uppercase;">Client</th><th style="text-align:right;padding:6px 12px;font-size:11px;color:#888;text-transform:uppercase;">Qty</th><th style="text-align:right;padding:6px 12px;font-size:11px;color:#888;text-transform:uppercase;">%</th></tr>
         ${rows}
@@ -4358,9 +4371,10 @@ function generateSalesMetricsPDF(){
       }).join('');
       tableHtml=`<table style="width:100%;border-collapse:collapse;margin-top:12px;"><tr>${header}</tr>${rows}</table>`;
     }
-    sections+=`<div style="margin-bottom:24px;">
+    sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">🆚 Compare clients</h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">${cardHtml}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${cardHtml}</div>
+      ${chartImg(salesChartCompare)}
       ${tableHtml}
     </div>`;
   }
