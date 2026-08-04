@@ -333,6 +333,10 @@
             <div class="notif-item-title">🗑 Trash <span class="notif-badge" id="trash-badge" style="display:inline-flex;position:static;margin-left:6px;">0</span></div>
             <div class="notif-item-text">Deleted orders</div>
           </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('activity')">
+            <div class="notif-item-title">🍳 Kitchen Activity</div>
+            <div class="notif-item-text">Order changes made by Kitchen staff</div>
+          </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('sales')">
             <div class="notif-item-title">📊 Sales Metrics</div>
             <div class="notif-item-text">Best/worst sellers by client & date</div>
@@ -545,6 +549,23 @@
         <h3 style="font-size:15px;margin-bottom:10px;">👤 Deleted Users</h3>
         <div id="trash-users-list"></div>
       </div>
+    </div>
+
+    <!-- ADMIN: KITCHEN ACTIVITY LOG -->
+    <div id="tab-activity" style="display:none;">
+      <div class="section-toolbar">
+        <h2>🍳 Kitchen Activity</h2>
+        <button class="btn-sm" onclick="loadActivityLog()">↻ Refresh</button>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Every order move and item change made by a Kitchen staff account, most recent first.</p>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--text-secondary);">From:</span>
+        <input type="date" id="activity-date-from" onchange="loadActivityLog()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+        <span style="font-size:12px;color:var(--text-secondary);">To:</span>
+        <input type="date" id="activity-date-to" onchange="loadActivityLog()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+        <button class="btn-sm" onclick="document.getElementById('activity-date-from').value='';document.getElementById('activity-date-to').value='';loadActivityLog();" style="color:var(--text-secondary);">✕ Clear dates</button>
+      </div>
+      <div id="activity-log-list"><div class="empty-state">Loading...</div></div>
     </div>
 
     <!-- ADMIN: SALES METRICS -->
@@ -1195,6 +1216,51 @@ let currentUser=null,isAdmin=false,isKitchenAdmin=false,currentUserId=null,cart=
 // admin menu (Users / Products / Trash / Sales Metrics / Settings / Chat).
 function isStaff(){return isAdmin||isKitchenAdmin;}
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
+
+// ── KITCHEN ACTIVITY LOG ──
+// Every status move (between New Orders / In Production / Delivery / Complete) and
+// every item addition/removal/qty change made by a Kitchen sub-admin gets recorded
+// here, so the real admin can review it later (Menu → Kitchen Activity). Best-effort
+// only — never blocks the action itself if the log write fails. Scoped to Kitchen
+// accounts specifically (isKitchenAdmin), per how this was requested — the real
+// admin's own actions aren't logged here.
+async function logKitchenActivity(order,action,details){
+  if(!isKitchenAdmin||!details)return;
+  try{
+    await sbPost('order_activity_log',{
+      order_id:String(order&&order.id!=null?order.id:''),
+      order_number:(order&&order.order_number)?String(order.order_number):null,
+      client_username:(order&&order.username)||null,
+      performed_by:currentUser,
+      action,
+      details
+    });
+  }catch(e){/* never block the underlying action on a logging failure */}
+}
+function findOrderAnyCache(id){
+  return (typeof allOrdersCache!=='undefined'&&allOrdersCache.find(o=>o.id===id))
+    ||(typeof completedOrdersCache!=='undefined'&&completedOrdersCache.find(o=>o.id===id))
+    ||(typeof deliveryOrdersCache!=='undefined'&&deliveryOrdersCache.find(o=>o.id===id))
+    ||(typeof completeOrdersCache!=='undefined'&&completeOrdersCache.find(o=>o.id===id))
+    ||null;
+}
+// Compares an order's items before/after a save and returns a short, human-readable
+// list of what changed (added / removed / qty updated) for the activity log.
+function summarizeItemsDiff(oldItems,newItems){
+  const ids=new Set([...Object.keys(oldItems||{}),...Object.keys(newItems||{})]);
+  const changes=[];
+  ids.forEach(id=>{
+    const before=Number((oldItems||{})[id])||0;
+    const after=Number((newItems||{})[id])||0;
+    if(before===after)return;
+    const p=allProducts.find(x=>String(x.id)===String(id));
+    const name=p?p.name+fmtDesc(p.description):('#'+id);
+    if(before===0)changes.push(`+ Added ${name} x${after}`);
+    else if(after===0)changes.push(`− Removed ${name} (was x${before})`);
+    else changes.push(`${name}: ${before} → ${after}`);
+  });
+  return changes;
+}
 
 // ── CLOUDFLARE WORKER CALL (user management) ──
 async function workerCall(path,body){
@@ -2414,7 +2480,7 @@ function showAdminTab(t,el){
   // Kitchen sub-admins only ever get the 4 operational tabs — even if something
   // tries to navigate elsewhere (e.g. a stale menu click), fall back to New Orders.
   if(isKitchenAdmin&&!KITCHEN_ALLOWED_TABS.includes(t)){t='orders';el=null;}
-  ['orders','completed','users','products','trash','chat','delivery','complete','sales'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -2427,6 +2493,7 @@ function showAdminTab(t,el){
   if(t==='users'){loadUsers();}
   if(t==='products')loadAdminProducts();
   if(t==='trash'){loadTrash();loadTrashedUsers();}
+  if(t==='activity'){loadActivityLog();}
   if(t==='sales'){
     const fromEl=document.getElementById('sm-date-from');
     if(fromEl&&!fromEl.value){setSalesPeriod('year');}else{loadSalesMetrics();}
@@ -2550,12 +2617,14 @@ async function updateOrderItem(orderId,productId,newVal){
   const order=allOrdersCache.find(o=>o.id===orderId);
   if(!order)return;
   await saveOriginalIfNeeded(order);
+  const oldItems={...order.items};
   const items={...order.items};
   if(q<=0)delete items[productId];else items[productId]=q;
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     order.items=items;
     renderOrdersList();
+    logKitchenActivity(order,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error updating order.');}
 }
 async function addItemToOrder(orderId){
@@ -2567,12 +2636,14 @@ async function addItemToOrder(orderId){
   const order=allOrdersCache.find(o=>o.id===orderId);
   if(!order)return;
   await saveOriginalIfNeeded(order);
+  const oldItems={...order.items};
   const items={...order.items};
   items[productId]=(items[productId]||0)+qty;
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     order.items=items;
     renderOrdersList();
+    logKitchenActivity(order,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error adding item to order.');}
 }
 function openAcceptModal(id){
@@ -2582,9 +2653,11 @@ function openAcceptModal(id){
 }
 async function confirmAccept(){
   const msg=document.getElementById('accept-message').value.trim();
+  const order=findOrderAnyCache(refusingOrderId);
   try{
     await sbPatch('orders_history',`id=eq.${refusingOrderId}`,{status:'accepted',admin_message:msg||null,message_read:false,refuse_reason:null});
     closeModal('accept-modal');loadAdminOrders();
+    logKitchenActivity(order||{id:refusingOrderId},'status_change','Accepted order'+(msg?` — note: "${msg}"`:''));
   }catch(e){alert('Error accepting order.');}
 }
 function openRefuseModal(id){
@@ -2594,14 +2667,20 @@ function openRefuseModal(id){
 }
 async function confirmRefuse(){
   const reason=document.getElementById('refuse-reason').value.trim();
+  const order=findOrderAnyCache(refusingOrderId);
   try{
     await sbPatch('orders_history',`id=eq.${refusingOrderId}`,{status:'refused',refuse_reason:reason||null,admin_message:reason||null,message_read:false});
     closeModal('refuse-modal');loadAdminOrders();
+    logKitchenActivity(order||{id:refusingOrderId},'status_change','Refused order'+(reason?` — reason: "${reason}"`:''));
   }catch(e){alert('Error refusing order.');}
 }
 async function setOrderStatus(id,status){
-  try{await sbPatch('orders_history',`id=eq.${id}`,{status,refuse_reason:null,admin_message:null,message_read:true});loadAdminOrders();}
-  catch(e){alert('Error updating order.');}
+  const order=findOrderAnyCache(id);
+  try{
+    await sbPatch('orders_history',`id=eq.${id}`,{status,refuse_reason:null,admin_message:null,message_read:true});
+    loadAdminOrders();
+    logKitchenActivity(order||{id},'status_change',`Set status to "${status}"`);
+  }catch(e){alert('Error updating order.');}
 }
 
 // ── CLEAR ALL (with password) ──
@@ -2790,10 +2869,12 @@ function renderIPList(){
   }).join('');
 }
 async function completeOrder(id){
+  const order=findOrderAnyCache(id);
   try{
     await sbPatch('orders_history',`id=eq.${id}`,{status:'in_production',message_read:false});
     loadAdminOrders();
     loadCompletedOrders();
+    logKitchenActivity(order||{id},'status_change','Moved to In Production');
   }catch(e){alert('Error: '+e.message);}
 }
 async function completeSelectedOrders(){
@@ -2806,16 +2887,18 @@ async function completeSelectedOrders(){
   try{
     for(const o of selected){
       await sbPatch('orders_history',`id=eq.${o.id}`,{status:'completed'});
+      logKitchenActivity(o,'status_change','Moved to In Production');
     }
     document.getElementById('select-all-orders').checked=false;
     loadAdminOrders();
-    
+
   }catch(e){alert('Error completing orders: '+e.message);}
 }
 async function updateIPItem(orderId, productId, newQty){
   const qty=parseInt(newQty)||0;
   const o=completedOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
+  const oldItems={...o.items};
   const items={...o.items};
   if(qty<=0){delete items[productId];}
   else{items[productId]=qty;}
@@ -2823,18 +2906,21 @@ async function updateIPItem(orderId, productId, newQty){
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
     loadCompletedOrders();
+    logKitchenActivity(o,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error saving: '+e.message);}
 }
 
 async function removeIPItem(orderId, productId){
   const o=completedOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
+  const oldItems={...o.items};
   const items={...o.items};
   delete items[productId];
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
     loadCompletedOrders();
+    logKitchenActivity(o,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error removing: '+e.message);}
 }
 
@@ -2846,37 +2932,45 @@ async function addIPItem(orderId){
   if(!productId){alert('Select a product first.');return;}
   const o=completedOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
+  const oldItems={...o.items};
   const items={...o.items};
   items[productId]=(parseInt(items[productId])||0)+qty;
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
     loadCompletedOrders();
+    logKitchenActivity(o,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error adding: '+e.message);}
 }
 
 async function sendToDelivery(id){
   if(!confirm('Send this order to Delivery?'))return;
+  const order=findOrderAnyCache(id);
   try{
     await sbPatch('orders_history',`id=eq.${id}`,{status:'completed'});
     loadCompletedOrders();
     loadDeliveryOrders();
+    logKitchenActivity(order||{id},'status_change','Sent to Delivery');
   }catch(e){alert('Error: '+e.message);}
 }
 async function reactivateOrder(id){
   if(!confirm('Move this order back to New Orders (Accepted)?'))return;
+  const order=findOrderAnyCache(id);
   try{
     await sbPatch('orders_history',`id=eq.${id}`,{status:'accepted'});
     loadCompletedOrders();
     loadAdminOrders();
+    logKitchenActivity(order||{id},'status_change','Moved back to New Orders (Accepted)');
   }catch(e){alert('Error reactivating order: '+e.message);}
 }
 
 async function moveToInProduction(id){
+  const order=findOrderAnyCache(id);
   try{
     await sbPatch('orders_history',`id=eq.${id}`,{status:'in_production',message_read:false});
     loadAdminOrders();
     loadCompletedOrders();
+    logKitchenActivity(order||{id},'status_change','Moved to In Production');
   }catch(e){alert('Error: '+e.message);}
 }
 function toggleSelectAllCompleted(checked){
@@ -3221,6 +3315,7 @@ async function saveDeliveryNotes(){
   // Fetch current delivery_notes to preserve __original__
   const rows=await sbGet('orders_history',`id=eq.${deliveryOrderId}`);
   const currentNotes=(rows[0]&&rows[0].delivery_notes)||{};
+  const oldItems=(rows[0]&&rows[0].items)||{};
   const notes={};
   // Preserve __original__
   if(currentNotes.__original__)notes.__original__=currentNotes.__original__;
@@ -3233,6 +3328,8 @@ async function saveDeliveryNotes(){
     await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{delivery_notes:notes,items});
     const el=document.getElementById('delivery-saved');
     if(el){el.textContent='✓ Saved';el.style.display='block';setTimeout(()=>el.style.display='none',2000);}
+    const diff=summarizeItemsDiff(oldItems,items);
+    if(diff.length)logKitchenActivity(rows[0]||{id:deliveryOrderId},'items_changed',diff.join('; '));
   }catch(e){alert('Error saving: '+e.message);}
 }
 
@@ -3567,6 +3664,7 @@ async function printDeliveryPDF(){
 async function backToProduction(){
   if(!deliveryOrderId){alert('No order selected.');return;}
   if(!confirm('Move this order back to In Production?'))return;
+  const order=deliveryOrdersCache.find(o=>o.id===deliveryOrderId)||{id:deliveryOrderId};
   try{
     await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'in_production'});
     document.getElementById('delivery-editor').innerHTML='';
@@ -3574,12 +3672,14 @@ async function backToProduction(){
     await loadDeliveryOrders();
     await loadCompletedOrders();
     showAdminTab('completed',document.querySelectorAll('#admin-tabs .tab')[1]);
+    logKitchenActivity(order,'status_change','Moved back to In Production');
   }catch(e){alert('Error: '+e.message);}
 }
 
 async function markDeliveryDone(){
   if(!deliveryOrderId){alert('No order selected.');return;}
   if(!confirm('Mark this delivery as complete? It will move to the Complete tab.'))return;
+  const order=deliveryOrdersCache.find(o=>o.id===deliveryOrderId)||{id:deliveryOrderId};
   try{
     await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'delivered',delivered_at:new Date().toISOString()});
     document.getElementById('delivery-editor').innerHTML='<div class="empty-state">Order marked as complete ✅</div>';
@@ -3588,6 +3688,7 @@ async function markDeliveryDone(){
     // Update complete badge
     loadCompleteBadge();
     alert('✅ Delivery marked as complete!');
+    logKitchenActivity(order,'status_change','Marked as delivered — moved to Complete');
   }catch(e){alert('Error: '+e.message);}
 }
 
@@ -3665,6 +3766,7 @@ async function updateCompleteItem(orderId, productId, newQty){
   const qty=parseInt(newQty)||0;
   const o=completeOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
+  const oldItems={...o.items};
   const items={...o.items};
   if(qty<=0){delete items[productId];}
   else{items[productId]=qty;}
@@ -3672,18 +3774,21 @@ async function updateCompleteItem(orderId, productId, newQty){
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
     loadCompleteOrders();
+    logKitchenActivity(o,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error saving: '+e.message);}
 }
 
 async function removeCompleteItem(orderId, productId){
   const o=completeOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
+  const oldItems={...o.items};
   const items={...o.items};
   delete items[productId];
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
     loadCompleteOrders();
+    logKitchenActivity(o,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error removing: '+e.message);}
 }
 
@@ -3695,12 +3800,14 @@ async function addCompleteItem(orderId){
   if(!productId){alert('Select a product first.');return;}
   const o=completeOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
+  const oldItems={...o.items};
   const items={...o.items};
   items[productId]=(parseInt(items[productId])||0)+qty;
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
     loadCompleteOrders();
+    logKitchenActivity(o,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error adding: '+e.message);}
 }
 
@@ -3799,11 +3906,13 @@ async function exportClientHistoryExcel(){
 
 async function backToDelivery(id){
   if(!confirm('Move this order back to Delivery?'))return;
+  const order=findOrderAnyCache(id);
   try{
     await sbPatch('orders_history',`id=eq.${id}`,{status:'completed'});
     await loadCompleteOrders();
     await loadDeliveryOrders();
     showAdminTab('delivery',document.querySelectorAll('#admin-tabs .tab')[2]);
+    logKitchenActivity(order||{id},'status_change','Moved back to Delivery');
   }catch(e){alert('Error: '+e.message);}
 }
 
@@ -4445,6 +4554,39 @@ function generateSalesMetricsPDF(){
     window.print();
     document.getElementById('pdf-back-btn-wrap').style.display='block';
   },150));
+}
+
+// ── ADMIN: KITCHEN ACTIVITY LOG (admin-only — see logKitchenActivity) ──
+const ACTIVITY_ACTION_ICON={status_change:'🔀',items_changed:'📝'};
+async function loadActivityLog(){
+  const el=document.getElementById('activity-log-list');
+  if(!el)return;
+  el.innerHTML='<div class="empty-state">Loading...</div>';
+  const fromVal=document.getElementById('activity-date-from')?.value;
+  const toVal=document.getElementById('activity-date-to')?.value;
+  let query='order=created_at.desc&limit=300';
+  if(fromVal)query+=`&created_at=gte.${fromVal}T00:00:00`;
+  if(toVal)query+=`&created_at=lte.${toVal}T23:59:59.999`;
+  let rows=[];
+  try{rows=await sbGet('order_activity_log',query);}
+  catch(e){el.innerHTML='<div class="empty-state">Error loading activity log.</div>';return;}
+  if(!rows.length){el.innerHTML='<div class="empty-state">No Kitchen activity recorded yet.</div>';return;}
+  el.innerHTML=rows.map(r=>{
+    const dt=r.created_at?new Date(r.created_at):null;
+    const dateStr=dt?(dt.toLocaleDateString('en-GB')+' '+dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):'';
+    const icon=ACTIVITY_ACTION_ICON[r.action]||'•';
+    const orderLabel=r.order_number?`#${r.order_number}`:(r.order_id?`#${r.order_id}`:'');
+    const clientLabel=r.client_username?displayNameFor(r.client_username):'';
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:13px;">
+          <b>${icon} ${r.performed_by||'kitchen'}</b>${orderLabel?` — Order ${orderLabel}`:''}${clientLabel?` <span style="color:var(--text-tertiary);">(${clientLabel})</span>`:''}
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);white-space:nowrap;">${dateStr}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-secondary);margin-top:4px;">${r.details||''}</div>
+    </div>`;
+  }).join('');
 }
 
 // ── ADMIN: TRASH ──
