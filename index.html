@@ -1279,16 +1279,26 @@ let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,ref
 // always the highest, and every raw `Object.entries(order.items)` silently pushed
 // it to the very end of every item list in the app instead of its real catalog
 // position. This sorts [id,qty] entries (as returned by Object.entries) into the
-// same category → sort_order → name order used for the catalog everywhere else,
-// via allProducts' own array order (it's always fetched pre-sorted that way).
-// Unknown/deleted product ids fall back to the end, in their original order.
+// real catalog order: CATEGORIES' own admin-configured order first (NOT
+// alphabetical — Supabase's `order=cat.asc` sorts by category slug text, which is
+// a different, wrong order), then each product's position within allProducts for
+// products in the same category (already sort_order/name sorted by the fetch
+// query). Unknown/deleted product ids and categories not in CATEGORIES fall back
+// to the end, in their original relative order (stable sort).
 function sortItemEntries(entries){
   const idx=new Map();
   allProducts.forEach((p,i)=>idx.set(String(p.id),i));
+  const catRank=new Map();
+  CATEGORIES.filter(c=>c.id!=='all').forEach((c,i)=>catRank.set(c.id,i));
+  const rankOf=(id)=>{
+    if(!idx.has(String(id)))return{cat:Infinity,pos:Infinity};
+    const pos=idx.get(String(id));
+    const p=allProducts[pos];
+    return{cat:catRank.has(p.cat)?catRank.get(p.cat):Infinity,pos};
+  };
   return [...entries].sort((a,b)=>{
-    const ia=idx.has(String(a[0]))?idx.get(String(a[0])):Infinity;
-    const ib=idx.has(String(b[0]))?idx.get(String(b[0])):Infinity;
-    return ia-ib;
+    const ra=rankOf(a[0]),rb=rankOf(b[0]);
+    return ra.cat!==rb.cat?ra.cat-rb.cat:ra.pos-rb.pos;
   });
 }
 
