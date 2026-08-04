@@ -168,7 +168,7 @@
   .btn-danger:hover{background:var(--red-light);border-radius:4px;}
   /* PRODUCTS TABLE */
   .prod-table{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
-  .prod-row{display:grid;grid-template-columns:36px 1fr 80px 90px 100px auto;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border-light);font-size:13px;gap:10px;}
+  .prod-row{display:grid;grid-template-columns:36px 1fr 80px 68px 68px 68px 90px 100px auto;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border-light);font-size:13px;gap:10px;}
   .prod-row:last-child{border-bottom:none;}
   .prod-row.header{font-weight:500;font-size:12px;color:var(--text-secondary);background:var(--bg);}
   .prod-actions{display:flex;gap:5px;}
@@ -230,7 +230,8 @@
     /* Admin tables (Users / Products): allow horizontal scroll instead of
        squeezing fixed-width grid columns into an unreadably narrow phone screen. */
     .user-table,#prod-table{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-    .user-row,.prod-row{min-width:520px;}
+    .user-row{min-width:520px;}
+    .prod-row{min-width:740px;}
 
     .modal{width:100%;max-width:94vw;padding:1.1rem;}
     .auth-card{padding:1.4rem;}
@@ -1078,6 +1079,20 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     <div class="field"><label>Name</label><input type="text" id="prod-name" placeholder="Product name"/></div>
     <div class="field"><label>Description / Unit</label><input type="text" id="prod-description" placeholder="e.g. 1 kg, Unit, Box..."/></div>
     <div class="field"><label>Order in multiples of <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(e.g. 12 = clients can only order 12, 24, 36...)</span></label><input type="number" id="prod-order-multiple" min="1" max="999" value="1" placeholder="1"/></div>
+    <div class="field" style="background:var(--green-light);border:1px solid var(--green);border-radius:var(--radius-sm);padding:12px 14px;">
+      <label style="font-weight:600;margin-bottom:8px;display:block;">💰 Pricing <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(admin only — never shown to clients)</span></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="font-size:12px;font-weight:400;">Food Cost (£)</label>
+          <input type="number" id="prod-cost-price" min="0" step="0.01" placeholder="0.00" oninput="updateProductProfitPreview()" style="margin-top:4px;width:100%;box-sizing:border-box;"/>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:400;">Sale Value (£)</label>
+          <input type="number" id="prod-sale-price" min="0" step="0.01" placeholder="0.00" oninput="updateProductProfitPreview()" style="margin-top:4px;width:100%;box-sizing:border-box;"/>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:13px;" id="prod-profit-preview">Profit: —</div>
+    </div>
     <div class="field"><label>Category</label>
       <select id="prod-cat">
         <!-- populated dynamically by updateProdCatDropdown() -->
@@ -5036,6 +5051,13 @@ function productRow(p){
     ?'<img src="'+p.image_url+'" style="width:32px;height:32px;object-fit:cover;border-radius:4px;vertical-align:middle;" onerror="this.style.display=\'none\'"/>'
     :'';
   const descHtml=p.description?'<div style="font-size:11px;color:var(--text-secondary)">'+p.description+'</div>':'';
+  // Food Cost / Sale Value / Profit — admin-only bookkeeping, never shown to clients.
+  const cost=p.cost_price!=null?Number(p.cost_price):null;
+  const sale=p.sale_price!=null?Number(p.sale_price):null;
+  const hasBoth=cost!=null&&sale!=null;
+  const profit=hasBoth?sale-cost:null;
+  const profitColor=profit==null?'var(--text-tertiary)':(profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)'));
+  const priceCell=(label,val)=>`<span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">${label}</div><div>${val!=null?'£'+val.toFixed(2):'—'}</div></span>`;
   return `<div class="prod-row${p.active?'':' inactive-row'}" data-prod-id="${p.id}" data-prod-cat="${p.cat}">
     <div style="display:flex;flex-direction:column;gap:0;">
       <button onclick="moveProduct(${p.id},-1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move up">⌃</button>
@@ -5043,6 +5065,9 @@ function productRow(p){
     </div>
     <span><div style="font-weight:500">${p.name}</div>${descHtml}</span>
     <span style="font-size:12px;color:var(--text-secondary)">${p.cat}</span>
+    ${priceCell('Cost',cost)}
+    ${priceCell('Sale',sale)}
+    <span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">Profit</div><div style="color:${profitColor};font-weight:600;">${profit!=null?'£'+profit.toFixed(2):'—'}</div></span>
     <span><button class="toggle-btn${p.active?' on':''}" onclick="toggleProduct(${p.id},${p.active})">${p.active?'✅ Active':'⛔ Hidden'}</button></span>
     <span><button class="toggle-btn${!p.out_of_stock?' on':''}" onclick="toggleOutOfStock(${p.id},${!!p.out_of_stock})">${p.out_of_stock?'🚫 Out of stock':'✅ In stock'}</button></span>
     <span class="prod-actions">
@@ -6196,6 +6221,9 @@ function openAddProduct(){
   document.getElementById('prod-name').value='';
   document.getElementById('prod-description').value='';
   document.getElementById('prod-order-multiple').value='1';
+  document.getElementById('prod-cost-price').value='';
+  document.getElementById('prod-sale-price').value='';
+  updateProductProfitPreview();
   document.getElementById('prod-cat').value='sauces';
   document.getElementById('add-product-error').style.display='none';
   document.getElementById('prod-image-preview').style.display='none';
@@ -6211,6 +6239,9 @@ async function openEditProduct(id){
     document.getElementById('prod-name').value=p.name;
     document.getElementById('prod-description').value=p.description||'';
     document.getElementById('prod-order-multiple').value=p.order_multiple||1;
+    document.getElementById('prod-cost-price').value=p.cost_price!=null?p.cost_price:'';
+    document.getElementById('prod-sale-price').value=p.sale_price!=null?p.sale_price:'';
+    updateProductProfitPreview();
     document.getElementById('prod-cat').value=p.cat;
     document.getElementById('add-product-error').style.display='none';
     document.getElementById('prod-image-file').value='';
@@ -6224,10 +6255,26 @@ async function openEditProduct(id){
     openModal('add-product-modal');
   }catch(e){alert('Error loading product.');}
 }
+// Food Cost / Sale Value / Profit are admin-only bookkeeping fields — never sent
+// to or shown in any client-facing view (product cards, cart, orders, PDFs...).
+function updateProductProfitPreview(){
+  const el=document.getElementById('prod-profit-preview');
+  if(!el)return;
+  const cost=parseFloat(document.getElementById('prod-cost-price').value)||0;
+  const sale=parseFloat(document.getElementById('prod-sale-price').value)||0;
+  const profit=sale-cost;
+  const margin=sale>0?(profit/sale*100):0;
+  const color=profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)');
+  el.innerHTML=`Profit: <b style="color:${color};">£${profit.toFixed(2)}</b>`+(sale>0?` <span style="color:var(--text-tertiary);font-size:11px;">(${margin.toFixed(1)}% margin)</span>`:'');
+}
 async function saveProduct(){
   const name=document.getElementById('prod-name').value.trim();
   const description=document.getElementById('prod-description').value.trim();
   const order_multiple=Math.max(1,Math.min(999,parseInt(document.getElementById('prod-order-multiple').value)||1));
+  const costRaw=document.getElementById('prod-cost-price').value.trim();
+  const saleRaw=document.getElementById('prod-sale-price').value.trim();
+  const cost_price=costRaw?Math.max(0,parseFloat(costRaw)||0):null;
+  const sale_price=saleRaw?Math.max(0,parseFloat(saleRaw)||0):null;
   const cat=document.getElementById('prod-cat').value;
   const err=document.getElementById('add-product-error');
   if(!name){err.textContent='Name is required.';err.style.display='block';return;}
@@ -6249,7 +6296,7 @@ async function saveProduct(){
   }
 
   try{
-    const payload={name,description,cat,image_url,order_multiple};
+    const payload={name,description,cat,image_url,order_multiple,cost_price,sale_price};
     let savedId=editingProductId;
     if(editingProductId){
       await sbPatch('products',`id=eq.${editingProductId}`,payload);
