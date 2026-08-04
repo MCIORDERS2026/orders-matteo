@@ -254,9 +254,27 @@
   .sm-charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
   .sm-chart-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
   .sm-chart-box h3{font-size:14px;font-weight:600;margin:0 0 12px;}
+  .sm-compare-clients{display:flex;flex-wrap:wrap;gap:8px;flex:1;min-width:240px;}
+  .sm-compare-clients label{display:flex;align-items:center;gap:6px;font-size:13px;border:1px solid var(--border);border-radius:999px;padding:6px 12px;cursor:pointer;background:var(--bg);user-select:none;}
+  .sm-compare-clients label.checked{border-color:var(--green);background:var(--green-light);color:var(--green-dark);font-weight:600;}
+  .sm-compare-clients input{accent-color:var(--green);width:14px;height:14px;cursor:pointer;}
+  .sm-compare-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;}
+  .sm-compare-card{border:1px solid var(--border);border-left:4px solid var(--border);border-radius:var(--radius);padding:12px 14px;background:var(--bg);}
+  .sm-compare-card .name{font-weight:700;font-size:14px;margin-bottom:4px;}
+  .sm-compare-card .stat{font-size:12.5px;color:var(--text-secondary);}
+  .sm-breakdown-layout{display:grid;grid-template-columns:240px 1fr;gap:24px;align-items:start;}
+  .sm-breakdown-row{display:grid;grid-template-columns:10px minmax(90px,140px) 1fr 48px 44px;align-items:center;gap:10px;padding:6px 0;font-size:13px;}
+  .sm-breakdown-dot{width:10px;height:10px;border-radius:50%;flex:none;}
+  .sm-breakdown-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sm-breakdown-bar-wrap{background:var(--border-light);border-radius:4px;height:8px;overflow:hidden;}
+  .sm-breakdown-bar{height:100%;border-radius:4px;}
+  .sm-breakdown-pct{text-align:right;font-weight:700;}
+  .sm-breakdown-qty{text-align:right;color:var(--text-secondary);}
   @media (max-width:700px){
     .sm-charts-row{grid-template-columns:1fr;}
     .sm-filters{gap:12px;}
+    .sm-breakdown-layout{grid-template-columns:1fr;}
+    .sm-breakdown-row{grid-template-columns:10px 90px 1fr 40px 40px;font-size:12px;}
   }
 </style>
 </head>
@@ -596,6 +614,51 @@
         </div>
       </div>
       <div id="sm-empty" class="empty-state" style="display:none;">No delivered orders in this period.</div>
+
+      <!-- PRODUCT % BREAKDOWN BY CLIENT -->
+      <div class="sm-chart-box" style="margin-top:16px;">
+        <h3>🥧 Sales by client <span style="font-weight:400;font-size:12px;color:var(--text-tertiary);">— % share of one product across all clients</span></h3>
+        <div class="sm-filters" style="margin-bottom:14px;">
+          <div class="sm-filter-group" style="min-width:240px;">
+            <label>Product</label>
+            <select id="sm-breakdown-product" onchange="loadSalesBreakdown()">
+              <option value="">— Select a product —</option>
+            </select>
+          </div>
+        </div>
+        <div id="sm-breakdown-content" style="display:none;">
+          <div class="sm-card" style="margin-bottom:16px;max-width:220px;">
+            <div class="sm-card-label" id="sm-breakdown-total-label">Total units sold</div>
+            <div class="sm-card-value" id="sm-breakdown-total">0</div>
+          </div>
+          <div class="sm-breakdown-layout">
+            <div style="position:relative;height:280px;"><canvas id="sm-chart-breakdown"></canvas></div>
+            <div id="sm-breakdown-list"></div>
+          </div>
+        </div>
+        <div id="sm-breakdown-empty" class="empty-state">Select a product above to see its sales split by client.</div>
+      </div>
+
+      <!-- COMPARE CLIENTS -->
+      <div class="sm-chart-box" style="margin-top:16px;">
+        <h3>🆚 Compare clients</h3>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+          <div class="sm-compare-clients" id="sm-compare-clients"></div>
+          <div style="display:flex;gap:8px;flex:none;">
+            <button class="btn-sm" onclick="toggleAllSalesCompareClients(true)">All</button>
+            <button class="btn-sm" onclick="toggleAllSalesCompareClients(false)">None</button>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+          <button class="btn-sm red" onclick="loadSalesCompare()">Compare selected</button>
+          <span style="font-size:12px;color:var(--text-tertiary);">Uses the same date range set above.</span>
+        </div>
+        <div id="sm-compare-cards" class="sm-compare-cards"></div>
+        <div id="sm-compare-chart-wrap" style="position:relative;height:420px;display:none;margin-top:16px;">
+          <canvas id="sm-chart-compare"></canvas>
+        </div>
+        <div id="sm-compare-empty" class="empty-state" style="display:none;margin-top:12px;">Select at least one client and click "Compare selected".</div>
+      </div>
     </div>
 
     <!-- ADMIN: COMPLETE (delivered orders) -->
@@ -3753,18 +3816,262 @@ function smPeriodLabel(key,by){
   if(by==='day')return `${parts[2]}/${parts[1]}`;
   return `${months[parseInt(parts[1],10)-1]} ${parts[0]}`;
 }
-async function ensureSalesClientOptions(){
-  const sel=document.getElementById('sm-client');
-  if(!sel)return;
+async function fetchSalesClientUsers(){
   try{
     const rows=await sbGet('users','deleted_at=is.null&order=username.asc');
     rows.forEach(u=>{if(u.display_name)usersDisplayNameMap[u.username]=u.display_name;});
-    const nonAdmin=rows.filter(u=>u.username!==ADMIN_USERNAME);
-    const current=sel.value;
-    sel.innerHTML='<option value="">All clients</option>'+nonAdmin.map(u=>`<option value="${u.username}">${displayNameFor(u.username)}</option>`).join('');
-    sel.value=nonAdmin.some(u=>u.username===current)?current:'';
-  }catch(e){}
+    return rows.filter(u=>u.username!==ADMIN_USERNAME);
+  }catch(e){return[];}
 }
+function populateSalesClientSelect(nonAdmin){
+  const sel=document.getElementById('sm-client');
+  if(!sel)return;
+  const current=sel.value;
+  sel.innerHTML='<option value="">All clients</option>'+nonAdmin.map(u=>`<option value="${u.username}">${displayNameFor(u.username)}</option>`).join('');
+  sel.value=nonAdmin.some(u=>u.username===current)?current:'';
+}
+
+// ── Compare clients (side-by-side, selectable multi-client comparison) ──
+let salesCompareChecked=new Set();
+let salesChartCompare=null;
+const SM_COMPARE_COLORS=['#DC2626','#2563EB','#1D9E75','#F59E0B','#7C3AED','#0EA5E9','#DB2777','#65A30D','#EA580C','#0891B2'];
+const SM_PACK_PRODUCTS=['lasagna','focaccia','foccacia'];
+function smPackAdjustedQty(p,raw){
+  if(!p)return raw;
+  const isPack=SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
+  const mult=(isPack&&p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
+  return mult>1?Math.round((raw/mult)*100)/100:raw;
+}
+function populateSalesCompareClients(nonAdmin){
+  const wrap=document.getElementById('sm-compare-clients');
+  if(!wrap)return;
+  wrap.innerHTML=nonAdmin.map(u=>{
+    const checked=salesCompareChecked.has(u.username);
+    return `<label class="${checked?'checked':''}" data-username="${u.username}">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleSalesCompareClient('${u.username}',this.checked,this.parentElement)"/>
+      ${displayNameFor(u.username)}
+    </label>`;
+  }).join('');
+}
+function toggleSalesCompareClient(username,checked,labelEl){
+  if(checked)salesCompareChecked.add(username);else salesCompareChecked.delete(username);
+  if(labelEl)labelEl.classList.toggle('checked',checked);
+}
+function toggleAllSalesCompareClients(all){
+  const wrap=document.getElementById('sm-compare-clients');
+  if(!wrap)return;
+  wrap.querySelectorAll('label').forEach(label=>{
+    const cb=label.querySelector('input');
+    const username=label.getAttribute('data-username');
+    if(cb)cb.checked=all;
+    label.classList.toggle('checked',all);
+    if(all)salesCompareChecked.add(username);else salesCompareChecked.delete(username);
+  });
+}
+async function loadSalesCompare(){
+  const clients=[...salesCompareChecked];
+  const cardsEl=document.getElementById('sm-compare-cards');
+  const chartWrap=document.getElementById('sm-compare-chart-wrap');
+  const emptyEl=document.getElementById('sm-compare-empty');
+  if(!clients.length){
+    cardsEl.innerHTML='';
+    chartWrap.style.display='none';
+    emptyEl.style.display='block';
+    if(salesChartCompare){salesChartCompare.destroy();salesChartCompare=null;}
+    return;
+  }
+  emptyEl.style.display='none';
+  cardsEl.innerHTML='<div class="empty-state">Loading...</div>';
+
+  const fromVal=document.getElementById('sm-date-from').value;
+  const toVal=document.getElementById('sm-date-to').value;
+
+  const results=await Promise.all(clients.map(async(username,idx)=>{
+    let query=`status=eq.delivered&deleted_at=is.null&username=eq.${encodeURIComponent(username)}`;
+    if(fromVal)query+=`&delivered_at=gte.${fromVal}T00:00:00`;
+    if(toVal)query+=`&delivered_at=lte.${toVal}T23:59:59.999`;
+    let rows=[];
+    try{rows=await sbGet('orders_history',query);}catch(e){rows=[];}
+    const perProduct={};
+    let units=0;
+    rows.forEach(o=>{
+      Object.entries(o.items||{}).forEach(([id,q])=>{
+        const qty=Number(q)||0;
+        perProduct[id]=(perProduct[id]||0)+qty;
+        units+=qty;
+      });
+    });
+    return{username,color:SM_COMPARE_COLORS[idx%SM_COMPARE_COLORS.length],orders:rows.length,units,perProduct};
+  }));
+
+  cardsEl.innerHTML=results.map(r=>`
+    <div class="sm-compare-card" style="border-left-color:${r.color};">
+      <div class="name">${displayNameFor(r.username)}</div>
+      <div class="stat">${r.orders} order${r.orders===1?'':'s'}</div>
+      <div class="stat">${r.units} units</div>
+    </div>`).join('');
+
+  // Union of products actually sold by the selected clients, ranked by combined
+  // raw units and capped to the top 8 so the chart stays readable.
+  const combined={};
+  results.forEach(r=>{
+    Object.entries(r.perProduct).forEach(([id,q])=>{combined[id]=(combined[id]||0)+q;});
+  });
+  const productIds=Object.keys(combined).filter(id=>combined[id]>0).sort((a,b)=>combined[b]-combined[a]).slice(0,8);
+
+  if(!productIds.length){
+    chartWrap.style.display='none';
+    if(salesChartCompare){salesChartCompare.destroy();salesChartCompare=null;}
+    return;
+  }
+  chartWrap.style.display='block';
+
+  const labels=productIds.map(id=>{
+    const p=allProducts.find(x=>String(x.id)===String(id));
+    if(!p)return '#'+id;
+    const isPack=SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
+    const mult=(isPack&&p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
+    return p.name+fmtDesc(p.description)+(mult>1?` (pack of ${mult})`:'');
+  });
+  const datasets=results.map(r=>({
+    label:displayNameFor(r.username),
+    backgroundColor:r.color,
+    borderRadius:4,
+    data:productIds.map(id=>{
+      const p=allProducts.find(x=>String(x.id)===String(id));
+      return smPackAdjustedQty(p,r.perProduct[id]||0);
+    })
+  }));
+
+  const canvas=document.getElementById('sm-chart-compare');
+  if(salesChartCompare)salesChartCompare.destroy();
+  salesChartCompare=new Chart(canvas.getContext('2d'),{
+    type:'bar',
+    data:{labels,datasets},
+    options:{
+      indexAxis:'y',
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top'}},
+      scales:{x:{beginAtZero:true,ticks:{precision:0}}}
+    }
+  });
+}
+
+// ── Sales by client: % share of ONE product across all clients (e.g. "858 Tiramisu
+// sold total, 18% Battersea, 14% Caledonian..."). Always ignores the main Client
+// filter (the whole point is to break a product down across every client) but
+// respects the same date range set above. ──
+let salesChartBreakdown=null;
+function populateSalesBreakdownProduct(){
+  const sel=document.getElementById('sm-breakdown-product');
+  if(!sel)return;
+  const current=sel.value;
+  const ordered=productsInCatalogOrder();
+  sel.innerHTML='<option value="">— Select a product —</option>'+ordered.map(p=>`<option value="${p.id}">${p.name}${fmtDesc(p.description)}</option>`).join('');
+  sel.value=ordered.some(p=>String(p.id)===String(current))?current:'';
+}
+async function loadSalesBreakdown(){
+  const sel=document.getElementById('sm-breakdown-product');
+  const contentEl=document.getElementById('sm-breakdown-content');
+  const emptyEl=document.getElementById('sm-breakdown-empty');
+  if(!sel||!contentEl||!emptyEl)return;
+  if(!sel.value){
+    contentEl.style.display='none';
+    emptyEl.textContent='Select a product above to see its sales split by client.';
+    emptyEl.style.display='block';
+    if(salesChartBreakdown){salesChartBreakdown.destroy();salesChartBreakdown=null;}
+    return;
+  }
+  const productId=sel.value;
+  const p=allProducts.find(x=>String(x.id)===String(productId));
+  const fromEl=document.getElementById('sm-date-from');
+  const toEl=document.getElementById('sm-date-to');
+  const fromVal=fromEl?fromEl.value:'';
+  const toVal=toEl?toEl.value:'';
+
+  let query='status=eq.delivered&deleted_at=is.null';
+  if(fromVal)query+=`&delivered_at=gte.${fromVal}T00:00:00`;
+  if(toVal)query+=`&delivered_at=lte.${toVal}T23:59:59.999`;
+
+  let rows=[];
+  try{rows=await sbGet('orders_history',query);}catch(e){rows=[];}
+
+  const perClient={};
+  rows.forEach(o=>{
+    const raw=Number((o.items||{})[productId])||0;
+    if(raw>0)perClient[o.username]=(perClient[o.username]||0)+raw;
+  });
+
+  const entries=Object.entries(perClient).map(([username,raw])=>({username,qty:smPackAdjustedQty(p,raw)}));
+  const total=Math.round(entries.reduce((a,e)=>a+e.qty,0)*100)/100;
+
+  if(!entries.length||total<=0){
+    contentEl.style.display='none';
+    emptyEl.textContent='No sales recorded for this product in the selected period.';
+    emptyEl.style.display='block';
+    if(salesChartBreakdown){salesChartBreakdown.destroy();salesChartBreakdown=null;}
+    return;
+  }
+  emptyEl.style.display='none';
+  contentEl.style.display='block';
+
+  entries.sort((a,b)=>b.qty-a.qty);
+
+  const isPack=p&&SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
+  document.getElementById('sm-breakdown-total-label').textContent=isPack?'Total packs sold':'Total units sold';
+  document.getElementById('sm-breakdown-total').textContent=total;
+
+  // Cap to top 7 clients + an "Others" slice so the chart/list stay readable.
+  let display=entries.slice(0,7);
+  const rest=entries.slice(7);
+  if(rest.length){
+    const restQty=Math.round(rest.reduce((a,e)=>a+e.qty,0)*100)/100;
+    display=[...display,{username:null,qty:restQty,isOthers:true}];
+  }
+
+  const listEl=document.getElementById('sm-breakdown-list');
+  listEl.innerHTML=display.map((e,idx)=>{
+    const color=e.isOthers?'#9CA3AF':SM_COMPARE_COLORS[idx%SM_COMPARE_COLORS.length];
+    const pct=total>0?(e.qty/total*100):0;
+    const name=e.isOthers?`Others (${rest.length} client${rest.length===1?'':'s'})`:displayNameFor(e.username);
+    return `<div class="sm-breakdown-row">
+      <span class="sm-breakdown-dot" style="background:${color}"></span>
+      <span class="sm-breakdown-name" title="${name}">${name}</span>
+      <span class="sm-breakdown-bar-wrap"><span class="sm-breakdown-bar" style="width:${pct}%;background:${color}"></span></span>
+      <span class="sm-breakdown-pct">${pct.toFixed(1)}%</span>
+      <span class="sm-breakdown-qty">${e.qty}</span>
+    </div>`;
+  }).join('');
+
+  const canvas=document.getElementById('sm-chart-breakdown');
+  if(salesChartBreakdown)salesChartBreakdown.destroy();
+  salesChartBreakdown=new Chart(canvas.getContext('2d'),{
+    type:'doughnut',
+    data:{
+      labels:display.map((e,idx)=>e.isOthers?`Others (${rest.length})`:displayNameFor(e.username)),
+      datasets:[{
+        data:display.map(e=>e.qty),
+        backgroundColor:display.map((e,idx)=>e.isOthers?'#9CA3AF':SM_COMPARE_COLORS[idx%SM_COMPARE_COLORS.length]),
+        borderColor:'#fff',
+        borderWidth:2
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:function(ctx){
+          const val=ctx.parsed;
+          const pct=total>0?(val/total*100).toFixed(1):0;
+          return `${ctx.label}: ${val} (${pct}%)`;
+        }}}
+      }
+    }
+  });
+}
+
 function smBarChart(canvasId,existing,labels,data,color){
   const canvas=document.getElementById(canvasId);
   if(!canvas)return existing;
@@ -3797,7 +4104,9 @@ function smTrendChart(labels,data){
   });
 }
 async function loadSalesMetrics(){
-  await ensureSalesClientOptions();
+  const nonAdminUsers=await fetchSalesClientUsers();
+  populateSalesClientSelect(nonAdminUsers);
+  populateSalesCompareClients(nonAdminUsers);
   const clientEl=document.getElementById('sm-client');
   const fromEl=document.getElementById('sm-date-from');
   const toEl=document.getElementById('sm-date-to');
@@ -3805,6 +4114,11 @@ async function loadSalesMetrics(){
   const client=clientEl.value;
   const fromVal=fromEl.value;
   const toVal=toEl.value;
+
+  // Product % breakdown ignores the Client filter by design, but still tracks the
+  // same date range — refresh it here so it stays in sync whenever the period changes.
+  populateSalesBreakdownProduct();
+  loadSalesBreakdown();
 
   let query='status=eq.delivered&deleted_at=is.null';
   if(client)query+=`&username=eq.${encodeURIComponent(client)}`;
@@ -3849,18 +4163,17 @@ async function loadSalesMetrics(){
   contentEl.style.display='block';
   emptyEl.style.display='none';
 
-  // ONLY these specific products are shown as "packs" (raw units ÷ their order
-  // multiple) in Sales Metrics — e.g. Lasagna sold in trays of 12 shows as 1 per
-  // tray. This is intentionally NOT automatic for every "multiples of N" product
-  // (other products use that field just to enforce a minimum order size, not a
-  // pack/tray count worth reporting). Never affects the catalogue, cart, or orders.
-  const SM_PACK_PRODUCTS=['lasagna','focaccia','foccacia'];
+  // ONLY specific products (see SM_PACK_PRODUCTS above) are shown as "packs" (raw
+  // units ÷ their order multiple) in Sales Metrics — e.g. Lasagna sold in trays of
+  // 12 shows as 1 per tray. This is intentionally NOT automatic for every
+  // "multiples of N" product (other products use that field just to enforce a
+  // minimum order size, not a pack/tray count worth reporting). Never affects the
+  // catalogue, cart, or orders.
   const catalog=allProducts.map(p=>{
     const raw=perProduct[p.id]||0;
-    const nameLower=(p.name||'').toLowerCase();
-    const isPackProduct=SM_PACK_PRODUCTS.some(k=>nameLower.includes(k));
+    const isPackProduct=SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
     const mult=(isPackProduct&&p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
-    const qty=mult>1?Math.round((raw/mult)*100)/100:raw;
+    const qty=smPackAdjustedQty(p,raw);
     const name=p.name+fmtDesc(p.description)+(mult>1?` (pack of ${mult})`:'');
     return{id:p.id,name,qty};
   });
