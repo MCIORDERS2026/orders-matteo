@@ -3822,13 +3822,16 @@ async function loadCompleteOrders(){
       const prevChecked=new Set([...checklistEl.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value));
       let clientUsers=[];
       try{
-        const userRows=await sbGet('users','deleted_at=is.null&order=username.asc');
+        // Same order as the Users management list (sort_order, then created_at) rather than
+        // alphabetical, so this checklist matches how the admin has clients arranged there.
+        const userRows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
         clientUsers=userRows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen').map(u=>u.username);
       }catch(e){}
       // Fallback: also include any username present in orders history but missing from
       // the users list above (e.g. a deleted user's historical orders), so no data is hidden.
-      const fromOrders=[...new Set(rows.map(o=>o.username))];
-      const uniqueUsers=[...new Set([...clientUsers,...fromOrders])].sort((a,b)=>a.localeCompare(b));
+      // These get appended at the end since they have no sort_order position to match.
+      const fromOrders=[...new Set(rows.map(o=>o.username))].filter(u=>!clientUsers.includes(u));
+      const uniqueUsers=[...clientUsers,...fromOrders];
       checklistEl.innerHTML=uniqueUsers.map(u=>{
         const checked=prevChecked.has(u);
         return `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:5px 9px;border:1px solid ${checked?'var(--green)':'var(--border)'};border-radius:var(--radius-sm);background:${checked?'var(--green-light)':'var(--bg)'};" id="cchist-label-${u}">
