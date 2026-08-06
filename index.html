@@ -737,12 +737,14 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);">From:</span>
-        <input type="date" id="complete-hist-date-from" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+        <input type="date" id="complete-hist-date-from" onchange="applyCompleteFilter()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
         <span style="font-size:12px;color:var(--text-secondary);">To:</span>
-        <input type="date" id="complete-hist-date-to" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
-        <button class="btn-sm" onclick="document.getElementById('complete-hist-date-from').value='';document.getElementById('complete-hist-date-to').value='';" style="color:var(--text-secondary);">✕ Clear dates</button>
+        <input type="date" id="complete-hist-date-to" onchange="applyCompleteFilter()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+        <button class="btn-sm green" onclick="applyCompleteFilter()">🔍 Filter list</button>
+        <button class="btn-sm" onclick="document.getElementById('complete-hist-date-from').value='';document.getElementById('complete-hist-date-to').value='';applyCompleteFilter();" style="color:var(--text-secondary);">✕ Clear dates</button>
         <button class="btn-sm amber" onclick="exportClientHistoryExcel()">⬇ Excel (client history)</button>
       </div>
+      <div id="complete-filter-note" style="font-size:12px;color:var(--text-tertiary);padding:0 0 8px;display:none;"></div>
       <div id="complete-list"><div class="empty-state">Loading...</div></div>
     </div>
 
@@ -3815,7 +3817,45 @@ async function loadCompleteOrders(){
         </label>`;
       }).join('');
     }
-    if(!rows.length){el.innerHTML='<div class="empty-state">No completed deliveries yet.</div>';return;}
+    applyCompleteFilter();
+  }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
+}
+
+// Filters the on-screen Complete list (client-side, from the already-loaded
+// completeOrdersCache — no extra query) by whichever clients are checked above
+// (none checked = show all clients) and the From/To date range against
+// delivered_at. Uses the exact same matching logic as the "Excel (client
+// history)" export just below it, so what you see is what you'd download.
+function applyCompleteFilter(){
+  const checked=[...document.querySelectorAll('#complete-client-checklist input[type=checkbox]:checked')].map(c=>c.value);
+  const fromVal=document.getElementById('complete-hist-date-from')?.value||'';
+  const toVal=document.getElementById('complete-hist-date-to')?.value||'';
+  let list=completeOrdersCache||[];
+  if(checked.length)list=list.filter(o=>checked.includes(o.username));
+  if(fromVal)list=list.filter(o=>o.delivered_at&&o.delivered_at>=fromVal+'T00:00:00');
+  if(toVal)list=list.filter(o=>o.delivered_at&&o.delivered_at<=toVal+'T23:59:59.999');
+
+  const noteEl=document.getElementById('complete-filter-note');
+  if(noteEl){
+    const active=checked.length||fromVal||toVal;
+    if(active){
+      const bits=[];
+      if(checked.length)bits.push(`${checked.length} client${checked.length===1?'':'s'}`);
+      if(fromVal||toVal)bits.push(`${fromVal||'…'} → ${toVal||'…'}`);
+      noteEl.textContent=`Showing ${list.length} of ${(completeOrdersCache||[]).length} orders — filtered by ${bits.join(' · ')}.`;
+      noteEl.style.display='block';
+    }else{
+      noteEl.style.display='none';
+    }
+  }
+  renderCompleteList(list);
+}
+
+function renderCompleteList(rows){
+  const el=document.getElementById('complete-list');
+  if(!el)return;
+  try{
+    if(!rows.length){el.innerHTML='<div class="empty-state">No completed deliveries match this filter.</div>';return;}
     el.innerHTML=rows.map(o=>{
       const count=Object.values(o.items||{}).reduce((a,b)=>a+b,0);
       const date=o.delivered_at?(new Date(o.delivered_at).toLocaleDateString('en-GB')+' '+new Date(o.delivered_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):(o.timestamp||'');
@@ -3929,12 +3969,14 @@ async function loadCompleteBadge(count){
 function updateCompleteClientLabel(username,checked){
   const label=document.getElementById('cchist-label-'+username);
   if(label){label.style.background=checked?'var(--green-light)':'var(--bg)';label.style.borderColor=checked?'var(--green)':'var(--border)';}
+  applyCompleteFilter();
 }
 function toggleAllCompleteClients(checked){
   document.querySelectorAll('#complete-client-checklist input[type=checkbox]').forEach(cb=>{
     cb.checked=checked;
     updateCompleteClientLabel(cb.value,checked);
   });
+  applyCompleteFilter();
 }
 async function exportClientHistoryExcel(){
   const usernames=[...document.querySelectorAll('#complete-client-checklist input[type=checkbox]:checked')].map(c=>c.value);
