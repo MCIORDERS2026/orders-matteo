@@ -726,6 +726,8 @@
       <div class="section-toolbar">
         <h2>✅ Complete</h2>
         <button class="btn-sm" onclick="loadCompleteOrders()">↻ Refresh</button>
+        <button class="btn-sm amber" onclick="exportCompleteSelectedExcel()">⬇ Excel (selected)</button>
+        <button class="btn-sm" onclick="printCompleteSelectedPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF (selected)</button>
       </div>
       <div style="display:flex;align-items:flex-start;gap:10px;padding:0 0 10px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);padding-top:7px;">Clients:</span>
@@ -745,6 +747,13 @@
         <button class="btn-sm amber" onclick="exportClientHistoryExcel()">⬇ Excel (client history)</button>
       </div>
       <div id="complete-filter-note" style="font-size:12px;color:var(--text-tertiary);padding:0 0 8px;display:none;"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 10px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
+          <input type="checkbox" id="select-all-complete" onchange="toggleSelectAllComplete(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--green);"/>
+          Select all shown
+        </label>
+        <span style="font-size:11px;color:var(--text-tertiary);">— Excel/PDF above use whatever is checked; if nothing's checked, they use everything currently shown (respects the filter).</span>
+      </div>
       <div id="complete-list"><div class="empty-state">Loading...</div></div>
     </div>
 
@@ -3879,6 +3888,7 @@ function renderCompleteList(rows){
       </div>`;
       return `<div class="order-card delivered" style="border-color:#6B6B6B;">
         <div class="order-card-header" onclick="toggleBody('zcb-${o.id}')">
+          <input type="checkbox" id="zchk-${o.id}" onclick="event.stopPropagation()" style="width:15px;height:15px;cursor:pointer;accent-color:var(--green);margin-right:4px;"/>
           <span class="order-card-user">
             ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''}
             ${o.username}
@@ -3977,6 +3987,50 @@ function toggleAllCompleteClients(checked){
     updateCompleteClientLabel(cb.value,checked);
   });
   applyCompleteFilter();
+}
+// ── Complete tab: checkbox-based selection for Excel/PDF ──
+// If any order is checked, use just those. If none are checked, fall back to
+// everything currently RENDERED (i.e. whatever applyCompleteFilter() is showing
+// right now) rather than the entire unfiltered completeOrdersCache — so "select
+// none, just export" naturally respects the active date/client filter.
+function toggleSelectAllComplete(checked){
+  document.querySelectorAll('#complete-list input[type=checkbox]').forEach(cb=>{cb.checked=checked;});
+}
+function completeCheckedOrders(){
+  const boxes=[...document.querySelectorAll('#complete-list input[type=checkbox]')];
+  const checkedIds=boxes.filter(cb=>cb.checked).map(cb=>cb.id.replace(/^zchk-/,''));
+  const visibleIds=boxes.map(cb=>cb.id.replace(/^zchk-/,''));
+  const ids=checkedIds.length?checkedIds:visibleIds;
+  return completeOrdersCache.filter(o=>ids.includes(String(o.id)));
+}
+function printCompleteSelectedPDF(){
+  const orders=completeCheckedOrders();
+  if(!orders.length){alert('No orders to print — nothing is shown or checked.');return;}
+  renderOrdersPDF(orders,'Complete');
+}
+async function exportCompleteSelectedExcel(){
+  const orders=completeCheckedOrders();
+  if(!orders.length){alert('No orders to export — nothing is shown or checked.');return;}
+  const btn=event?.target;
+  if(btn){btn.disabled=true;btn.textContent='⏳ Generating...';}
+  try{
+    const payload={
+      orders:orders.map(o=>({username:o.username,display_name:displayNameFor(o.username),order_number:o.order_number||null,ordered_by:o.ordered_by||'',items:o.items})),
+      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0,production_tracked:!!p.production_tracked})),
+      categories:CATEGORIES.filter(c=>c.id!=='all').map(c=>({id:c.id,label:c.label}))
+    };
+    const res=await fetch('/.netlify/functions/generate-excel',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+    });
+    if(!res.ok){const err=await res.json().catch(()=>({error:'Server error '+res.status}));throw new Error(err.error||'Server error');}
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const date=new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
+    const a=document.createElement('a');
+    a.href=url;a.download=`Complete ${date}.xlsx`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  }catch(e){alert('Error generating Excel: '+e.message);}
+  if(btn){btn.disabled=false;btn.textContent='⬇ Excel (selected)';}
 }
 async function exportClientHistoryExcel(){
   const usernames=[...document.querySelectorAll('#complete-client-checklist input[type=checkbox]:checked')].map(c=>c.value);
