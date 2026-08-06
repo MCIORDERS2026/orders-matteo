@@ -556,7 +556,7 @@ exports.handler = async (event) => {
   const totalQtyByProduct = {};
   for (const o of orders) {
     for (const [pid, qty] of Object.entries(o.items || {})) {
-      totalQtyByProduct[pid] = (totalQtyByProduct[pid] || 0) + (parseInt(qty, 10) || 0);
+      totalQtyByProduct[pid] = (totalQtyByProduct[pid] || 0) + (parseFloat(qty) || 0);
     }
   }
 
@@ -697,7 +697,7 @@ exports.handler = async (event) => {
         let rowTotal = 0;
 
         orders.forEach((o, i) => {
-          const qty = parseInt((o.items || {})[p.id], 10) || 0;
+          const qty = parseFloat((o.items || {})[p.id]) || 0;
           rowTotal += qty;
           colTotals[i] += qty;
           const color = qty > 0 ? null : ZERO_COLOR;
@@ -779,7 +779,7 @@ exports.handler = async (event) => {
         let rowTotal = 0;
 
         orders.forEach((o, i) => {
-          const qty = parseInt((o.items || {})[p.id], 10) || 0;
+          const qty = parseFloat((o.items || {})[p.id]) || 0;
           rowTotal += qty;
           const color = qty > 0 ? null : ZERO_COLOR;
           sheet.setCell(r, clientColStart + i, qty, { bold: qty > 0, fontColor: color, align: { h: 'center' }, border: ROW_BORDER });
@@ -846,7 +846,7 @@ exports.handler = async (event) => {
   for (const order of orders) {
     const qtyMap = {};
     for (const [pid, qty] of Object.entries(order.items || {})) {
-      qtyMap[pid] = (qtyMap[pid] || 0) + (parseInt(qty, 10) || 0);
+      qtyMap[pid] = (qtyMap[pid] || 0) + (parseFloat(qty) || 0);
     }
     const label = order.display_name || order.username;
     const sheet = wb.addSheet(safeSheetName(label));
