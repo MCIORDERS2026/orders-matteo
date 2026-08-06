@@ -1285,6 +1285,17 @@ let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,ref
 // products in the same category (already sort_order/name sorted by the fetch
 // query). Unknown/deleted product ids and categories not in CATEGORIES fall back
 // to the end, in their original relative order (stable sort).
+// A handful of products (currently just Nduja) are sold by weight and shipped in
+// fractional kg amounts (1.2kg, 1.3kg, etc). Clients always order in whole units
+// (1, 2, 3...) — this only lets ADMIN enter a decimal quantity when adjusting an
+// existing order's item in the Delivery editor or the Complete (delivered) tab,
+// where the admin is recording what was actually sent. Scoped by name, same
+// convention as SM_PACK_PRODUCTS in Sales Metrics — never automatic for any
+// product, and never touches the client-facing catalogue/cart.
+const DECIMAL_QTY_PRODUCTS=['nduja'];
+function isDecimalQtyProduct(p){return !!(p&&DECIMAL_QTY_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
+function parseAdminQty(p,val){return isDecimalQtyProduct(p)?(parseFloat(val)||0):(parseInt(val)||0);}
+
 function sortItemEntries(entries){
   const idx=new Map();
   allProducts.forEach((p,i)=>idx.set(String(p.id),i));
@@ -3167,15 +3178,17 @@ async function refreshDeliveryData(){
       const notes=o.delivery_notes||{};
       const original=notes.__original__||null;
       Object.keys(deliveryItems).forEach(id=>{
+        const dp=allProducts.find(x=>String(x.id)===String(id));
         deliveryItems[id]={
-          qty:parseInt((o.items||{})[id])||0,
+          qty:parseAdminQty(dp,(o.items||{})[id]),
           note:notes[id]||'',
-          origQty:original?parseInt(original[id])||0:parseInt((o.items||{})[id])||0
+          origQty:original?parseAdminQty(dp,original[id]):parseAdminQty(dp,(o.items||{})[id])
         };
       });
       Object.entries(o.items||{}).forEach(([id,q])=>{
-        if(!deliveryItems[id]) deliveryItems[id]={qty:parseInt(q)||0,note:notes[id]||'',origQty:original?parseInt(original[id])||0:parseInt(q)||0};
-        else deliveryItems[id].qty=parseInt(q)||0;
+        const dp=allProducts.find(x=>String(x.id)===String(id));
+        if(!deliveryItems[id]) deliveryItems[id]={qty:parseAdminQty(dp,q),note:notes[id]||'',origQty:original?parseAdminQty(dp,original[id]):parseAdminQty(dp,q)};
+        else deliveryItems[id].qty=parseAdminQty(dp,q);
       });
     }
   }
@@ -3220,7 +3233,7 @@ async function loadDeliveryOrder(orderId){
     // Only save original if not already saved (may have been saved from New Orders edits)
     if(!originalItems){
       const orig={};
-      Object.entries(o.items).forEach(([id,q])=>{orig[id]=parseInt(q)||0;});
+      Object.entries(o.items).forEach(([id,q])=>{orig[id]=parseAdminQty(allProducts.find(x=>String(x.id)===String(id)),q);});
       notes.__original__=orig;
       await sbPatch('orders_history',`id=eq.${orderId}`,{delivery_notes:notes});
     }
@@ -3229,13 +3242,15 @@ async function loadDeliveryOrder(orderId){
     deliveryItems={};
     // Include all current items
     Object.entries(o.items).forEach(([id,q])=>{
-      deliveryItems[id]={qty:parseInt(q)||0,note:notes[id]||'',origQty:parseInt(original[id])||0};
+      const dp=allProducts.find(x=>String(x.id)===String(id));
+      deliveryItems[id]={qty:parseAdminQty(dp,q),note:notes[id]||'',origQty:parseAdminQty(dp,original[id])};
     });
     // Also include items that were in original but removed (qty=0 now)
     if(original){
       Object.entries(original).forEach(([id,q])=>{
-        if(!deliveryItems[id]&&parseInt(q)>0){
-          deliveryItems[id]={qty:0,note:notes[id]||'',origQty:parseInt(q)||0};
+        const dp=allProducts.find(x=>String(x.id)===String(id));
+        if(!deliveryItems[id]&&parseAdminQty(dp,q)>0){
+          deliveryItems[id]={qty:0,note:notes[id]||'',origQty:parseAdminQty(dp,q)};
         }
       });
     }
@@ -3271,8 +3286,8 @@ function renderDeliveryEditor(order){
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:11px;color:#9CA3AF;text-decoration:line-through;">×${item.origQty}</span>
             <span style="font-size:13px;font-weight:700;color:#DC2626;">→ ×${item.qty}</span>
-            <input type="number" value="${item.qty}" min="0" max="999"
-              oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+            <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
+              oninput="deliveryItems['${id}'].qty=parseAdminQty(allProducts.find(x=>x.id=='${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
               style="width:55px;border:1px solid #FCA5A5;border-radius:4px;padding:4px 6px;font-size:13px;text-align:center;background:white;"/>
           </div>
         </div>
@@ -3286,8 +3301,8 @@ function renderDeliveryEditor(order){
         <span style="font-size:13px;flex:1;color:var(--text-secondary);">${p.name}${p.description?` ${wrapDesc(p.description)}`:''}</span>
         <div style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:13px;color:var(--text-secondary);">×${item.qty}</span>
-          <input type="number" value="${item.qty}" min="0" max="999"
-            oninput="deliveryItems['${id}'].qty=parseInt(this.value)||0;deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+          <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
+            oninput="deliveryItems['${id}'].qty=parseAdminQty(allProducts.find(x=>x.id=='${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
             style="width:50px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);"/>
         </div>
       </div>`;
@@ -3377,8 +3392,9 @@ function addProductToDelivery(){
   const hiddenInput=document.getElementById('delivery-add-prod');
   const qtyInput=document.getElementById('delivery-add-qty');
   const productId=String(hiddenInput.value);
-  const qty=parseInt(qtyInput.value)||1;
-  if(!productId||qty<1){
+  const addedProduct=allProducts.find(x=>String(x.id)===productId);
+  const qty=isDecimalQtyProduct(addedProduct)?(parseFloat(qtyInput.value)||0):(parseInt(qtyInput.value)||1);
+  if(!productId||qty<(isDecimalQtyProduct(addedProduct)?0.1:1)){
     document.getElementById('delivery-add-search').style.borderColor='var(--red)';
     setTimeout(()=>document.getElementById('delivery-add-search').style.borderColor='',2000);
     return;
@@ -3808,7 +3824,7 @@ async function loadCompleteOrders(){
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
           <div class="qty-controls">
-            <input class="admin-qty-input" type="number" value="${q}" min="0" max="999"
+            <input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
               onchange="updateCompleteItem('${o.id}',${id},this.value)"
               style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:13px;"/>
             <span class="qty-label">qty</span>
@@ -3849,7 +3865,8 @@ async function loadCompleteOrders(){
 }
 
 async function updateCompleteItem(orderId, productId, newQty){
-  const qty=parseInt(newQty)||0;
+  const prodForQty=allProducts.find(x=>String(x.id)===String(productId));
+  const qty=parseAdminQty(prodForQty,newQty);
   const o=completeOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
   const oldItems={...o.items};
@@ -3882,13 +3899,14 @@ async function addCompleteItem(orderId){
   const sel=document.getElementById(`zc-add-prod-${orderId}`);
   const qtyInp=document.getElementById(`zc-add-qty-${orderId}`);
   const productId=String(sel.value);
-  const qty=parseInt(qtyInp.value)||1;
+  const prodForQty=allProducts.find(x=>String(x.id)===productId);
+  const qty=isDecimalQtyProduct(prodForQty)?(parseFloat(qtyInp.value)||0):(parseInt(qtyInp.value)||1);
   if(!productId){alert('Select a product first.');return;}
   const o=completeOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
   const oldItems={...o.items};
   const items={...o.items};
-  items[productId]=(parseInt(items[productId])||0)+qty;
+  items[productId]=parseAdminQty(prodForQty,items[productId]||0)+qty;
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{items});
     o.items=items;
