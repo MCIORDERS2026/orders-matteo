@@ -4258,6 +4258,9 @@ function smPeriodLabel(key,by){
 // Kitchen-staff accounts (e.g. "Central Kitchen") are operational logins, not real
 // clients — they must never appear in the Client dropdown/Compare list, and any
 // orders under a kitchen username must never count toward Sales Metrics totals.
+// SM_EXCLUDED_USERNAMES is an extra, explicit exclusion list for non-kitchen accounts
+// that also aren't real clients (e.g. "test") — add more usernames here if needed.
+const SM_EXCLUDED_USERNAMES=['test'];
 let kitchenUsernamesSet=new Set();
 async function fetchSalesClientUsers(){
   try{
@@ -4268,8 +4271,8 @@ async function fetchSalesClientUsers(){
     rows.forEach(u=>{if(u.display_name)usersDisplayNameMap[u.username]=u.display_name;});
     clientCustomPricesCache={};
     rows.forEach(u=>{clientCustomPricesCache[u.username]=u.custom_prices||{};});
-    kitchenUsernamesSet=new Set(rows.filter(u=>u.role==='kitchen').map(u=>u.username));
-    return rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen');
+    kitchenUsernamesSet=new Set(rows.filter(u=>u.role==='kitchen'||SM_EXCLUDED_USERNAMES.includes(u.username)).map(u=>u.username));
+    return rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&!SM_EXCLUDED_USERNAMES.includes(u.username));
   }catch(e){return[];}
 }
 // ── Client filter for the main Sales Metrics view — multi-select checklist (not just
@@ -5602,8 +5605,11 @@ function productRow(p){
   // Profit % of sale price — same "profit ÷ revenue" reading used in Sales Metrics.
   const profitPct=(profit!=null&&sale>0)?(profit/sale*100):null;
   const profitColor=profit==null?'var(--text-tertiary)':(profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)'));
-  const priceCell=(label,val)=>`<span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">${label}</div><div>${val!=null?'£'+val.toFixed(2):'—'}</div></span>`;
-  const saleLabel=saleIsCustom?(displayNameFor(adminProdPriceClient)||adminProdPriceClient)+' price':'Sale';
+  // Label stays short and fixed-width regardless of which client is selected (the
+  // client name is already shown once in the "Profit for" dropdown above the list) —
+  // embedding the full client name here caused it to wrap and break row alignment.
+  const priceCell=(label,val)=>`<span style="font-size:11px;line-height:1.3;white-space:nowrap;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">${label}</div><div>${val!=null?'£'+val.toFixed(2):'—'}</div></span>`;
+  const saleLabel=saleIsCustom?'💷 Price':'Sale';
   return `<div class="prod-row${p.active?'':' inactive-row'}" data-prod-id="${p.id}" data-prod-cat="${p.cat}">
     <div style="display:flex;flex-direction:column;gap:0;">
       <button onclick="moveProduct(${p.id},-1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move up">⌃</button>
