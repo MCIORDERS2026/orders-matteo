@@ -615,12 +615,6 @@
 
       <div class="sm-filters">
         <div class="sm-filter-group">
-          <label>Client</label>
-          <select id="sm-client" onchange="loadSalesMetrics()">
-            <option value="">All clients</option>
-          </select>
-        </div>
-        <div class="sm-filter-group">
           <label>Period</label>
           <div class="sm-btn-row" id="sm-period-row">
             <button class="btn-sm" id="sm-period-today" onclick="setSalesPeriod('today')">Today</button>
@@ -628,6 +622,14 @@
             <button class="btn-sm" id="sm-period-month" onclick="setSalesPeriod('month')">This month</button>
             <button class="btn-sm active" id="sm-period-year" onclick="setSalesPeriod('year')">This year</button>
           </div>
+        </div>
+      </div>
+      <div class="sm-filter-group" style="margin-bottom:12px;">
+        <label>Client — select one or more (none checked = all clients)</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+          <div id="sm-client-checklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          <button class="btn-sm" onclick="toggleAllSmClients(true)">All</button>
+          <button class="btn-sm" onclick="toggleAllSmClients(false)">None</button>
         </div>
       </div>
       <div class="sm-filters">
@@ -4253,21 +4255,63 @@ function smPeriodLabel(key,by){
   if(by==='day')return `${parts[2]}/${parts[1]}`;
   return `${months[parseInt(parts[1],10)-1]} ${parts[0]}`;
 }
+// Kitchen-staff accounts (e.g. "Central Kitchen") are operational logins, not real
+// clients — they must never appear in the Client dropdown/Compare list, and any
+// orders under a kitchen username must never count toward Sales Metrics totals.
+let kitchenUsernamesSet=new Set();
 async function fetchSalesClientUsers(){
   try{
-    const rows=await sbGet('users','deleted_at=is.null&order=username.asc');
+    // Same order as the Users management list (sort_order, then created_at) rather
+    // than alphabetical, so "01 - Battersea, 02 - Caledonian..." stays in the order
+    // the admin has clients arranged there, instead of A-Z.
+    const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
     rows.forEach(u=>{if(u.display_name)usersDisplayNameMap[u.username]=u.display_name;});
     clientCustomPricesCache={};
     rows.forEach(u=>{clientCustomPricesCache[u.username]=u.custom_prices||{};});
-    return rows.filter(u=>u.username!==ADMIN_USERNAME);
+    kitchenUsernamesSet=new Set(rows.filter(u=>u.role==='kitchen').map(u=>u.username));
+    return rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen');
   }catch(e){return[];}
 }
-function populateSalesClientSelect(nonAdmin){
-  const sel=document.getElementById('sm-client');
-  if(!sel)return;
-  const current=sel.value;
-  sel.innerHTML='<option value="">All clients</option>'+nonAdmin.map(u=>`<option value="${u.username}">${displayNameFor(u.username)}</option>`).join('');
-  sel.value=nonAdmin.some(u=>u.username===current)?current:'';
+// ── Client filter for the main Sales Metrics view — multi-select checklist (not just
+// one-or-all). Empty selection = no filter = every client, same as the old "All
+// clients" option; checking one or more narrows the KPIs/charts/food-cost report to
+// just those clients. ──
+let salesClientChecked=new Set();
+function populateSalesClientChecklist(nonAdmin){
+  const wrap=document.getElementById('sm-client-checklist');
+  if(!wrap)return;
+  // Drop any previously-checked username that no longer exists (e.g. deleted user).
+  salesClientChecked=new Set([...salesClientChecked].filter(u=>nonAdmin.some(x=>x.username===u)));
+  wrap.innerHTML=nonAdmin.map(u=>{
+    const checked=salesClientChecked.has(u.username);
+    return `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:5px 9px;border:1px solid ${checked?'var(--green)':'var(--border)'};border-radius:var(--radius-sm);background:${checked?'var(--green-light)':'var(--bg)'};" id="sm-client-label-${u.username}">
+      <input type="checkbox" value="${u.username}" ${checked?'checked':''} onchange="toggleSmClient('${u.username}',this.checked)" style="width:13px;height:13px;accent-color:var(--green);"/>
+      ${displayNameFor(u.username)}
+    </label>`;
+  }).join('');
+}
+function toggleSmClient(username,checked){
+  if(checked)salesClientChecked.add(username);else salesClientChecked.delete(username);
+  const label=document.getElementById('sm-client-label-'+username);
+  if(label){
+    label.style.borderColor=checked?'var(--green)':'var(--border)';
+    label.style.background=checked?'var(--green-light)':'var(--bg)';
+  }
+  loadSalesMetrics();
+}
+function toggleAllSmClients(all){
+  const wrap=document.getElementById('sm-client-checklist');
+  if(!wrap)return;
+  wrap.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.checked=all;
+    if(all)salesClientChecked.add(cb.value);else salesClientChecked.delete(cb.value);
+    const label=document.getElementById('sm-client-label-'+cb.value);
+    if(label){
+      label.style.borderColor=all?'var(--green)':'var(--border)';
+      label.style.background=all?'var(--green-light)':'var(--bg)';
+    }
+  });
+  loadSalesMetrics();
 }
 
 // ── Compare clients (side-by-side, selectable multi-client comparison) ──
@@ -4341,7 +4385,7 @@ function toggleAllSalesCompareClients(all){
   });
 }
 async function loadSalesCompare(){
-  const clients=[...salesCompareChecked];
+  const clients=[...salesCompareChecked].filter(u=>!kitchenUsernamesSet.has(u));
   const cardsEl=document.getElementById('sm-compare-cards');
   const chartWrap=document.getElementById('sm-compare-chart-wrap');
   const emptyEl=document.getElementById('sm-compare-empty');
@@ -4485,6 +4529,7 @@ async function loadSalesBreakdown(){
 
   let rows=[];
   try{rows=await sbGet('orders_history',query);}catch(e){rows=[];}
+  rows=rows.filter(o=>!kitchenUsernamesSet.has(o.username));
 
   const perClient={};
   const perClientRevenue={};
@@ -4729,13 +4774,12 @@ function renderFoodCostReport(fc){
 }
 async function loadSalesMetrics(){
   const nonAdminUsers=await fetchSalesClientUsers();
-  populateSalesClientSelect(nonAdminUsers);
+  populateSalesClientChecklist(nonAdminUsers);
   populateSalesCompareClients(nonAdminUsers);
-  const clientEl=document.getElementById('sm-client');
   const fromEl=document.getElementById('sm-date-from');
   const toEl=document.getElementById('sm-date-to');
-  if(!clientEl||!fromEl||!toEl)return;
-  const client=clientEl.value;
+  if(!fromEl||!toEl)return;
+  const selectedClients=[...salesClientChecked];
   const fromVal=fromEl.value;
   const toVal=toEl.value;
 
@@ -4745,13 +4789,17 @@ async function loadSalesMetrics(){
   loadSalesBreakdown();
 
   let query='status=eq.delivered&deleted_at=is.null';
-  if(client)query+=`&username=eq.${encodeURIComponent(client)}`;
+  if(selectedClients.length===1)query+=`&username=eq.${encodeURIComponent(selectedClients[0])}`;
+  else if(selectedClients.length>1)query+=`&username=in.(${selectedClients.map(u=>encodeURIComponent(u)).join(',')})`;
   if(fromVal)query+=`&delivered_at=gte.${fromVal}T00:00:00`;
   if(toVal)query+=`&delivered_at=lte.${toVal}T23:59:59.999`;
   query+='&order=delivered_at.asc';
 
   let rows=[];
   try{rows=await sbGet('orders_history',query);}catch(e){rows=[];}
+  // Belt-and-braces: exclude any order placed under a kitchen-staff username, even
+  // when "All clients" (no username filter) is selected.
+  rows=rows.filter(o=>!kitchenUsernamesSet.has(o.username));
 
   const ordersCount=rows.length;
   const perProduct={};
@@ -4837,10 +4885,14 @@ async function loadSalesMetrics(){
   const trendRevenueData=trendKeys.map(k=>smRound2(trendRevenueBuckets[k]||0));
   salesChartTrend=smTrendChart(trendLabels,trendData,trendRevenueData);
 
+  let clientLabel='All clients';
+  if(selectedClients.length===1)clientLabel=displayNameFor(selectedClients[0]);
+  else if(selectedClients.length>1&&selectedClients.length<=3)clientLabel=selectedClients.map(u=>displayNameFor(u)).join(', ');
+  else if(selectedClients.length>3)clientLabel=selectedClients.length+' clients selected';
   salesLastAggregate={
     ordersCount,unitsSold,productsSoldCount,best,worst,trendLabels,trendData,trendRevenueData,
     revenue:fc.totalRevenue,profit:fc.totalProfit,foodCostPct:fc.priced.length?fc.totalPct:null,
-    client:client?displayNameFor(client):'All clients',
+    client:clientLabel,
     fromVal,toVal
   };
 }
@@ -5547,6 +5599,8 @@ function productRow(p){
   }
   const hasBoth=cost!=null&&sale!=null;
   const profit=hasBoth?sale-cost:null;
+  // Profit % of sale price — same "profit ÷ revenue" reading used in Sales Metrics.
+  const profitPct=(profit!=null&&sale>0)?(profit/sale*100):null;
   const profitColor=profit==null?'var(--text-tertiary)':(profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)'));
   const priceCell=(label,val)=>`<span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">${label}</div><div>${val!=null?'£'+val.toFixed(2):'—'}</div></span>`;
   const saleLabel=saleIsCustom?(displayNameFor(adminProdPriceClient)||adminProdPriceClient)+' price':'Sale';
@@ -5559,7 +5613,7 @@ function productRow(p){
     <span style="font-size:12px;color:var(--text-secondary)">${p.cat}</span>
     ${priceCell('Cost',cost)}
     ${priceCell(saleLabel,sale)}
-    <span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">Profit</div><div style="color:${profitColor};font-weight:600;">${profit!=null?'£'+profit.toFixed(2):'—'}</div></span>
+    <span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">Profit</div><div style="color:${profitColor};font-weight:600;">${profit!=null?'£'+profit.toFixed(2):'—'}${profitPct!=null?' <span style="font-weight:400;font-size:10px;">('+profitPct.toFixed(0)+'%)</span>':''}</div></span>
     <span><button class="toggle-btn${p.active?' on':''}" onclick="toggleProduct(${p.id},${p.active})">${p.active?'✅ Active':'⛔ Hidden'}</button></span>
     <span><button class="toggle-btn${!p.out_of_stock?' on':''}" onclick="toggleOutOfStock(${p.id},${!!p.out_of_stock})">${p.out_of_stock?'🚫 Out of stock':'✅ In stock'}</button></span>
     <span class="prod-actions">
