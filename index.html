@@ -352,6 +352,10 @@
             <div class="notif-item-title">📊 Sales Metrics</div>
             <div class="notif-item-text">Best/worst sellers by client & date</div>
           </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('prices')">
+            <div class="notif-item-title">💷 Client Prices</div>
+            <div class="notif-item-text">Set per-client prices (admin reports only)</div>
+          </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();openCutoffSettings()">
             <div class="notif-item-title">⏰ Cut-off Settings</div>
             <div class="notif-item-text" id="cutoff-menu-status">Mon & Thu at 12:00 PM</div>
@@ -577,6 +581,22 @@
         <button class="btn-sm" onclick="document.getElementById('activity-date-from').value='';document.getElementById('activity-date-to').value='';loadActivityLog();" style="color:var(--text-secondary);">✕ Clear dates</button>
       </div>
       <div id="activity-log-list"><div class="empty-state">Loading...</div></div>
+    </div>
+
+    <!-- ADMIN: CLIENT PRICES -->
+    <div id="tab-prices" style="display:none;">
+      <div class="section-toolbar">
+        <h2>💷 Client Prices</h2>
+        <button class="btn-sm" onclick="loadClientPricesTab()">↻ Refresh</button>
+        <button class="btn-sm green" onclick="saveClientPrices()">💾 Save prices</button>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Set a custom price per product for a specific client — used only for admin reports (never shown to the client). Leave a field blank to fall back to the product's default sale price.</p>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--text-secondary);">Client:</span>
+        <select id="prices-client-select" onchange="loadClientPricesForUser(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;background:var(--bg);min-width:180px;"></select>
+        <span id="prices-save-status" style="font-size:12px;color:var(--green-dark);display:none;">✓ Saved</span>
+      </div>
+      <div id="prices-list"><div class="empty-state">Select a client above.</div></div>
     </div>
 
     <!-- ADMIN: SALES METRICS -->
@@ -2587,7 +2607,7 @@ function showAdminTab(t,el){
   // Kitchen sub-admins only ever get the 4 operational tabs — even if something
   // tries to navigate elsewhere (e.g. a stale menu click), fall back to New Orders.
   if(isKitchenAdmin&&!KITCHEN_ALLOWED_TABS.includes(t)){t='orders';el=null;}
-  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -2606,6 +2626,7 @@ function showAdminTab(t,el){
     if(fromEl&&!fromEl.value){setSalesPeriod('year');}else{loadSalesMetrics();}
   }
   if(t==='chat'){chatHideComposePage();chatLoadHistory();chatEnsureUsers();}
+  if(t==='prices'){loadClientPricesTab();}
   // Keep "online now" dots fresh while the Users tab is open; stop polling elsewhere.
   if(_usersPollInterval){clearInterval(_usersPollInterval);_usersPollInterval=null;}
   if(t==='users'){_usersPollInterval=setInterval(loadUsers,10000);}
@@ -5527,6 +5548,87 @@ async function moveProduct(prodId, direction){
 }
 function filterAdminProdCat(cat,btn){adminProdCat=cat;document.querySelectorAll('#admin-cat-row .cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');loadAdminProducts();}
 function filterAdminProdStatus(status,btn){adminProdStatus=status;document.querySelectorAll('#admin-status-row .cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');loadAdminProducts();}
+
+// ── ADMIN: CLIENT PRICES ──
+// Per-client custom sale prices. Every client pays a different price for the same
+// product, so this lets the admin record what THIS client actually pays — purely
+// for admin-side reports. It's stored on users.custom_prices (jsonb: {productId: price})
+// and is never sent to or shown in any client-facing view. Blank field = falls back
+// to the product's default sale_price.
+let clientPricesUsersCache=[];
+let clientPricesCurrentUser=null;
+let clientPricesOriginal={};
+async function loadClientPricesTab(){
+  const sel=document.getElementById('prices-client-select');
+  if(!sel)return;
+  try{
+    if(!allProducts.length){
+      allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
+    }
+    const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
+    clientPricesUsersCache=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen');
+    const prevSelected=sel.value;
+    sel.innerHTML=clientPricesUsersCache.map(u=>`<option value="${u.username}">${displayNameFor(u.username)||u.username}</option>`).join('');
+    const toSelect=clientPricesUsersCache.some(u=>u.username===prevSelected)?prevSelected:(clientPricesUsersCache[0]?clientPricesUsersCache[0].username:'');
+    sel.value=toSelect;
+    if(toSelect){await loadClientPricesForUser(toSelect);}
+    else{document.getElementById('prices-list').innerHTML='<div class="empty-state">No clients found.</div>';}
+  }catch(e){document.getElementById('prices-list').innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
+}
+async function loadClientPricesForUser(username){
+  clientPricesCurrentUser=username;
+  const el=document.getElementById('prices-list');
+  el.innerHTML='<div class="empty-state">Loading...</div>';
+  try{
+    const rows=await sbGet('users',`username=eq.${encodeURIComponent(username)}`);
+    const u=rows[0];
+    clientPricesOriginal={...((u&&u.custom_prices)||{})};
+    renderClientPricesList();
+  }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
+}
+function renderClientPricesList(){
+  const el=document.getElementById('prices-list');
+  if(!el)return;
+  if(!allProducts.length){el.innerHTML='<div class="empty-state">No products found.</div>';return;}
+  const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
+  const grouped={};
+  allProducts.forEach(p=>{if(!grouped[p.cat])grouped[p.cat]=[];grouped[p.cat].push(p);});
+  const allCats=[...new Set([...catOrder,...Object.keys(grouped)])].filter(c=>grouped[c]&&grouped[c].length);
+  let html='';
+  allCats.forEach(catId=>{
+    const catLabel=CATEGORIES.find(c=>c.id===catId)?.label||catId;
+    html+=`<div style="background:var(--bg);padding:6px 16px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;border-top:2px solid var(--border);">${catLabel}</div>`;
+    grouped[catId].forEach(p=>{
+      const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
+      const custom=clientPricesOriginal[String(p.id)];
+      html+=`<div style="display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--border);">
+        <span style="flex:1;font-size:13px;">${p.name}</span>
+        <span style="font-size:11px;color:var(--text-tertiary);min-width:90px;">Default: ${defaultPrice!=null?'£'+defaultPrice.toFixed(2):'—'}</span>
+        <input type="number" step="0.01" min="0" data-price-prod-id="${p.id}" value="${custom!=null?custom:''}" placeholder="—" style="width:90px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:13px;"/>
+      </div>`;
+    });
+  });
+  el.innerHTML=html;
+}
+async function saveClientPrices(){
+  if(!clientPricesCurrentUser){alert('Select a client first.');return;}
+  const inputs=[...document.querySelectorAll('#prices-list input[data-price-prod-id]')];
+  const updated={};
+  inputs.forEach(inp=>{
+    const val=inp.value.trim();
+    if(val!==''){
+      const num=parseFloat(val);
+      if(!isNaN(num)&&num>=0)updated[inp.getAttribute('data-price-prod-id')]=num;
+    }
+  });
+  try{
+    await sbPatch('users',`username=eq.${encodeURIComponent(clientPricesCurrentUser)}`,{custom_prices:Object.keys(updated).length?updated:null});
+    clientPricesOriginal={...updated};
+    const status=document.getElementById('prices-save-status');
+    if(status){status.style.display='inline';setTimeout(()=>{status.style.display='none';},2000);}
+  }catch(e){alert('Error saving prices: '+e.message);}
+}
+
 // ── EMOJI PICKER ──
 const EMOJI_CATEGORIES = {
   '😀 Smileys': ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','🫠','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🫡','🤭','🫢','🫣','🤫','🤔','🫤','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','🫥','😟','🙁','☹️','😮','😯','😲','😳','🥺','🫹','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'],
