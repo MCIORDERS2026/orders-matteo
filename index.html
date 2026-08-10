@@ -544,6 +544,12 @@
         <button class="btn-sm" onclick="openManageCategories()">⚙️ Categories</button>
         <button class="btn-sm" onclick="openManageProduction()">🏭 Production List</button>
         <button class="btn-sm" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;" onclick="printProductListPDF()">🖨 PDF</button>
+        <span style="display:flex;align-items:center;gap:6px;margin-left:6px;">
+          <span style="font-size:12px;color:var(--text-secondary);">💷 Profit for:</span>
+          <select id="admin-prod-client-select" onchange="changeAdminProdPriceClient(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;background:var(--bg);min-width:150px;">
+            <option value="">Default price</option>
+          </select>
+        </span>
       </div>
       <div class="cat-row" id="admin-cat-row"></div>
       <div class="cat-row" id="admin-status-row"></div>
@@ -5497,6 +5503,35 @@ async function saveUserPassword(){
 
 // ── ADMIN: PRODUCTS ──
 let adminProductsCache=[];
+// ── "Profit for: <client>" selector on the Products tab ──
+// Lets the admin preview each product's Sale/Profit using a specific client's custom
+// price (set in the Client Prices tab) instead of the product's default sale_price —
+// handy since most products only have a per-client price set, not a global default.
+let adminProdPriceClient='';
+let adminProdClientPricesCache={};
+let adminProdClientListCache=[];
+async function ensureAdminProdClientSelect(){
+  const sel=document.getElementById('admin-prod-client-select');
+  if(!sel||adminProdClientListCache.length)return;
+  try{
+    const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
+    adminProdClientListCache=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen');
+    sel.innerHTML='<option value="">Default price</option>'+adminProdClientListCache.map(u=>`<option value="${u.username}">${displayNameFor(u.username)||u.username}</option>`).join('');
+    sel.value=adminProdPriceClient;
+  }catch(e){}
+}
+async function changeAdminProdPriceClient(username){
+  adminProdPriceClient=username;
+  if(username){
+    try{
+      const rows=await sbGet('users',`username=eq.${encodeURIComponent(username)}`);
+      adminProdClientPricesCache=(rows[0]&&rows[0].custom_prices)||{};
+    }catch(e){adminProdClientPricesCache={};}
+  }else{
+    adminProdClientPricesCache={};
+  }
+  loadAdminProducts();
+}
 function productRow(p){
   const imgHtml=p.image_url
     ?'<img src="'+p.image_url+'" style="width:32px;height:32px;object-fit:cover;border-radius:4px;vertical-align:middle;" onerror="this.style.display=\'none\'"/>'
@@ -5504,11 +5539,17 @@ function productRow(p){
   const descHtml=p.description?'<div style="font-size:11px;color:var(--text-secondary)">'+p.description+'</div>':'';
   // Food Cost / Sale Value / Profit — admin-only bookkeeping, never shown to clients.
   const cost=p.cost_price!=null?Number(p.cost_price):null;
-  const sale=p.sale_price!=null?Number(p.sale_price):null;
+  let sale=p.sale_price!=null?Number(p.sale_price):null;
+  let saleIsCustom=false;
+  if(adminProdPriceClient){
+    const custom=adminProdClientPricesCache[String(p.id)];
+    if(custom!=null){sale=Number(custom);saleIsCustom=true;}
+  }
   const hasBoth=cost!=null&&sale!=null;
   const profit=hasBoth?sale-cost:null;
   const profitColor=profit==null?'var(--text-tertiary)':(profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)'));
   const priceCell=(label,val)=>`<span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">${label}</div><div>${val!=null?'£'+val.toFixed(2):'—'}</div></span>`;
+  const saleLabel=saleIsCustom?(displayNameFor(adminProdPriceClient)||adminProdPriceClient)+' price':'Sale';
   return `<div class="prod-row${p.active?'':' inactive-row'}" data-prod-id="${p.id}" data-prod-cat="${p.cat}">
     <div style="display:flex;flex-direction:column;gap:0;">
       <button onclick="moveProduct(${p.id},-1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move up">⌃</button>
@@ -5517,7 +5558,7 @@ function productRow(p){
     <span><div style="font-weight:500">${p.name}</div>${descHtml}</span>
     <span style="font-size:12px;color:var(--text-secondary)">${p.cat}</span>
     ${priceCell('Cost',cost)}
-    ${priceCell('Sale',sale)}
+    ${priceCell(saleLabel,sale)}
     <span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">Profit</div><div style="color:${profitColor};font-weight:600;">${profit!=null?'£'+profit.toFixed(2):'—'}</div></span>
     <span><button class="toggle-btn${p.active?' on':''}" onclick="toggleProduct(${p.id},${p.active})">${p.active?'✅ Active':'⛔ Hidden'}</button></span>
     <span><button class="toggle-btn${!p.out_of_stock?' on':''}" onclick="toggleOutOfStock(${p.id},${!!p.out_of_stock})">${p.out_of_stock?'🚫 Out of stock':'✅ In stock'}</button></span>
@@ -5530,6 +5571,7 @@ function productRow(p){
 async function loadAdminProducts(){
   const el=document.getElementById('prod-table');
   el.innerHTML='<div style="padding:1rem;font-size:13px;color:var(--text-secondary)">Loading...</div>';
+  ensureAdminProdClientSelect();
   try{
     const rows=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');
     adminProductsCache=rows;
