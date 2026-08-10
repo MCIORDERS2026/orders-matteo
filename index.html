@@ -4248,6 +4248,8 @@ async function fetchSalesClientUsers(){
   try{
     const rows=await sbGet('users','deleted_at=is.null&order=username.asc');
     rows.forEach(u=>{if(u.display_name)usersDisplayNameMap[u.username]=u.display_name;});
+    clientCustomPricesCache={};
+    rows.forEach(u=>{clientCustomPricesCache[u.username]=u.custom_prices||{};});
     return rows.filter(u=>u.username!==ADMIN_USERNAME);
   }catch(e){return[];}
 }
@@ -4276,7 +4278,30 @@ function smPackAdjustedQty(p,raw){
 // the Lasagna/Focaccia "pack" display quantity above, since that conversion is
 // purely a unit-count convenience for those two products and has nothing to do
 // with pricing math.
-function smPriceOf(p){return p&&p.sale_price!=null?Number(p.sale_price):null;}
+// Per-client custom prices (users.custom_prices, set in the Client Prices admin tab)
+// override the product's default sale_price when computing revenue for THAT client's
+// orders. Cache is keyed by username -> {productId(string): price}; refreshed by
+// fetchSalesClientUsers() (called at the top of every Sales Metrics load) and lazily
+// filled by ensureClientPricesCache() for the Compare/Breakdown sections which can be
+// triggered independently.
+let clientCustomPricesCache={};
+async function ensureClientPricesCache(){
+  if(Object.keys(clientCustomPricesCache).length)return clientCustomPricesCache;
+  try{
+    const rows=await sbGet('users','deleted_at=is.null&order=username.asc');
+    clientCustomPricesCache={};
+    rows.forEach(u=>{clientCustomPricesCache[u.username]=u.custom_prices||{};});
+  }catch(e){}
+  return clientCustomPricesCache;
+}
+function smPriceOf(p,username){
+  if(!p)return null;
+  if(username){
+    const custom=clientCustomPricesCache[username];
+    if(custom&&custom[String(p.id)]!=null)return Number(custom[String(p.id)]);
+  }
+  return p.sale_price!=null?Number(p.sale_price):null;
+}
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
@@ -4321,6 +4346,7 @@ async function loadSalesCompare(){
   }
   emptyEl.style.display='none';
   cardsEl.innerHTML='<div class="empty-state">Loading...</div>';
+  await ensureClientPricesCache();
 
   const fromVal=document.getElementById('sm-date-from').value;
   const toVal=document.getElementById('sm-date-to').value;
@@ -4338,7 +4364,7 @@ async function loadSalesCompare(){
         const qty=Number(q)||0;
         perProduct[id]=(perProduct[id]||0)+qty;
         units+=qty;
-        const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)));
+        const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)),o.username);
         if(price!=null)revenue+=qty*price;
       });
     });
@@ -4442,6 +4468,7 @@ async function loadSalesBreakdown(){
   const toEl=document.getElementById('sm-date-to');
   const fromVal=fromEl?fromEl.value:'';
   const toVal=toEl?toEl.value:'';
+  await ensureClientPricesCache();
 
   let query='status=eq.delivered&deleted_at=is.null';
   if(fromVal)query+=`&delivered_at=gte.${fromVal}T00:00:00`;
@@ -4461,18 +4488,18 @@ async function loadSalesBreakdown(){
       Object.entries(o.items||{}).forEach(([id,q])=>{
         const qty=Number(q)||0;
         rowTotal+=qty;
-        const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)));
+        const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)),o.username);
         if(price!=null)rowRevenue+=qty*price;
       });
       if(rowTotal>0)perClient[o.username]=(perClient[o.username]||0)+rowTotal;
       if(rowRevenue>0)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+rowRevenue;
     });
   }else{
-    const price=smPriceOf(p);
     rows.forEach(o=>{
       const raw=Number((o.items||{})[productId])||0;
       if(raw>0){
         perClient[o.username]=(perClient[o.username]||0)+raw;
+        const price=smPriceOf(p,o.username);
         if(price!=null)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+raw*price;
       }
     });
@@ -4617,19 +4644,22 @@ function smTrendChart(labels,data,revenueData){
   });
 }
 // ── Food cost report: per-product Units/Revenue/Cost/Profit/Food-cost% for the
-// currently active Client + date range filters. Reuses the perProduct raw-units
-// map already computed by loadSalesMetrics — no extra query needed. Only products
-// with BOTH cost_price and sale_price set are included in the priced list/totals;
-// everything else is surfaced separately as a "missing price data" note so the
-// admin knows which products to fill in for a complete report. ──
-function computeFoodCostReport(perProduct){
+// currently active Client + date range filters. Reuses the perProduct raw-units map
+// AND the perProductRevenue map already computed by loadSalesMetrics (which sums
+// each order line at THAT client's price — custom price if set, else the product's
+// default sale_price) — no extra query needed. Cost is always the product's own
+// cost_price (not client-specific). Only products with a cost_price set AND at least
+// some revenue computed are included in the priced list/totals; everything else is
+// surfaced separately as a "missing price data" note so the admin knows which
+// products to fill in for a complete report. ──
+function computeFoodCostReport(perProduct,perProductRevenue){
   const rows=allProducts.map(p=>{
     const raw=perProduct[p.id]||0;
     if(raw<=0)return null;
-    const cost=smCostOf(p),sale=smPriceOf(p);
+    const cost=smCostOf(p);
+    const revenue=(perProductRevenue&&perProductRevenue[p.id]!=null)?smRound2(perProductRevenue[p.id]):null;
     const name=p.name+fmtDesc(p.description);
-    if(cost==null||sale==null)return{id:p.id,name,raw,missing:true};
-    const revenue=smRound2(raw*sale);
+    if(cost==null||revenue==null)return{id:p.id,name,raw,missing:true};
     const costTotal=smRound2(raw*cost);
     const profit=smRound2(revenue-costTotal);
     const pct=revenue>0?(costTotal/revenue*100):0;
@@ -4714,6 +4744,7 @@ async function loadSalesMetrics(){
 
   const ordersCount=rows.length;
   const perProduct={};
+  const perProductRevenue={};
   const trendBuckets={};
   const trendRevenueBuckets={};
   let unitsSold=0;
@@ -4723,8 +4754,14 @@ async function loadSalesMetrics(){
       const qty=Number(q)||0;
       perProduct[id]=(perProduct[id]||0)+qty;
       rowUnits+=qty;
-      const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)));
-      if(price!=null)rowRevenue+=qty*price;
+      // Uses THIS order's client custom price when set, else the product's default
+      // sale_price — see smPriceOf/clientCustomPricesCache above.
+      const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)),o.username);
+      if(price!=null){
+        const lineRevenue=qty*price;
+        rowRevenue+=lineRevenue;
+        perProductRevenue[id]=(perProductRevenue[id]||0)+lineRevenue;
+      }
     });
     unitsSold+=rowUnits;
     if(o.delivered_at){
@@ -4739,10 +4776,11 @@ async function loadSalesMetrics(){
   document.getElementById('sm-kpi-units').textContent=unitsSold;
   document.getElementById('sm-kpi-products').textContent=productsSoldCount;
 
-  // Revenue/profit/food-cost% KPIs — computed from RAW units × price fields,
-  // restricted to products that actually have both prices set (so the % is
-  // meaningful rather than silently treating missing prices as £0 cost).
-  const fc=computeFoodCostReport(perProduct);
+  // Revenue/profit/food-cost% KPIs — computed from RAW units × price fields (client
+  // custom price when set, else default sale_price), restricted to products that
+  // actually have a cost_price and some computed revenue (so the % is meaningful
+  // rather than silently treating missing prices as £0 cost).
+  const fc=computeFoodCostReport(perProduct,perProductRevenue);
   renderFoodCostReport(fc);
   document.getElementById('sm-kpi-revenue').textContent=smFmtMoney(fc.totalRevenue);
   document.getElementById('sm-kpi-profit').textContent=smFmtMoney(fc.totalProfit);
@@ -4771,8 +4809,9 @@ async function loadSalesMetrics(){
     const mult=(isPackProduct&&p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
     const qty=smPackAdjustedQty(p,raw);
     const name=p.name+fmtDesc(p.description)+(mult>1?` (pack of ${mult})`:'');
-    const price=smPriceOf(p);
-    const revenue=price!=null?smRound2(raw*price):null;
+    // Uses the actual per-line revenue summed above (client custom price where set)
+    // rather than raw units × a single global price, so mixed-client totals are accurate.
+    const revenue=perProductRevenue[p.id]!=null?smRound2(perProductRevenue[p.id]):null;
     return{id:p.id,name,qty,revenue};
   });
   const best=[...catalog].sort((a,b)=>b.qty-a.qty).slice(0,10);
