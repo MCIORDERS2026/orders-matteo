@@ -588,12 +588,12 @@
       <div class="section-toolbar">
         <h2>💷 Client Prices</h2>
         <button class="btn-sm" onclick="loadClientPricesTab()">↻ Refresh</button>
-        <button class="btn-sm green" onclick="saveClientPrices()">💾 Save prices</button>
+        <button class="btn-sm green" onclick="manualSaveClientPrices()">💾 Save now</button>
       </div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Set a custom price per product for a specific client — used only for admin reports (never shown to the client). Leave a field blank to fall back to the product's default sale price.</p>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Set a custom price per product for a specific client — used only for admin reports (never shown to the client). Leave a field blank to fall back to the product's default sale price. Prices save automatically as you type.</p>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);">Client:</span>
-        <select id="prices-client-select" onchange="loadClientPricesForUser(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;background:var(--bg);min-width:180px;"></select>
+        <select id="prices-client-select" onchange="changeClientPricesClient(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;background:var(--bg);min-width:180px;"></select>
         <span id="prices-save-status" style="font-size:12px;color:var(--green-dark);display:none;">✓ Saved</span>
       </div>
       <div id="prices-list"><div class="empty-state">Select a client above.</div></div>
@@ -2607,6 +2607,9 @@ function showAdminTab(t,el){
   // Kitchen sub-admins only ever get the 4 operational tabs — even if something
   // tries to navigate elsewhere (e.g. a stale menu click), fall back to New Orders.
   if(isKitchenAdmin&&!KITCHEN_ALLOWED_TABS.includes(t)){t='orders';el=null;}
+  // Flush any pending Client Prices autosave before navigating away, so leaving the
+  // tab right after typing never loses the last edit.
+  if(clientPricesAutoSaveTimer){clearTimeout(clientPricesAutoSaveTimer);clientPricesAutoSaveTimer=null;saveClientPrices();}
   ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
@@ -4674,8 +4677,7 @@ function computeFoodCostReport(perProduct,perProductRevenue){
   return{priced,missing,totalRevenue,totalCost,totalProfit,totalPct};
 }
 function smFcPctColor(pct){
-  if(pct>=60)return{bg:'#FEE2E2',fg:'#B91C1C'};
-  if(pct>=35)return{bg:'#FEF3C7',fg:'#92400E'};
+  if(pct>100)return{bg:'#FEE2E2',fg:'#B91C1C'};
   return{bg:'var(--green-light)',fg:'var(--green-dark)'};
 }
 function renderFoodCostReport(fc){
@@ -5597,6 +5599,34 @@ function filterAdminProdStatus(status,btn){adminProdStatus=status;document.query
 let clientPricesUsersCache=[];
 let clientPricesCurrentUser=null;
 let clientPricesOriginal={};
+let clientPricesAutoSaveTimer=null;
+let clientPricesStatusHideTimer=null;
+// Called when the Client dropdown changes — flushes any pending autosave for the
+// PREVIOUS client first (clientPricesCurrentUser hasn't switched yet at this point),
+// so a quick client-switch right after typing never loses the last edit.
+async function changeClientPricesClient(newUsername){
+  if(clientPricesAutoSaveTimer){
+    clearTimeout(clientPricesAutoSaveTimer);
+    clientPricesAutoSaveTimer=null;
+    await saveClientPrices();
+  }
+  await loadClientPricesForUser(newUsername);
+}
+function scheduleAutoSaveClientPrices(){
+  const status=document.getElementById('prices-save-status');
+  if(status){
+    clearTimeout(clientPricesStatusHideTimer);
+    status.textContent='Saving…';
+    status.style.color='var(--text-secondary)';
+    status.style.display='inline';
+  }
+  if(clientPricesAutoSaveTimer)clearTimeout(clientPricesAutoSaveTimer);
+  clientPricesAutoSaveTimer=setTimeout(()=>{clientPricesAutoSaveTimer=null;saveClientPrices();},900);
+}
+function manualSaveClientPrices(){
+  if(clientPricesAutoSaveTimer){clearTimeout(clientPricesAutoSaveTimer);clientPricesAutoSaveTimer=null;}
+  saveClientPrices();
+}
 async function loadClientPricesTab(){
   const sel=document.getElementById('prices-client-select');
   if(!sel)return;
@@ -5643,14 +5673,15 @@ function renderClientPricesList(){
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--border);">
         <span style="flex:1;font-size:13px;">${p.name}</span>
         <span style="font-size:11px;color:var(--text-tertiary);min-width:90px;">Default: ${defaultPrice!=null?'£'+defaultPrice.toFixed(2):'—'}</span>
-        <input type="number" step="0.01" min="0" data-price-prod-id="${p.id}" value="${custom!=null?custom:''}" placeholder="—" style="width:90px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:13px;"/>
+        <input type="number" step="0.01" min="0" data-price-prod-id="${p.id}" value="${custom!=null?custom:''}" placeholder="—" oninput="scheduleAutoSaveClientPrices()" style="width:90px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:13px;"/>
       </div>`;
     });
   });
   el.innerHTML=html;
 }
 async function saveClientPrices(){
-  if(!clientPricesCurrentUser){alert('Select a client first.');return;}
+  const status=document.getElementById('prices-save-status');
+  if(!clientPricesCurrentUser)return;
   const inputs=[...document.querySelectorAll('#prices-list input[data-price-prod-id]')];
   const updated={};
   inputs.forEach(inp=>{
@@ -5663,9 +5694,21 @@ async function saveClientPrices(){
   try{
     await sbPatch('users',`username=eq.${encodeURIComponent(clientPricesCurrentUser)}`,{custom_prices:Object.keys(updated).length?updated:null});
     clientPricesOriginal={...updated};
-    const status=document.getElementById('prices-save-status');
-    if(status){status.style.display='inline';setTimeout(()=>{status.style.display='none';},2000);}
-  }catch(e){alert('Error saving prices: '+e.message);}
+    if(status){
+      status.textContent='✓ Saved';
+      status.style.color='var(--green-dark)';
+      status.style.display='inline';
+      clearTimeout(clientPricesStatusHideTimer);
+      clientPricesStatusHideTimer=setTimeout(()=>{status.style.display='none';},2000);
+    }
+  }catch(e){
+    if(status){
+      status.textContent='⚠ Error saving — try again';
+      status.style.color='var(--red)';
+      status.style.display='inline';
+      clearTimeout(clientPricesStatusHideTimer);
+    }
+  }
 }
 
 // ── EMOJI PICKER ──
