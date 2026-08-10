@@ -648,7 +648,7 @@
         <div class="sm-card"><div class="sm-card-label">Products sold</div><div class="sm-card-value" id="sm-kpi-products">0</div></div>
         <div class="sm-card"><div class="sm-card-label">Revenue</div><div class="sm-card-value" id="sm-kpi-revenue">£0.00</div><div class="sm-card-sub" id="sm-kpi-revenue-sub">priced products only</div></div>
         <div class="sm-card"><div class="sm-card-label">Profit</div><div class="sm-card-value" id="sm-kpi-profit">£0.00</div><div class="sm-card-sub" id="sm-kpi-profit-sub">priced products only</div></div>
-        <div class="sm-card"><div class="sm-card-label">Food cost %</div><div class="sm-card-value" id="sm-kpi-foodcost">—</div><div class="sm-card-sub" id="sm-kpi-foodcost-sub">cost ÷ revenue</div></div>
+        <div class="sm-card"><div class="sm-card-label">Profit %</div><div class="sm-card-value" id="sm-kpi-foodcost">—</div><div class="sm-card-sub" id="sm-kpi-foodcost-sub">profit ÷ revenue</div></div>
       </div>
 
       <div id="sm-content">
@@ -717,8 +717,8 @@
 
       <!-- FOOD COST REPORT -->
       <div class="sm-chart-box" style="margin-top:16px;">
-        <h3>💷 Food cost report <span style="font-weight:400;font-size:12px;color:var(--text-tertiary);">— % of revenue eaten by cost, per product</span></h3>
-        <p class="sm-fc-note">Uses the Client and date range filters set above. Only products with both Food Cost and Sale Value set are included; sorted by highest food cost % first.</p>
+        <h3>💷 Food cost report <span style="font-weight:400;font-size:12px;color:var(--text-tertiary);">— profit % of revenue, per product</span></h3>
+        <p class="sm-fc-note">Uses the Client and date range filters set above. Only products with both Food Cost and Sale Value set are included; sorted by lowest profit % first.</p>
         <div id="sm-fc-content" style="display:none;">
           <div class="sm-fc-table-wrap">
             <table class="sm-fc-table">
@@ -729,7 +729,7 @@
                   <th class="num">Revenue</th>
                   <th class="num">Cost</th>
                   <th class="num">Profit</th>
-                  <th class="num">Food cost %</th>
+                  <th class="num">Profit %</th>
                 </tr>
               </thead>
               <tbody id="sm-fc-tbody"></tbody>
@@ -4665,19 +4665,22 @@ function computeFoodCostReport(perProduct,perProductRevenue){
     if(cost==null||revenue==null)return{id:p.id,name,raw,missing:true};
     const costTotal=smRound2(raw*cost);
     const profit=smRound2(revenue-costTotal);
-    const pct=revenue>0?(costTotal/revenue*100):0;
+    // pct = PROFIT % of revenue (inverted from the old "cost % of revenue" reading —
+    // e.g. £108 cost on £120 revenue now shows as 10% profit instead of 90% cost).
+    const pct=revenue>0?(profit/revenue*100):0;
     return{id:p.id,name,raw,revenue,cost:costTotal,profit,pct,missing:false};
   }).filter(Boolean);
-  const priced=rows.filter(r=>!r.missing).sort((a,b)=>b.pct-a.pct);
+  // Worst performers (lowest/most negative profit %) surfaced first.
+  const priced=rows.filter(r=>!r.missing).sort((a,b)=>a.pct-b.pct);
   const missing=rows.filter(r=>r.missing);
   const totalRevenue=smRound2(priced.reduce((a,r)=>a+r.revenue,0));
   const totalCost=smRound2(priced.reduce((a,r)=>a+r.cost,0));
   const totalProfit=smRound2(totalRevenue-totalCost);
-  const totalPct=totalRevenue>0?(totalCost/totalRevenue*100):0;
+  const totalPct=totalRevenue>0?(totalProfit/totalRevenue*100):0;
   return{priced,missing,totalRevenue,totalCost,totalProfit,totalPct};
 }
 function smFcPctColor(pct){
-  if(pct>100)return{bg:'#FEE2E2',fg:'#B91C1C'};
+  if(pct<0)return{bg:'#FEE2E2',fg:'#B91C1C'};
   return{bg:'var(--green-light)',fg:'var(--green-dark)'};
 }
 function renderFoodCostReport(fc){
@@ -4902,7 +4905,7 @@ function generateSalesMetricsPDF(){
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Products sold</div><div style="font-size:22px;font-weight:800;">${a.productsSoldCount}</div></div>
         ${hasMoney?`<div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Revenue</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.revenue)}</div></div>
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Profit</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.profit)}</div></div>
-        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Food cost %</div><div style="font-size:22px;font-weight:800;">${a.foodCostPct!=null?a.foodCostPct.toFixed(1)+'%':'—'}</div></div>`:''}
+        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Profit %</div><div style="font-size:22px;font-weight:800;">${a.foodCostPct!=null?a.foodCostPct.toFixed(1)+'%':'—'}</div></div>`:''}
       </div>`;
   }
 
@@ -4986,7 +4989,7 @@ function generateSalesMetricsPDF(){
     sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">💷 Food cost report</h3>
       <table style="width:100%;border-collapse:collapse;">
-        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Food cost %</th></tr>
+        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit %</th></tr>
         ${fcRows}${fcTotalRow}
       </table>
       ${fc.missing.length?`<p style="font-size:11px;color:#999;margin-top:8px;">⚠ ${fc.missing.length} product(s) sold without Food Cost / Sale Value set are excluded above.</p>`:''}
