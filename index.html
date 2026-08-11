@@ -4365,16 +4365,18 @@ function smPriceOf(p,username){
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
-// Lasagna is bought/sold by the TRAY (order_multiple=12 slices) — its Food Cost AND
-// every client's price (default or custom) represent the whole tray, not one slice
-// (confirmed against real data: cost £15.98/tray, client prices £26-43/tray — dividing
-// those by 12 would make no commercial sense as a per-slice figure). So for Lasagna
-// specifically, ALL money math (cost and revenue) in Sales Metrics must use "trays
-// sold" (raw slices ÷ order_multiple), not the raw slice count.
-// Deliberately scoped to just this one product — do NOT extend to other
+// Lasagna and Focaccia are bought/sold by the PACK (Lasagna: tray of 12 slices;
+// Focaccia: pack of 10) — their Food Cost AND every client's price (default or
+// custom) represent the whole pack, not one slice/piece (confirmed against real
+// data per-product: Lasagna cost £15.98/tray, client prices £26-43/tray; Focaccia
+// cost £2.20/pack, client prices £5-7.50/pack — dividing those by the per-piece
+// count would make no commercial sense). So for these products specifically, ALL
+// money math (cost and revenue) in Sales Metrics must use "packs sold" (raw units
+// ÷ order_multiple), not the raw unit count.
+// Deliberately scoped to just these confirmed products — do NOT extend to other
 // order_multiple products without explicit confirmation per product (this exact
 // assumption was wrong when generalized broadly earlier and had to be reverted).
-const SM_TRAY_PRICED_PRODUCTS=['lasagna'];
+const SM_TRAY_PRICED_PRODUCTS=['lasagna','focaccia','foccacia'];
 function smIsTrayPriced(p){return !!(p&&SM_TRAY_PRICED_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function smMoneyQty(p,raw){
   if(!p||!smIsTrayPriced(p))return raw;
