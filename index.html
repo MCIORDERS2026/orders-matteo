@@ -4365,6 +4365,22 @@ function smPriceOf(p,username){
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
+// Lasagna is bought/sold by the TRAY (order_multiple=12 slices) — its Food Cost AND
+// every client's price (default or custom) represent the whole tray, not one slice
+// (confirmed against real data: cost £15.98/tray, client prices £26-43/tray — dividing
+// those by 12 would make no commercial sense as a per-slice figure). So for Lasagna
+// specifically, ALL money math (cost and revenue) in Sales Metrics must use "trays
+// sold" (raw slices ÷ order_multiple), not the raw slice count.
+// Deliberately scoped to just this one product — do NOT extend to other
+// order_multiple products without explicit confirmation per product (this exact
+// assumption was wrong when generalized broadly earlier and had to be reverted).
+const SM_TRAY_PRICED_PRODUCTS=['lasagna'];
+function smIsTrayPriced(p){return !!(p&&SM_TRAY_PRICED_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
+function smMoneyQty(p,raw){
+  if(!p||!smIsTrayPriced(p))return raw;
+  const mult=(p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
+  return mult>1?Math.round((raw/mult)*100)/100:raw;
+}
 function populateSalesCompareClients(nonAdmin){
   const wrap=document.getElementById('sm-compare-clients');
   if(!wrap)return;
@@ -4424,8 +4440,9 @@ async function loadSalesCompare(){
         const qty=Number(q)||0;
         perProduct[id]=(perProduct[id]||0)+qty;
         units+=qty;
-        const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)),o.username);
-        if(price!=null)revenue+=qty*price;
+        const prod=allProducts.find(x=>String(x.id)===String(id));
+        const price=smPriceOf(prod,o.username);
+        if(price!=null)revenue+=smMoneyQty(prod,qty)*price;
       });
     });
     return{username,color:SM_COMPARE_COLORS[idx%SM_COMPARE_COLORS.length],orders:rows.length,units,revenue:smRound2(revenue),perProduct};
@@ -4549,8 +4566,9 @@ async function loadSalesBreakdown(){
       Object.entries(o.items||{}).forEach(([id,q])=>{
         const qty=Number(q)||0;
         rowTotal+=qty;
-        const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)),o.username);
-        if(price!=null)rowRevenue+=qty*price;
+        const prod=allProducts.find(x=>String(x.id)===String(id));
+        const price=smPriceOf(prod,o.username);
+        if(price!=null)rowRevenue+=smMoneyQty(prod,qty)*price;
       });
       if(rowTotal>0)perClient[o.username]=(perClient[o.username]||0)+rowTotal;
       if(rowRevenue>0)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+rowRevenue;
@@ -4561,7 +4579,7 @@ async function loadSalesBreakdown(){
       if(raw>0){
         perClient[o.username]=(perClient[o.username]||0)+raw;
         const price=smPriceOf(p,o.username);
-        if(price!=null)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+raw*price;
+        if(price!=null)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+smMoneyQty(p,raw)*price;
       }
     });
   }
@@ -4717,16 +4735,19 @@ function computeFoodCostReport(perProduct,perProductRevenue){
   const rows=allProducts.map(p=>{
     const raw=perProduct[p.id]||0;
     if(raw<=0)return null;
+    // qty = money/display quantity — trays for Lasagna (raw slices ÷ 12), raw units
+    // for everything else. See smIsTrayPriced/smMoneyQty above.
+    const qty=smMoneyQty(p,raw);
     const cost=smCostOf(p);
     const revenue=(perProductRevenue&&perProductRevenue[p.id]!=null)?smRound2(perProductRevenue[p.id]):null;
     const name=p.name+fmtDesc(p.description);
-    if(cost==null||revenue==null)return{id:p.id,name,raw,missing:true};
-    const costTotal=smRound2(raw*cost);
+    if(cost==null||revenue==null)return{id:p.id,name,raw,qty,missing:true};
+    const costTotal=smRound2(qty*cost);
     const profit=smRound2(revenue-costTotal);
     // pct = PROFIT % of revenue (inverted from the old "cost % of revenue" reading —
     // e.g. £108 cost on £120 revenue now shows as 10% profit instead of 90% cost).
     const pct=revenue>0?(profit/revenue*100):0;
-    return{id:p.id,name,raw,revenue,cost:costTotal,profit,pct,missing:false};
+    return{id:p.id,name,raw,qty,revenue,cost:costTotal,profit,pct,missing:false};
   }).filter(Boolean);
   // Worst performers (lowest/most negative profit %) surfaced first.
   const priced=rows.filter(r=>!r.missing).sort((a,b)=>a.pct-b.pct);
@@ -4758,7 +4779,7 @@ function renderFoodCostReport(fc){
     const c=smFcPctColor(r.pct);
     return `<tr>
       <td>${r.name}</td>
-      <td class="num">${r.raw}</td>
+      <td class="num">${r.qty}</td>
       <td class="num">${smFmtMoney(r.cost)}</td>
       <td class="num">${smFmtMoney(r.revenue)}</td>
       <td class="num">${smFmtMoney(r.profit)}</td>
@@ -4768,7 +4789,7 @@ function renderFoodCostReport(fc){
   const totalC=smFcPctColor(fc.totalPct);
   const totalRow=`<tr class="sm-fc-total">
     <td>Total</td>
-    <td class="num">${fc.priced.reduce((a,r)=>a+r.raw,0)}</td>
+    <td class="num">${fc.priced.reduce((a,r)=>a+r.qty,0)}</td>
     <td class="num">${smFmtMoney(fc.totalCost)}</td>
     <td class="num">${smFmtMoney(fc.totalRevenue)}</td>
     <td class="num">${smFmtMoney(fc.totalProfit)}</td>
@@ -4776,7 +4797,7 @@ function renderFoodCostReport(fc){
   </tr>`;
   document.getElementById('sm-fc-tbody').innerHTML=rowsHtml+totalRow;
   missingEl.innerHTML=fc.missing.length
-    ? `⚠ ${fc.missing.length} product${fc.missing.length===1?'':'s'} sold in this period ${fc.missing.length===1?'has':'have'} no Food Cost / Sale Value set, so ${fc.missing.length===1?'it isn\'t':'they aren\'t'} included above: ${fc.missing.map(r=>r.name+' ('+r.raw+')').join(', ')}.`
+    ? `⚠ ${fc.missing.length} product${fc.missing.length===1?'':'s'} sold in this period ${fc.missing.length===1?'has':'have'} no Food Cost / Sale Value set, so ${fc.missing.length===1?'it isn\'t':'they aren\'t'} included above: ${fc.missing.map(r=>r.name+' ('+r.qty+')').join(', ')}.`
     : '';
 }
 async function loadSalesMetrics(){
@@ -4821,10 +4842,12 @@ async function loadSalesMetrics(){
       perProduct[id]=(perProduct[id]||0)+qty;
       rowUnits+=qty;
       // Uses THIS order's client custom price when set, else the product's default
-      // sale_price — see smPriceOf/clientCustomPricesCache above.
-      const price=smPriceOf(allProducts.find(x=>String(x.id)===String(id)),o.username);
+      // sale_price — see smPriceOf/clientCustomPricesCache above. smMoneyQty adjusts
+      // for Lasagna, which is priced per tray, not per slice — see smIsTrayPriced above.
+      const prod=allProducts.find(x=>String(x.id)===String(id));
+      const price=smPriceOf(prod,o.username);
       if(price!=null){
-        const lineRevenue=qty*price;
+        const lineRevenue=smMoneyQty(prod,qty)*price;
         rowRevenue+=lineRevenue;
         perProductRevenue[id]=(perProductRevenue[id]||0)+lineRevenue;
       }
@@ -5049,8 +5072,8 @@ function generateSalesMetricsPDF(){
 
   if(opts.foodcost&&salesFoodCostLastAggregate&&salesFoodCostLastAggregate.priced.length){
     const fc=salesFoodCostLastAggregate;
-    const fcRows=fc.priced.map(r=>`<tr><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #eee;">${r.name}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${r.raw}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.cost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.revenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.profit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.pct.toFixed(1)}%</td></tr>`).join('');
-    const fcTotalRow=`<tr><td style="padding:6px 10px;font-size:13px;font-weight:800;border-top:2px solid #ccc;">Total</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.priced.reduce((a,r)=>a+r.raw,0)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalCost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalRevenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalProfit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalPct.toFixed(1)}%</td></tr>`;
+    const fcRows=fc.priced.map(r=>`<tr><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #eee;">${r.name}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${r.qty}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.cost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.revenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.profit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.pct.toFixed(1)}%</td></tr>`).join('');
+    const fcTotalRow=`<tr><td style="padding:6px 10px;font-size:13px;font-weight:800;border-top:2px solid #ccc;">Total</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.priced.reduce((a,r)=>a+r.qty,0)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalCost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalRevenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalProfit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalPct.toFixed(1)}%</td></tr>`;
     sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">💷 Food cost report</h3>
       <table style="width:100%;border-collapse:collapse;">
