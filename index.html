@@ -3842,7 +3842,11 @@ async function loadCompleteOrders(){
   const el=document.getElementById('complete-list');
   el.innerHTML='<div class="empty-state">Loading...</div>';
   try{
-    const rows=await sbGet('orders_history','status=eq.delivered&deleted_at=is.null&order=created_at.desc');
+    // Sorted by delivered_at (when it was actually marked Complete), NOT created_at
+    // (when the client originally placed it) — those can drift apart (an order placed
+    // early but delivered late, or re-delivered), and this list should always read
+    // top-to-bottom as "most recently completed first".
+    const rows=await sbGet('orders_history','status=eq.delivered&deleted_at=is.null&order=delivered_at.desc.nullslast,created_at.desc');
     completeOrdersCache=rows;
     loadCompleteBadge(rows.length);
     // Populate the client checklist for the history Excel export (preserve current checks).
