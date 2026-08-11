@@ -4365,33 +4365,37 @@ function smPriceOf(p,username){
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
-// Lasagna, Focaccia and Cheesecake Nutella are bought/sold by the PACK (Lasagna:
-// tray of 12 slices; Focaccia: pack of 10; Cheesecake Nutella: pack of 10) — their
-// Food Cost AND every client's price (default or custom) represent the whole pack,
-// not one slice/piece (confirmed against real data per-product: Lasagna cost
-// £15.98/tray, client prices £26-43/tray; Focaccia cost £2.20/pack, client prices
-// £5-7.50/pack; Cheesecake Nutella cost £13.90/pack, client prices £18.50-22/pack —
-// dividing those by the per-piece count would make no commercial sense). So for
-// these products specifically, ALL money math (cost and revenue) in Sales Metrics
-// must use "packs sold" (raw units ÷ order_multiple), not the raw unit count.
+// Lasagna, Focaccia, Cheesecake Nutella, Tiramisu, Wild Berry Cheesecake and Cherry
+// Tomato are bought/sold by the PACK (Lasagna: tray of 12; Focaccia/Cheesecake
+// Nutella/Tiramisu/Wild Berry Cheesecake: pack of 10; Cherry Tomato: pack of 4kg) —
+// their Food Cost AND every client's price (default or custom) represent the whole
+// pack, not one slice/piece/kg (confirmed against real data per-product: Lasagna
+// cost £15.98/tray, client prices £26-43/tray; Focaccia cost £2.20/pack, client
+// prices £5-7.50/pack; Cheesecake Nutella cost £13.90/pack, client prices £18.50-
+// 22/pack; Tiramisu cost £5.60/pack, client prices £6.20-18/pack; Wild Berry
+// Cheesecake cost £13.10/pack, client prices £18.50/pack; Cherry Tomato cost
+// £10.62/pack, client price £14.68/pack — dividing those by the per-unit count
+// would make no commercial sense). So for these products specifically, ALL money
+// math (cost and revenue) in Sales Metrics must use "packs sold" (raw units ÷
+// order_multiple), not the raw unit count.
 // Deliberately scoped to just these confirmed products — do NOT extend to other
-// order_multiple products (e.g. Wild Berry Cheesecake, Tiramisu, Crème Brûlée) without
-// explicit confirmation per product (this exact assumption was wrong when generalized
-// broadly earlier and had to be reverted). Uses "nutella" (not "cheesecake") so it
-// does NOT also match "Wild Berry Cheesecake", which is unconfirmed.
-const SM_TRAY_PRICED_PRODUCTS=['lasagna','focaccia','foccacia','nutella'];
+// order_multiple products (e.g. Crème Brûlée) without explicit confirmation per
+// product (this exact assumption was wrong when generalized broadly earlier and had
+// to be reverted). Uses "wild berry" (not "cheesecake") so it doesn't also broaden
+// the match for "Cheesecake Nutella" or any future cheesecake product.
+const SM_TRAY_PRICED_PRODUCTS=['lasagna','focaccia','foccacia','nutella','tiramisu','wild berry','cherry tomato'];
 function smIsTrayPriced(p){return !!(p&&SM_TRAY_PRICED_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function smMoneyQty(p,raw){
   if(!p||!smIsTrayPriced(p))return raw;
   const mult=(p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
   return mult>1?Math.round((raw/mult)*100)/100:raw;
 }
-// Cheesecake Nutella: cost/revenue math must use the pack-adjusted quantity (see
-// smMoneyQty above), but the admin wants the "Units sold" column in the Food Cost
-// Report to keep showing the raw unit count instead — purely cosmetic, no effect on
-// the £ figures. Lasagna/Focaccia are NOT in this list, so their display stays
-// pack-adjusted as before.
-const SM_RAW_DISPLAY_PRODUCTS=['nutella'];
+// Cheesecake Nutella, Tiramisu, Wild Berry Cheesecake and Cherry Tomato: cost/revenue
+// math must use the pack-adjusted quantity (see smMoneyQty above), but the admin
+// wants the "Units sold" column in the Food Cost Report to keep showing the raw
+// unit count instead — purely cosmetic, no effect on the £ figures. Lasagna/
+// Focaccia are NOT in this list, so their display stays pack-adjusted as before.
+const SM_RAW_DISPLAY_PRODUCTS=['nutella','tiramisu','wild berry','cherry tomato'];
 function smIsRawDisplay(p){return !!(p&&SM_RAW_DISPLAY_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function populateSalesCompareClients(nonAdmin){
   const wrap=document.getElementById('sm-compare-clients');
