@@ -734,8 +734,8 @@
                 <tr>
                   <th>Product</th>
                   <th class="num">Units sold</th>
-                  <th class="num">Revenue</th>
                   <th class="num">Cost</th>
+                  <th class="num">Revenue</th>
                   <th class="num">Profit</th>
                   <th class="num">Profit %</th>
                 </tr>
@@ -4759,8 +4759,8 @@ function renderFoodCostReport(fc){
     return `<tr>
       <td>${r.name}</td>
       <td class="num">${r.raw}</td>
-      <td class="num">${smFmtMoney(r.revenue)}</td>
       <td class="num">${smFmtMoney(r.cost)}</td>
+      <td class="num">${smFmtMoney(r.revenue)}</td>
       <td class="num">${smFmtMoney(r.profit)}</td>
       <td class="num"><span class="sm-fc-pct-badge" style="background:${c.bg};color:${c.fg};">${r.pct.toFixed(1)}%</span></td>
     </tr>`;
@@ -4769,8 +4769,8 @@ function renderFoodCostReport(fc){
   const totalRow=`<tr class="sm-fc-total">
     <td>Total</td>
     <td class="num">${fc.priced.reduce((a,r)=>a+r.raw,0)}</td>
-    <td class="num">${smFmtMoney(fc.totalRevenue)}</td>
     <td class="num">${smFmtMoney(fc.totalCost)}</td>
+    <td class="num">${smFmtMoney(fc.totalRevenue)}</td>
     <td class="num">${smFmtMoney(fc.totalProfit)}</td>
     <td class="num"><span class="sm-fc-pct-badge" style="background:${totalC.bg};color:${totalC.fg};">${fc.totalPct.toFixed(1)}%</span></td>
   </tr>`;
@@ -5049,12 +5049,12 @@ function generateSalesMetricsPDF(){
 
   if(opts.foodcost&&salesFoodCostLastAggregate&&salesFoodCostLastAggregate.priced.length){
     const fc=salesFoodCostLastAggregate;
-    const fcRows=fc.priced.map(r=>`<tr><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #eee;">${r.name}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${r.raw}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.revenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.cost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.profit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.pct.toFixed(1)}%</td></tr>`).join('');
-    const fcTotalRow=`<tr><td style="padding:6px 10px;font-size:13px;font-weight:800;border-top:2px solid #ccc;">Total</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.priced.reduce((a,r)=>a+r.raw,0)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalRevenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalCost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalProfit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalPct.toFixed(1)}%</td></tr>`;
+    const fcRows=fc.priced.map(r=>`<tr><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #eee;">${r.name}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${r.raw}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.cost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.revenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.profit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.pct.toFixed(1)}%</td></tr>`).join('');
+    const fcTotalRow=`<tr><td style="padding:6px 10px;font-size:13px;font-weight:800;border-top:2px solid #ccc;">Total</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.priced.reduce((a,r)=>a+r.raw,0)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalCost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalRevenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalProfit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalPct.toFixed(1)}%</td></tr>`;
     sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">💷 Food cost report</h3>
       <table style="width:100%;border-collapse:collapse;">
-        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit %</th></tr>
+        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit %</th></tr>
         ${fcRows}${fcTotalRow}
       </table>
       ${fc.missing.length?`<p style="font-size:11px;color:#999;margin-top:8px;">⚠ ${fc.missing.length} product(s) sold without Food Cost / Sale Value set are excluded above.</p>`:''}
