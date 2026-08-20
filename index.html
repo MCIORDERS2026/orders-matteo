@@ -1429,13 +1429,21 @@ async function workerCall(path,body){
 
 // ── CUT TIME ──
 // ── Monthly backup reminder (admin only) ──
+// Each month's confirmation is stored as its OWN row (key=backup_confirm_YYYY-MM)
+// instead of one shared row holding a "history" array that gets read, modified, and
+// written back every time. That read-modify-write pattern was the bug: whenever the
+// modify step ran against a stale/incomplete read of the old history (e.g. after
+// an interrupted request or a second admin session), the write clobbered previous
+// months instead of appending to them. Storing one independent row per month makes
+// that class of bug impossible — confirming August can never touch July's row,
+// because it's a separate INSERT, not an update to a shared blob.
+function smBackupConfirmKey(month){return `backup_confirm_${month}`;}
 async function checkBackupReminder(){
   try{
-    const rows=await sbGet('app_settings','key=eq.backup_reminder');
-    const val=(rows&&rows[0]&&rows[0].value)||{};
     const now=new Date();
     const currentMonth=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    if(val.lastConfirmedMonth!==currentMonth){
+    const rows=await sbGet('app_settings',`key=eq.${smBackupConfirmKey(currentMonth)}`);
+    if(!rows||!rows.length){
       openBackupReminderModal(currentMonth);
     }
   }catch(e){/* app_settings table might not exist yet - skip silently */}
@@ -1456,18 +1464,16 @@ async function confirmBackupReminder(){
   const err=document.getElementById('backup-reminder-error');
   if(pass!==ADMIN_PASS){err.textContent='Incorrect password.';err.style.display='block';return;}
   err.style.display='none';
+  const month=window._backupReminderMonth;
   try{
-    const rows=await sbGet('app_settings','key=eq.backup_reminder');
-    const existing=(rows&&rows[0]&&rows[0].value)||{};
-    const history=Array.isArray(existing.history)?existing.history:[];
-    history.unshift({month:window._backupReminderMonth,confirmedAt:new Date().toISOString()});
-    const value={lastConfirmedMonth:window._backupReminderMonth,confirmedAt:new Date().toISOString(),history};
-    const res=await sbPatch('app_settings','key=eq.backup_reminder',{value});
-    if(!res||!res.length){
-      await sbPost('app_settings',{key:'backup_reminder',value});
-    }
+    await sbPost('app_settings',{key:smBackupConfirmKey(month),value:{month,confirmedAt:new Date().toISOString()}});
     closeModal('backup-reminder-modal');
-  }catch(e){err.textContent='Error: '+e.message;err.style.display='block';}
+  }catch(e){
+    // A conflict here just means this month was already confirmed (e.g. a second
+    // admin tab beat this one to it) — that's fine, not a real error.
+    if(/duplicate|conflict|already exists/i.test(e.message||'')){closeModal('backup-reminder-modal');return;}
+    err.textContent='Error: '+e.message;err.style.display='block';
+  }
 }
 
 // ── Backup confirmation history viewer (admin menu) ──
@@ -1477,9 +1483,24 @@ async function openBackupHistory(){
   el.innerHTML='<div style="font-size:13px;color:var(--text-secondary);">Loading...</div>';
   openModal('backup-history-modal');
   try{
-    const rows=await sbGet('app_settings','key=eq.backup_reminder');
-    const val=(rows&&rows[0]&&rows[0].value)||{};
-    const history=Array.isArray(val.history)?val.history:(val.lastConfirmedMonth?[{month:val.lastConfirmedMonth,confirmedAt:val.confirmedAt}]:[]);
+    // Current, one-row-per-month records.
+    const rows=await sbGet('app_settings','key=like.backup_confirm_*');
+    const byMonth={};
+    (rows||[]).forEach(r=>{
+      const v=r.value||{};
+      const month=v.month||(r.key||'').replace('backup_confirm_','');
+      if(month)byMonth[month]={month,confirmedAt:v.confirmedAt};
+    });
+    // Legacy fallback: older confirmations recorded before this fix, still saved as
+    // a single row's "history" array — merged in read-only (never written back),
+    // purely so past months already recorded there don't disappear from this view.
+    try{
+      const legacyRows=await sbGet('app_settings','key=eq.backup_reminder');
+      const legacyVal=(legacyRows&&legacyRows[0]&&legacyRows[0].value)||{};
+      const legacyHistory=Array.isArray(legacyVal.history)?legacyVal.history:(legacyVal.lastConfirmedMonth?[{month:legacyVal.lastConfirmedMonth,confirmedAt:legacyVal.confirmedAt}]:[]);
+      legacyHistory.forEach(h=>{if(h.month&&!byMonth[h.month])byMonth[h.month]=h;});
+    }catch(e){}
+    const history=Object.values(byMonth).sort((a,b)=>(b.month||'').localeCompare(a.month||''));
     if(!history.length){
       el.innerHTML='<div style="font-size:13px;color:var(--text-secondary);">No backup confirmations recorded yet.</div>';
       return;
@@ -3851,6 +3872,13 @@ async function backToProduction(){
 // order that's already there). confirmMarkDelivered() branches on this at save time.
 let markCompleteMode='new';
 let markCompleteTargetId=null;
+// Completion date can never be in the future — used both to cap the date picker
+// (max attribute) and to double-check on save (in case of manual/browser edge cases).
+function smTodayDateStr(){
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+}
 function markDeliveryDone(){
   if(!deliveryOrderId){alert('No order selected.');return;}
   markCompleteMode='new';
@@ -3860,9 +3888,10 @@ function markDeliveryDone(){
   document.getElementById('mark-delivered-confirm-btn').textContent='Mark complete';
   const now=new Date();
   const pad=n=>String(n).padStart(2,'0');
+  const todayStr=smTodayDateStr();
   const dateEl=document.getElementById('mark-delivered-date');
   const timeEl=document.getElementById('mark-delivered-time');
-  if(dateEl)dateEl.value=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  if(dateEl){dateEl.max=todayStr;dateEl.value=todayStr;}
   if(timeEl)timeEl.value=`${pad(now.getHours())}:${pad(now.getMinutes())}`;
   const errEl=document.getElementById('mark-delivered-error');
   if(errEl)errEl.style.display='none';
@@ -3880,7 +3909,8 @@ function editCompletedDate(orderId){
   document.getElementById('mark-delivered-confirm-btn').textContent='Save';
   const d=order.delivered_at?new Date(order.delivered_at):new Date();
   const pad=n=>String(n).padStart(2,'0');
-  document.getElementById('mark-delivered-date').value=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const dateEl=document.getElementById('mark-delivered-date');
+  if(dateEl){dateEl.max=smTodayDateStr();dateEl.value=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
   document.getElementById('mark-delivered-time').value=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const errEl=document.getElementById('mark-delivered-error');
   if(errEl)errEl.style.display='none';
@@ -3895,9 +3925,17 @@ async function confirmMarkDelivered(){
     if(errEl){errEl.textContent='Please pick a date.';errEl.style.display='block';}
     return;
   }
+  if(dateVal>smTodayDateStr()){
+    if(errEl){errEl.textContent="Completion date can't be in the future.";errEl.style.display='block';}
+    return;
+  }
   const deliveredAt=new Date(`${dateVal}T${timeVal}:00`);
   if(isNaN(deliveredAt.getTime())){
     if(errEl){errEl.textContent='Invalid date/time.';errEl.style.display='block';}
+    return;
+  }
+  if(deliveredAt.getTime()>Date.now()+60000){
+    if(errEl){errEl.textContent="Completion time can't be in the future.";errEl.style.display='block';}
     return;
   }
   try{
