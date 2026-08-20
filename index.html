@@ -860,6 +860,26 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="mark-delivered-modal">
+  <div class="modal" style="max-width:380px;width:92vw;">
+    <h3>✅ Mark as complete</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">When was this order actually completed? Used to sort the Complete tab and for Sales Metrics.</p>
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="mark-delivered-date" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;"/>
+    </div>
+    <div class="field">
+      <label>Time</label>
+      <input type="time" id="mark-delivered-time" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;"/>
+    </div>
+    <div class="modal-error" id="mark-delivered-error" style="display:none;"></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('mark-delivered-modal')">Cancel</button>
+      <button class="primary" onclick="confirmMarkDelivered()">Mark complete</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="user-action-modal">
   <div class="modal" style="max-width:400px;width:92vw;">
     <h3 id="user-action-title">🔒 Confirm</h3>
@@ -3821,20 +3841,50 @@ async function backToProduction(){
   }catch(e){alert('Error: '+e.message);}
 }
 
-async function markDeliveryDone(){
+// Opens the "when was this completed" modal instead of immediately stamping
+// delivered_at with "now" — the admin picks the actual completion date/time
+// (defaults to today/now), since delivered_at drives Complete-tab sort order and
+// the Sales Metrics date filters. Confirmed action happens in confirmMarkDelivered().
+function markDeliveryDone(){
   if(!deliveryOrderId){alert('No order selected.');return;}
-  if(!confirm('Mark this delivery as complete? It will move to the Complete tab.'))return;
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const dateEl=document.getElementById('mark-delivered-date');
+  const timeEl=document.getElementById('mark-delivered-time');
+  if(dateEl)dateEl.value=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  if(timeEl)timeEl.value=`${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const errEl=document.getElementById('mark-delivered-error');
+  if(errEl)errEl.style.display='none';
+  openModal('mark-delivered-modal');
+}
+async function confirmMarkDelivered(){
+  if(!deliveryOrderId){alert('No order selected.');closeModal('mark-delivered-modal');return;}
+  const errEl=document.getElementById('mark-delivered-error');
+  const dateVal=document.getElementById('mark-delivered-date').value;
+  const timeVal=document.getElementById('mark-delivered-time').value||'00:00';
+  if(!dateVal){
+    if(errEl){errEl.textContent='Please pick a date.';errEl.style.display='block';}
+    return;
+  }
+  const deliveredAt=new Date(`${dateVal}T${timeVal}:00`);
+  if(isNaN(deliveredAt.getTime())){
+    if(errEl){errEl.textContent='Invalid date/time.';errEl.style.display='block';}
+    return;
+  }
   const order=deliveryOrdersCache.find(o=>o.id===deliveryOrderId)||{id:deliveryOrderId};
   try{
-    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'delivered',delivered_at:new Date().toISOString()});
+    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'delivered',delivered_at:deliveredAt.toISOString()});
+    closeModal('mark-delivered-modal');
     document.getElementById('delivery-editor').innerHTML='<div class="empty-state">Order marked as complete ✅</div>';
     deliveryOrderId=null;
     await loadDeliveryOrders();
     // Update complete badge
     loadCompleteBadge();
-    alert('✅ Delivery marked as complete!');
     logKitchenActivity(order,'status_change','Marked as delivered — moved to Complete');
-  }catch(e){alert('Error: '+e.message);}
+  }catch(e){
+    if(errEl){errEl.textContent='Error: '+e.message;errEl.style.display='block';}
+    else alert('Error: '+e.message);
+  }
 }
 
 let completeOrdersCache=[];
@@ -4878,7 +4928,9 @@ async function loadSalesMetrics(){
   const productsSoldCount=Object.values(perProduct).filter(q=>q>0).length;
 
   document.getElementById('sm-kpi-orders').textContent=ordersCount;
-  document.getElementById('sm-kpi-units').textContent=unitsSold;
+  // Rounded for display only — decimal quantities (e.g. Nduja sold by fractional kg)
+  // can make the raw sum non-integer; the KPI card shows the whole number.
+  document.getElementById('sm-kpi-units').textContent=Math.round(unitsSold);
   document.getElementById('sm-kpi-products').textContent=productsSoldCount;
 
   // Revenue/profit/food-cost% KPIs — computed from RAW units × price fields (client
@@ -5005,7 +5057,7 @@ function generateSalesMetricsPDF(){
     sections+=`
       <div style="display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;">
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Delivered orders</div><div style="font-size:22px;font-weight:800;">${a.ordersCount}</div></div>
-        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Units sold</div><div style="font-size:22px;font-weight:800;">${a.unitsSold}</div></div>
+        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Units sold</div><div style="font-size:22px;font-weight:800;">${Math.round(a.unitsSold)}</div></div>
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Products sold</div><div style="font-size:22px;font-weight:800;">${a.productsSoldCount}</div></div>
         ${hasMoney?`<div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Revenue</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.revenue)}</div></div>
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Profit</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.profit)}</div></div>
