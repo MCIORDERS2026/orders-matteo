@@ -862,8 +862,8 @@
 
 <div class="modal-overlay" id="mark-delivered-modal">
   <div class="modal" style="max-width:380px;width:92vw;">
-    <h3>✅ Mark as complete</h3>
-    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">When was this order actually completed? Used to sort the Complete tab and for Sales Metrics.</p>
+    <h3 id="mark-delivered-title">✅ Mark as complete</h3>
+    <p id="mark-delivered-desc" style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">When was this order actually completed? Used to sort the Complete tab and for Sales Metrics.</p>
     <div class="field">
       <label>Date</label>
       <input type="date" id="mark-delivered-date" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:14px;background:var(--bg);width:100%;"/>
@@ -875,7 +875,7 @@
     <div class="modal-error" id="mark-delivered-error" style="display:none;"></div>
     <div class="modal-btns">
       <button onclick="closeModal('mark-delivered-modal')">Cancel</button>
-      <button class="primary" onclick="confirmMarkDelivered()">Mark complete</button>
+      <button class="primary" id="mark-delivered-confirm-btn" onclick="confirmMarkDelivered()">Mark complete</button>
     </div>
   </div>
 </div>
@@ -3845,8 +3845,19 @@ async function backToProduction(){
 // delivered_at with "now" — the admin picks the actual completion date/time
 // (defaults to today/now), since delivered_at drives Complete-tab sort order and
 // the Sales Metrics date filters. Confirmed action happens in confirmMarkDelivered().
+// The mark-delivered-modal is shared between two flows, distinguished by
+// markCompleteMode: 'new' (Delivery tab → moving an order into Complete for the
+// first time) and 'edit' (Complete tab → correcting the completed date/time of an
+// order that's already there). confirmMarkDelivered() branches on this at save time.
+let markCompleteMode='new';
+let markCompleteTargetId=null;
 function markDeliveryDone(){
   if(!deliveryOrderId){alert('No order selected.');return;}
+  markCompleteMode='new';
+  markCompleteTargetId=deliveryOrderId;
+  document.getElementById('mark-delivered-title').textContent='✅ Mark as complete';
+  document.getElementById('mark-delivered-desc').textContent='When was this order actually completed? Used to sort the Complete tab and for Sales Metrics.';
+  document.getElementById('mark-delivered-confirm-btn').textContent='Mark complete';
   const now=new Date();
   const pad=n=>String(n).padStart(2,'0');
   const dateEl=document.getElementById('mark-delivered-date');
@@ -3857,8 +3868,26 @@ function markDeliveryDone(){
   if(errEl)errEl.style.display='none';
   openModal('mark-delivered-modal');
 }
+// Edit the completed date/time of an order already sitting in the Complete tab —
+// pre-fills with that order's current delivered_at instead of "now".
+function editCompletedDate(orderId){
+  const order=completeOrdersCache.find(o=>o.id===orderId);
+  if(!order){alert('Order not found.');return;}
+  markCompleteMode='edit';
+  markCompleteTargetId=orderId;
+  document.getElementById('mark-delivered-title').textContent='✏️ Edit completion date';
+  document.getElementById('mark-delivered-desc').textContent='Update when this order was actually completed.';
+  document.getElementById('mark-delivered-confirm-btn').textContent='Save';
+  const d=order.delivered_at?new Date(order.delivered_at):new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  document.getElementById('mark-delivered-date').value=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  document.getElementById('mark-delivered-time').value=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const errEl=document.getElementById('mark-delivered-error');
+  if(errEl)errEl.style.display='none';
+  openModal('mark-delivered-modal');
+}
 async function confirmMarkDelivered(){
-  if(!deliveryOrderId){alert('No order selected.');closeModal('mark-delivered-modal');return;}
+  if(!markCompleteTargetId){alert('No order selected.');closeModal('mark-delivered-modal');return;}
   const errEl=document.getElementById('mark-delivered-error');
   const dateVal=document.getElementById('mark-delivered-date').value;
   const timeVal=document.getElementById('mark-delivered-time').value||'00:00';
@@ -3871,16 +3900,26 @@ async function confirmMarkDelivered(){
     if(errEl){errEl.textContent='Invalid date/time.';errEl.style.display='block';}
     return;
   }
-  const order=deliveryOrdersCache.find(o=>o.id===deliveryOrderId)||{id:deliveryOrderId};
   try{
-    await sbPatch('orders_history',`id=eq.${deliveryOrderId}`,{status:'delivered',delivered_at:deliveredAt.toISOString()});
-    closeModal('mark-delivered-modal');
-    document.getElementById('delivery-editor').innerHTML='<div class="empty-state">Order marked as complete ✅</div>';
-    deliveryOrderId=null;
-    await loadDeliveryOrders();
-    // Update complete badge
-    loadCompleteBadge();
-    logKitchenActivity(order,'status_change','Marked as delivered — moved to Complete');
+    if(markCompleteMode==='edit'){
+      const order=completeOrdersCache.find(o=>o.id===markCompleteTargetId)||{id:markCompleteTargetId};
+      await sbPatch('orders_history',`id=eq.${markCompleteTargetId}`,{delivered_at:deliveredAt.toISOString()});
+      closeModal('mark-delivered-modal');
+      markCompleteTargetId=null;
+      await loadCompleteOrders();
+      logKitchenActivity(order,'status_change','Completed date edited');
+    }else{
+      const order=deliveryOrdersCache.find(o=>o.id===markCompleteTargetId)||{id:markCompleteTargetId};
+      await sbPatch('orders_history',`id=eq.${markCompleteTargetId}`,{status:'delivered',delivered_at:deliveredAt.toISOString()});
+      closeModal('mark-delivered-modal');
+      document.getElementById('delivery-editor').innerHTML='<div class="empty-state">Order marked as complete ✅</div>';
+      deliveryOrderId=null;
+      markCompleteTargetId=null;
+      await loadDeliveryOrders();
+      // Update complete badge
+      loadCompleteBadge();
+      logKitchenActivity(order,'status_change','Marked as delivered — moved to Complete');
+    }
   }catch(e){
     if(errEl){errEl.textContent='Error: '+e.message;errEl.style.display='block';}
     else alert('Error: '+e.message);
@@ -3993,7 +4032,7 @@ function renderCompleteList(rows){
             ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''}
             ${o.username}
             ${o.ordered_by?`<span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''}
-            <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— Completed ${date}</span>
+            <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— Completed ${date} <button onclick="event.stopPropagation();editCompletedDate('${o.id}')" style="border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:0 2px;" title="Edit completion date">✏️</button></span>
           </span>
           <span class="order-status" style="background:#F3F4F6;color:#374151;border:1px solid #D1D5DB;">🏁 Delivered</span>
           <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
