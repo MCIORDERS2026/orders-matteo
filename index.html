@@ -641,7 +641,10 @@
 
       <div id="fc-recipes-view">
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Work out a product's real cost from its recipe: for each ingredient, enter the package size you bought, what you paid for it, and how much of it goes into this recipe. Saving updates the product's Cost (used everywhere Profit is shown).</p>
-        <input type="text" id="fc-recipe-search" placeholder="Search products..." oninput="renderFoodCostRecipesList()" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;background:var(--bg);margin-bottom:12px;"/>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+          <input type="text" id="fc-recipe-search" placeholder="Search products..." oninput="renderFoodCostRecipesList()" style="flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;background:var(--bg);"/>
+          <button class="btn-sm" onclick="openFoodCostItemsModal()">☑️ Select Items</button>
+        </div>
         <div id="fc-recipes-list"><div class="empty-state">Loading...</div></div>
       </div>
 
@@ -1210,6 +1213,20 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     </div>
     <div class="modal-error" id="ingredient-modal-error" style="display:none;"></div>
     <div class="modal-btns"><button onclick="closeModal('ingredient-edit-modal')">Cancel</button><button class="primary" onclick="saveIngredientModal()">Save</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="foodcost-items-modal">
+  <div class="modal" style="max-width:720px;width:95vw;max-height:85vh;overflow-y:auto;padding-right:24px;">
+    <h3>🧮 Food Cost — Select Items</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">Choose which products show up in the Food Cost Recipes list below. Unchecking one just hides it here — any recipe already saved for it is kept.</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button class="btn-sm" onclick="toggleAllFoodCostItems(true)">Select all</button>
+      <button class="btn-sm" onclick="toggleAllFoodCostItems(false)">Select none</button>
+    </div>
+    <div id="foodcost-items-products" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;"></div>
+    <div class="modal-error" id="foodcost-items-error" style="display:none;"></div>
+    <div id="foodcost-items-save-status" style="display:none;font-size:12px;color:var(--green-dark);margin-top:6px;"></div>
+    <div class="modal-btns"><button onclick="closeModal('foodcost-items-modal')">Cancel</button><button class="primary" onclick="saveFoodCostItems()">Save</button></div>
   </div>
 </div>
 <div class="modal-overlay" id="add-user-modal">
@@ -7214,7 +7231,9 @@ function renderFoodCostRecipesList(){
   const el=document.getElementById('fc-recipes-list');
   if(!el)return;
   const search=(document.getElementById('fc-recipe-search')?.value||'').trim().toLowerCase();
-  const list=allProducts.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const tracked=allProducts.filter(p=>p.food_cost_tracked);
+  if(!tracked.length){el.innerHTML='<div class="empty-state">No items selected yet — click "☑️ Select Items" above to choose which products show up here.</div>';return;}
+  const list=tracked.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort((a,b)=>a.name.localeCompare(b.name));
   if(!list.length){el.innerHTML='<div class="empty-state">No products found.</div>';return;}
   let html=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
     <div>Product</div><div>Recipe</div><div>Cost</div><div></div>
@@ -7508,6 +7527,76 @@ async function saveRecipe(){
     await loadFoodCostTab();
   }catch(e){
     err.textContent='Error saving: '+e.message+(/relation .* does not exist/i.test(e.message)?' — did you run the migration SQL (matteo_migration_food_cost.sql)?':'');
+    err.style.display='block';
+  }
+}
+
+// ── Food Cost item picker (products.food_cost_tracked) ──
+// Mirrors the existing "🏭 Production List" picker on the Products tab
+// (products.production_tracked) — same grouped-by-category checkbox UI, same
+// "only write what changed" save pattern.
+function openFoodCostItemsModal(){
+  document.getElementById('foodcost-items-error').style.display='none';
+  document.getElementById('foodcost-items-save-status').style.display='none';
+  renderFoodCostItemsList();
+  openModal('foodcost-items-modal');
+}
+function renderFoodCostItemsList(){
+  const CAT_ORDER=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
+  let html='';
+  for(const catId of CAT_ORDER){
+    const cat=CATEGORIES.find(c=>c.id===catId);
+    const prods=allProducts.filter(p=>p.cat===catId&&(p.active||p.active===null));
+    if(!prods.length)continue;
+    html+=`<div style="margin-bottom:10px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);margin-bottom:5px;padding:3px 0;border-bottom:1px solid var(--border-light);">${fcEsc(cat?cat.label:catId)}</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;">
+      ${prods.map(p=>{
+        const checked=!!p.food_cost_tracked;
+        return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:5px 8px;border:1px solid ${checked?'var(--green)':'var(--border)'};border-radius:var(--radius-sm);background:${checked?'var(--green-light)':'var(--bg)'};" id="fcitem-label-${p.id}">
+          <input type="checkbox" id="fcitem-${p.id}" ${checked?'checked':''} onchange="updateFoodCostItemLabel(${p.id},this.checked)" style="width:13px;height:13px;accent-color:var(--green);flex-shrink:0;"/>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fcEsc(p.name)}</span>
+        </label>`;
+      }).join('')}
+      </div>
+    </div>`;
+  }
+  document.getElementById('foodcost-items-products').innerHTML=html||'<div style="font-size:12px;color:var(--text-tertiary);">No products found.</div>';
+}
+function updateFoodCostItemLabel(prodId,checked){
+  const label=document.getElementById('fcitem-label-'+prodId);
+  if(label){
+    label.style.background=checked?'var(--green-light)':'var(--bg)';
+    label.style.borderColor=checked?'var(--green)':'var(--border)';
+  }
+}
+function toggleAllFoodCostItems(checked){
+  allProducts.forEach(p=>{
+    const cb=document.getElementById('fcitem-'+p.id);
+    if(cb){cb.checked=checked;updateFoodCostItemLabel(p.id,checked);}
+  });
+}
+async function saveFoodCostItems(){
+  const err=document.getElementById('foodcost-items-error');
+  const status=document.getElementById('foodcost-items-save-status');
+  err.style.display='none';status.style.display='none';
+  try{
+    const changed=allProducts.filter(p=>{
+      const cb=document.getElementById('fcitem-'+p.id);
+      return cb && !!cb.checked!==!!p.food_cost_tracked;
+    });
+    await Promise.all(changed.map(p=>{
+      const cb=document.getElementById('fcitem-'+p.id);
+      const val=!!cb.checked;
+      p.food_cost_tracked=val;
+      return sbPatch('products',`id=eq.${p.id}`,{food_cost_tracked:val});
+    }));
+    status.textContent=`✓ Saved (${changed.length} product${changed.length!==1?'s':''} updated).`;
+    status.style.display='block';
+    renderFoodCostRecipesList();
+    setTimeout(()=>closeModal('foodcost-items-modal'),900);
+  }catch(e){
+    err.textContent='Error saving: '+e.message+(/column .*food_cost_tracked.* does not exist/i.test(e.message)?' — did you run the migration SQL (matteo_migration_food_cost_items.sql)?':'');
     err.style.display='block';
   }
 }
