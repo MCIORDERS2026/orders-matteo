@@ -7233,7 +7233,17 @@ function renderFoodCostRecipesList(){
   const search=(document.getElementById('fc-recipe-search')?.value||'').trim().toLowerCase();
   const tracked=allProducts.filter(p=>p.food_cost_tracked);
   if(!tracked.length){el.innerHTML='<div class="empty-state">No items selected yet — click "☑️ Select Items" above to choose which products show up here.</div>';return;}
-  const list=tracked.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  // Same catalog order as everywhere else (CATEGORIES' admin-configured order,
+  // then each product's position within allProducts — see sortItemEntries).
+  const posIdx=new Map();
+  allProducts.forEach((p,i)=>posIdx.set(String(p.id),i));
+  const catRank=new Map();
+  CATEGORIES.filter(c=>c.id!=='all').forEach((c,i)=>catRank.set(c.id,i));
+  const rankOf=p=>({cat:catRank.has(p.cat)?catRank.get(p.cat):Infinity,pos:posIdx.has(String(p.id))?posIdx.get(String(p.id)):Infinity});
+  const list=tracked.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort((a,b)=>{
+    const ra=rankOf(a),rb=rankOf(b);
+    return ra.cat!==rb.cat?ra.cat-rb.cat:ra.pos-rb.pos;
+  });
   if(!list.length){el.innerHTML='<div class="empty-state">No products found.</div>';return;}
   let html=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
     <div>Product</div><div>Recipe</div><div>Cost</div><div></div>
