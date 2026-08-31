@@ -14,7 +14,14 @@
 <meta name="apple-mobile-web-app-title" content="Matteo Orders">
 <meta name="mobile-web-app-capable" content="yes">
 <style>
-  :root{--green:#1D9E75;--green-dark:#0F6E56;--green-light:#E6F9F2;--amber:#F59E0B;--amber-light:#FFF8E1;--red:#DC2626;--red-light:#FEF2F2;--bg:#F9F9F8;--surface:#FFFFFF;--border:#E5E5E3;--border-light:#F0F0EE;--text:#1A1A1A;--text-secondary:#6B6B6B;--text-tertiary:#A0A0A0;--radius:10px;--radius-sm:6px;}
+  :root{--green:#1D9E75;--green-dark:#0F6E56;--green-light:#E6F9F2;--amber:#F59E0B;--amber-light:#FFF8E1;--red:#DC2626;--red-light:#FEF2F2;--bg:#F9F9F8;--surface:#FFFFFF;--border:#E5E5E3;--border-light:#F0F0EE;--text:#1A1A1A;--text-secondary:#6B6B6B;--text-tertiary:#A0A0A0;--radius:10px;--radius-sm:6px;
+    /* Stacked sticky header offsets — kept as CSS vars instead of hardcoded pixel
+       tops because the banner's height is NOT fixed (its message can wrap to 1 or 2
+       lines depending on screen width / text length). recalcStickyOffsets() (JS)
+       measures the real rendered heights and updates these on load, banner text
+       change, tab switch, and window resize, so .banner/.tabs/.order-sticky-filters
+       always sit correctly stacked under each other with no gap or overlap. */
+    --topbar-h:52px;--banner-h:0px;--tabs-h:44px;}
   @media print{
     html,body{height:auto!important;overflow:visible!important;}
     body>*{display:none!important;}
@@ -63,8 +70,9 @@
   .btn-sm.amber{background:var(--amber-light);border-color:var(--amber);color:#92400E;}
   .btn-sm.red{background:var(--red-light);border-color:#FECACA;color:var(--red);}
   .btn-sm:disabled{opacity:.5;cursor:not-allowed;}
-  /* BANNER */
-  .banner{padding:10px 1.25rem;font-size:13px;display:flex;align-items:center;gap:8px;}
+  /* BANNER — sticky, pinned right below the topbar (see --topbar-h/--banner-h note
+     in :root above) so it stays visible while scrolling instead of disappearing. */
+  .banner{padding:10px 1.25rem;font-size:13px;display:flex;align-items:center;gap:8px;position:sticky;top:var(--topbar-h);z-index:49;}
   .banner.open{background:var(--green-light);color:#085041;border-bottom:1px solid #A7E9D2;}
   .banner.closed{background:#FFF3CD;color:#92400E;border-bottom:1px solid var(--amber);}
   .banner.admin-mode{background:var(--amber-light);color:#92400E;border-bottom:1px solid var(--amber);}
@@ -90,13 +98,13 @@
   .emoji-btn:hover{background:var(--bg);}
   #emoji-picker{display:none;}
   /* TABS */
-  .tabs{display:flex;align-items:center;height:44px;border-bottom:1px solid var(--border);background:var(--surface);padding:0 1.25rem;overflow-x:auto;position:sticky;top:52px;z-index:49;}
+  .tabs{display:flex;align-items:center;height:44px;border-bottom:1px solid var(--border);background:var(--surface);padding:0 1.25rem;overflow-x:auto;position:sticky;top:calc(var(--topbar-h) + var(--banner-h));z-index:48;}
   .tab{font-size:13px;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-secondary);white-space:nowrap;}
   .tab.active{border-bottom-color:var(--green);color:var(--text);font-weight:500;}
   .tab .badge{background:var(--red);color:white;border-radius:999px;font-size:10px;padding:1px 6px;margin-left:4px;}
   .main{padding:1.25rem;max-width:1100px;margin:0 auto;}
   /* CATEGORIES */
-  .order-sticky-filters{position:sticky;top:96px;z-index:48;background:var(--bg);padding-top:.5rem;margin:0 -1.25rem;padding-left:1.25rem;padding-right:1.25rem;}
+  .order-sticky-filters{position:sticky;top:calc(var(--topbar-h) + var(--banner-h) + var(--tabs-h));z-index:47;background:var(--bg);padding-top:.5rem;margin:0 -1.25rem;padding-left:1.25rem;padding-right:1.25rem;}
   .search-bar{margin-bottom:1rem;}
   .search-bar input{width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:14px;background:var(--surface);color:var(--text);outline:none;}
   .search-bar input:focus{border-color:var(--green);}
@@ -200,6 +208,17 @@
   /* ── MOBILE RESPONSIVE (phones, Android + iOS) ── */
   @media (max-width:600px){
     html{-webkit-text-size-adjust:100%;}
+    /* iOS Safari force-zooms the whole page in whenever a focused input/select/
+       textarea has a font-size under 16px — and inside an installed PWA (Add to
+       Home Screen) that zoomed-in state tends to stick around across taps and even
+       after reopening the app, which is exactly what shows up as "I have to zoom
+       out for it to look right". The maximum-scale/user-scalable=no viewport meta
+       tag alone doesn't reliably stop this on modern iOS. Forcing every form
+       control to 16px+ on mobile removes the trigger entirely — this overrides all
+       the smaller per-component font-sizes (search bar, qty inputs, admin fields,
+       etc.) ONLY at this breakpoint; desktop/admin views keep their original,
+       denser sizing.  */
+    input,select,textarea{font-size:16px!important;}
     /* Topbar: shrink everything so it always fits on one line, never wraps */
     .topbar{padding:0 .6rem;gap:4px;}
     .topbar-left{gap:6px;min-width:0;}
@@ -355,6 +374,10 @@
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('prices')">
             <div class="notif-item-title">💷 Client Prices</div>
             <div class="notif-item-text">Set per-client prices (admin reports only)</div>
+          </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('foodcost')">
+            <div class="notif-item-title">🧮 Food Cost</div>
+            <div class="notif-item-text">Calculate a recipe's cost from its ingredients</div>
           </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();openCutoffSettings()">
             <div class="notif-item-title">⏰ Cut-off Settings</div>
@@ -603,6 +626,30 @@
         <span id="prices-save-status" style="font-size:12px;color:var(--green-dark);display:none;">✓ Saved</span>
       </div>
       <div id="prices-list"><div class="empty-state">Select a client above.</div></div>
+    </div>
+
+    <!-- ADMIN: FOOD COST -->
+    <div id="tab-foodcost" style="display:none;">
+      <div class="section-toolbar">
+        <h2>🧮 Food Cost</h2>
+        <button class="btn-sm" onclick="loadFoodCostTab()">↻ Refresh</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button class="btn-sm active" id="fc-subtab-recipes" onclick="foodCostSubTab('recipes')">Recipes</button>
+        <button class="btn-sm" id="fc-subtab-ingredients" onclick="foodCostSubTab('ingredients')">Ingredients</button>
+      </div>
+
+      <div id="fc-recipes-view">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Work out a product's real cost from its recipe: for each ingredient, enter the package size you bought, what you paid for it, and how much of it goes into this recipe. Saving updates the product's Cost (used everywhere Profit is shown).</p>
+        <input type="text" id="fc-recipe-search" placeholder="Search products..." oninput="renderFoodCostRecipesList()" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;background:var(--bg);margin-bottom:12px;"/>
+        <div id="fc-recipes-list"><div class="empty-state">Loading...</div></div>
+      </div>
+
+      <div id="fc-ingredients-view" style="display:none;">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Editing an ingredient's package size/unit/price here updates every saved recipe that uses it (by name) and recalculates that product's Cost automatically. Removing one only stops it being suggested for new entries — it doesn't touch recipes that already used it. Tick "Per pack" for packaging-type ingredients (e.g. a pouch or box used once per sold pack) so their cost is charged straight to Cost per pack instead of being diluted across the whole batch — this applies to every recipe using that ingredient.</p>
+        <div style="margin-bottom:12px;"><button class="btn-sm green" onclick="openIngredientModal(null)">+ Add ingredient</button></div>
+        <div id="fc-ingredients-list"><div class="empty-state">Loading...</div></div>
+      </div>
     </div>
 
     <!-- ADMIN: SALES METRICS -->
@@ -1104,6 +1151,65 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     <div class="modal-error" id="production-error" style="display:none;"></div>
     <div id="production-save-status" style="display:none;font-size:12px;color:var(--green-dark);margin-top:6px;"></div>
     <div class="modal-btns"><button onclick="closeModal('production-modal')">Cancel</button><button class="primary" onclick="saveProductionList()">Save</button></div>
+  </div>
+</div>
+<datalist id="fc-ingredient-names"></datalist>
+<div class="modal-overlay" id="recipe-modal">
+  <div class="modal" style="max-width:820px;width:96vw;max-height:88vh;overflow-y:auto;padding-right:24px;">
+    <h3 id="recipe-modal-title">🧮 Recipe cost</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">For each ingredient: the package size you bought, what you paid for it, and how much of it this recipe uses (same unit as package size). Saving sets this product's Cost.</p>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:0 2px 4px;">
+      <div>Ingredient</div><div>Pkg Qty</div><div>Unit</div><div>Pkg Price</div><div>Qty Used</div><div></div>
+    </div>
+    <div id="recipe-ingredients-rows"></div>
+    <div style="margin:10px 0;">
+      <button class="btn-sm" onclick="fcAddIngredientRow()">+ Add ingredient</button>
+    </div>
+    <p style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px;">Ingredient names you've used before will suggest their saved package size/unit/price — pick one to fill it in automatically.</p>
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);">This recipe makes (batch yield)</label>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <input type="number" step="0.01" min="0" id="recipe-yield-qty" oninput="fcRecalc()" style="flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
+          <input type="text" id="recipe-yield-unit" placeholder="unit" oninput="fcRecalc()" style="width:80px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);">Sold in packs of</label>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <input type="number" step="0.01" min="0" id="recipe-sell-qty" value="1" oninput="fcRecalc()" style="flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
+          <input type="text" id="recipe-sell-unit" placeholder="unit" oninput="fcRecalc()" style="width:80px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;" id="recipe-weight-so-far"></div>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:10px 0;">Use "kg" for weight-based recipes, or "unit" for recipes sold as whole items (e.g. this batch makes 16 unit, sold in packs of 1 unit). Leave "batch yield" blank (or 0) if the whole batch is sold as one unit. Packaging-type ingredients (e.g. a pouch used once per pack) are charged per pack instead of being diluted — mark them "Per pack" in Menu → Food Cost → Ingredients.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid var(--border);">
+      <div style="font-size:12px;color:var(--text-secondary);">Batch total cost: <span id="recipe-batch-total">£0.00</span></div>
+      <div style="text-align:right;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);">Cost per pack (saved as Cost)</div>
+        <div style="font-size:20px;font-weight:700;" id="recipe-cost-per-pack">£0.00</div>
+      </div>
+    </div>
+    <div class="modal-error" id="recipe-modal-error" style="display:none;"></div>
+    <div class="modal-btns"><button onclick="closeModal('recipe-modal')">Cancel</button><button class="primary" style="background:var(--red);border-color:var(--red);" onclick="saveRecipe()">Save recipe</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="ingredient-edit-modal">
+  <div class="modal" style="max-width:440px;width:92vw;">
+    <h3 id="ingredient-modal-title">Add ingredient</h3>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+      <div><label style="font-size:11px;color:var(--text-secondary);">Name</label><input type="text" id="ing-name" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);"/></div>
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;"><label style="font-size:11px;color:var(--text-secondary);">Pkg Qty</label><input type="number" step="0.01" min="0" id="ing-pkg-qty" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);"/></div>
+        <div style="flex:1;"><label style="font-size:11px;color:var(--text-secondary);">Unit</label><input type="text" id="ing-pkg-unit" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);"/></div>
+      </div>
+      <div><label style="font-size:11px;color:var(--text-secondary);">Pkg Price (£)</label><input type="number" step="0.01" min="0" id="ing-pkg-price" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);"/></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="ing-per-pack" style="width:15px;height:15px;"/> Per pack (not diluted across batch)</label>
+    </div>
+    <div class="modal-error" id="ingredient-modal-error" style="display:none;"></div>
+    <div class="modal-btns"><button onclick="closeModal('ingredient-edit-modal')">Cancel</button><button class="primary" onclick="saveIngredientModal()">Save</button></div>
   </div>
 </div>
 <div class="modal-overlay" id="add-user-modal">
@@ -1619,7 +1725,32 @@ function updateBanner(){
     const closedPart=(cutoffSettings.closedDays&&cutoffSettings.closedDays.length)?` • Closed: ${closedDaysStr()}`:'';
     menuStatus.textContent=(cutoffSettings.enabled?`${cutoffDaysStr()} at ${cutoffTimeStr()}`:'Disabled (always open)')+closedPart;
   }
+  recalcStickyOffsets();
 }
+// Measures the ACTUAL rendered heights of the stacked sticky header pieces (topbar,
+// banner, tabs) and writes them into the --topbar-h/--banner-h/--tabs-h CSS vars
+// that .banner/.tabs/.order-sticky-filters use for their "top" offset (see :root).
+// Needed because the banner can wrap to 1 or 2 lines depending on message length
+// and screen width, so its height can't be hardcoded. Re-run whenever anything that
+// could change those heights happens: banner text updates (updateBanner, above),
+// login (client vs admin tabs shown), and window resize/orientation change.
+function recalcStickyOffsets(){
+  const root=document.documentElement.style;
+  const topbar=document.querySelector('.topbar');
+  const banner=document.getElementById('banner');
+  const clientTabs=document.getElementById('client-tabs');
+  const adminTabs=document.getElementById('admin-tabs');
+  const tabsEl=(clientTabs&&clientTabs.style.display!=='none')?clientTabs:((adminTabs&&adminTabs.style.display!=='none')?adminTabs:null);
+  root.setProperty('--topbar-h',(topbar?topbar.offsetHeight:52)+'px');
+  const bannerVisible=banner&&getComputedStyle(banner).display!=='none';
+  root.setProperty('--banner-h',(bannerVisible?banner.offsetHeight:0)+'px');
+  root.setProperty('--tabs-h',(tabsEl?tabsEl.offsetHeight:44)+'px');
+}
+let _stickyResizeTimer=null;
+window.addEventListener('resize',()=>{
+  clearTimeout(_stickyResizeTimer);
+  _stickyResizeTimer=setTimeout(recalcStickyOffsets,150);
+});
 
 // ── AUTH ──
 async function init(){
@@ -1759,6 +1890,9 @@ async function launch(){
   document.getElementById('client-tabs').style.display=staff?'none':'flex';
   document.getElementById('admin-tabs').style.display=staff?'flex':'none';
   document.getElementById('tab-order').style.display=staff?'none':'block';
+  // Client vs admin tabs bar just changed visibility — remeasure the stacked
+  // sticky header offsets (see recalcStickyOffsets above).
+  recalcStickyOffsets();
   // Kitchen sub-admins only see the 4 operational tabs via the admin menu — hide
   // every other admin-menu item and show just "Sign out".
   document.querySelectorAll('.admin-menu-full-item').forEach(el=>{el.style.display=isAdmin?'':'none';});
@@ -2659,7 +2793,7 @@ function showAdminTab(t,el){
   // Flush any pending Client Prices autosave before navigating away, so leaving the
   // tab right after typing never loses the last edit.
   if(clientPricesAutoSaveTimer){clearTimeout(clientPricesAutoSaveTimer);clientPricesAutoSaveTimer=null;saveClientPrices();}
-  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -2679,6 +2813,7 @@ function showAdminTab(t,el){
   }
   if(t==='chat'){chatHideComposePage();chatLoadHistory();chatEnsureUsers();}
   if(t==='prices'){loadClientPricesTab();}
+  if(t==='foodcost'){loadFoodCostTab();}
   // Keep "online now" dots fresh while the Users tab is open; stop polling elsewhere.
   if(_usersPollInterval){clearInterval(_usersPollInterval);_usersPollInterval=null;}
   if(t==='users'){_usersPollInterval=setInterval(loadUsers,10000);}
@@ -7025,6 +7160,356 @@ async function saveProductionList(){
     status.style.display='block';
     setTimeout(()=>closeModal('production-modal'),900);
   }catch(e){err.textContent='Error saving: '+e.message;err.style.display='block';}
+}
+
+// ── FOOD COST (Recipes + Ingredients) ──
+// Menu -> Food Cost lets the admin cost a product from its recipe: for each
+// ingredient, enter the package size bought, what was paid for it, and how
+// much of it this recipe uses. Saving writes the computed cost-per-pack into
+// products.cost_price — the same field already driving Sales Metrics' Food
+// Cost Report and Client Prices' Profit column, so it flows through
+// automatically with no other code changes needed.
+// Data model (see matteo_migration_food_cost.sql): a `recipes` table, one row
+// per product (product_id unique), storing an `ingredients` jsonb array plus
+// yield_qty/yield_unit (what the whole batch makes) and sell_qty/sell_unit
+// (the pack it's actually sold in); and a shared `ingredients` table (matched
+// by name) that recipes are auto-synced to/from so package size/unit/price
+// only has to be entered once and then reused/autocompleted everywhere.
+function fcEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+let foodCostIngredients=[]; // shared ingredient library cache (table: ingredients)
+let foodCostRecipesCache={}; // product_id (string) -> recipes row
+let fcActiveSubTab='recipes';
+let fcCurrentProductId=null;
+let fcCurrentRecipe=null; // working copy while the recipe modal is open
+let fcEditingIngredientId=null;
+
+function foodCostSubTab(which){
+  fcActiveSubTab=which;
+  document.getElementById('fc-subtab-recipes').classList.toggle('active',which==='recipes');
+  document.getElementById('fc-subtab-ingredients').classList.toggle('active',which==='ingredients');
+  document.getElementById('fc-recipes-view').style.display=which==='recipes'?'block':'none';
+  document.getElementById('fc-ingredients-view').style.display=which==='ingredients'?'block':'none';
+  if(which==='recipes')renderFoodCostRecipesList();
+  else renderIngredientsList();
+}
+async function loadFoodCostTab(){
+  try{
+    if(!allProducts.length){
+      allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
+    }
+    const [ingRows,recRows]=await Promise.all([sbGet('ingredients','order=name.asc'),sbGet('recipes','')]);
+    foodCostIngredients=ingRows||[];
+    foodCostRecipesCache={};
+    (recRows||[]).forEach(r=>{foodCostRecipesCache[String(r.product_id)]=r;});
+    const dl=document.getElementById('fc-ingredient-names');
+    if(dl)dl.innerHTML=foodCostIngredients.map(i=>`<option value="${fcEsc(i.name)}">`).join('');
+    foodCostSubTab(fcActiveSubTab);
+  }catch(e){
+    const msg='Error loading Food Cost'+(/relation .* does not exist/i.test(e.message)?' — run the migration SQL (matteo_migration_food_cost.sql) in Supabase first.':(': '+e.message));
+    document.getElementById('fc-recipes-list').innerHTML=`<div class="empty-state">${fcEsc(msg)}</div>`;
+    document.getElementById('fc-ingredients-list').innerHTML=`<div class="empty-state">${fcEsc(msg)}</div>`;
+  }
+}
+function renderFoodCostRecipesList(){
+  const el=document.getElementById('fc-recipes-list');
+  if(!el)return;
+  const search=(document.getElementById('fc-recipe-search')?.value||'').trim().toLowerCase();
+  const list=allProducts.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  if(!list.length){el.innerHTML='<div class="empty-state">No products found.</div>';return;}
+  let html=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
+    <div>Product</div><div>Recipe</div><div>Cost</div><div></div>
+  </div>`;
+  list.forEach(p=>{
+    const r=foodCostRecipesCache[String(p.id)];
+    const count=r&&Array.isArray(r.ingredients)?r.ingredients.length:0;
+    const costText=r?('£'+Number(r.cost_per_unit||0).toFixed(2)):(p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—');
+    const recipeText=count?`${count} ingredient${count!==1?'s':''}`:'No recipe yet';
+    html+=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+      <div>${fcEsc(p.name)}</div>
+      <div style="color:var(--text-secondary);">${recipeText}</div>
+      <div>${costText}</div>
+      <div><button class="btn-sm" onclick="openRecipeModal(${p.id})">Edit Recipe</button></div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+function renderIngredientsList(){
+  const el=document.getElementById('fc-ingredients-list');
+  if(!el)return;
+  if(!foodCostIngredients.length){el.innerHTML='<div class="empty-state">No ingredients yet — add one above, or save a recipe to add ingredients automatically.</div>';return;}
+  let html=`<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
+    <div>Ingredient</div><div>Pkg Qty</div><div>Unit</div><div>Pkg Price</div><div>Per Pack</div><div></div>
+  </div>`;
+  foodCostIngredients.forEach(i=>{
+    html+=`<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+      <div>${fcEsc(i.name)}</div>
+      <div>${i.pkg_qty!=null?i.pkg_qty:'—'}</div>
+      <div>${fcEsc(i.pkg_unit)||'—'}</div>
+      <div>${i.pkg_price!=null?'£'+Number(i.pkg_price).toFixed(2):'—'}</div>
+      <div>${i.per_pack?'✅':'☐'}</div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn-sm" onclick="openIngredientModal(${i.id})" title="Edit">✏️</button>
+        <button class="btn-sm" style="color:var(--red);" onclick="deleteIngredientRow(${i.id})" title="Delete">✕</button>
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+
+// ── Ingredient master-list CRUD ──
+function openIngredientModal(id){
+  fcEditingIngredientId=id;
+  document.getElementById('ingredient-modal-error').style.display='none';
+  const ing=id!=null?foodCostIngredients.find(i=>i.id===id):null;
+  document.getElementById('ingredient-modal-title').textContent=ing?'Edit ingredient':'Add ingredient';
+  document.getElementById('ing-name').value=ing?ing.name:'';
+  document.getElementById('ing-pkg-qty').value=ing&&ing.pkg_qty!=null?ing.pkg_qty:'';
+  document.getElementById('ing-pkg-unit').value=ing?ing.pkg_unit||'':'';
+  document.getElementById('ing-pkg-price').value=ing&&ing.pkg_price!=null?ing.pkg_price:'';
+  document.getElementById('ing-per-pack').checked=!!(ing&&ing.per_pack);
+  openModal('ingredient-edit-modal');
+}
+async function saveIngredientModal(){
+  const err=document.getElementById('ingredient-modal-error');
+  err.style.display='none';
+  const name=document.getElementById('ing-name').value.trim();
+  if(!name){err.textContent='Name is required.';err.style.display='block';return;}
+  const pkg_qty=document.getElementById('ing-pkg-qty').value?parseFloat(document.getElementById('ing-pkg-qty').value):null;
+  const pkg_unit=document.getElementById('ing-pkg-unit').value.trim()||null;
+  const pkg_price=document.getElementById('ing-pkg-price').value?parseFloat(document.getElementById('ing-pkg-price').value):null;
+  const per_pack=document.getElementById('ing-per-pack').checked;
+  try{
+    let savedRow;
+    if(fcEditingIngredientId!=null){
+      const rows=await sbPatch('ingredients',`id=eq.${fcEditingIngredientId}`,{name,pkg_qty,pkg_unit,pkg_price,per_pack,updated_at:new Date().toISOString()});
+      savedRow=rows[0];
+    } else {
+      const rows=await sbPost('ingredients',{name,pkg_qty,pkg_unit,pkg_price,per_pack});
+      savedRow=rows[0];
+    }
+    await loadFoodCostTab(); // refresh cache before cascading, so we read current recipe rows
+    await fcCascadeIngredientUpdate(savedRow);
+    await loadFoodCostTab();
+    closeModal('ingredient-edit-modal');
+  }catch(e){
+    err.textContent=/duplicate|already exists|unique/i.test(e.message)?'An ingredient with this name already exists.':('Error: '+e.message);
+    err.style.display='block';
+  }
+}
+async function deleteIngredientRow(id){
+  if(!confirm('Remove this ingredient from the library? Existing recipes that already use it will be unaffected.'))return;
+  try{
+    await sbDelete('ingredients',`id=eq.${id}`);
+    await loadFoodCostTab();
+  }catch(e){alert('Error deleting: '+e.message);}
+}
+// When an ingredient in the master list is edited, push its new pkg_qty/unit/
+// price/per_pack into every saved recipe line that references it by name
+// (case-insensitive), and recompute + re-save that product's Cost.
+async function fcCascadeIngredientUpdate(ing){
+  if(!ing)return;
+  const nameLower=(ing.name||'').trim().toLowerCase();
+  if(!nameLower)return;
+  const affected=Object.values(foodCostRecipesCache).filter(r=>Array.isArray(r.ingredients)&&r.ingredients.some(line=>(line.name||'').trim().toLowerCase()===nameLower));
+  for(const r of affected){
+    const newIngredients=r.ingredients.map(line=>{
+      if((line.name||'').trim().toLowerCase()!==nameLower)return line;
+      const updated={...line,pkg_qty:ing.pkg_qty,pkg_unit:ing.pkg_unit,pkg_price:ing.pkg_price,per_pack:ing.per_pack};
+      updated.line_cost=fcLineCost(updated);
+      return updated;
+    });
+    const computed=smComputeRecipeCost({ingredients:newIngredients,yield_qty:r.yield_qty,sell_qty:r.sell_qty});
+    try{
+      await sbPatch('recipes',`id=eq.${r.id}`,{ingredients:newIngredients,total_cost:computed.batchTotal,cost_per_unit:computed.costPerPack,updated_at:new Date().toISOString()});
+      await sbPatch('products',`id=eq.${r.product_id}`,{cost_price:computed.costPerPack});
+      const p=allProducts.find(x=>String(x.id)===String(r.product_id));
+      if(p)p.cost_price=computed.costPerPack;
+    }catch(e){/* best-effort cascade — one failed product shouldn't block the ingredient save itself */}
+  }
+}
+
+// ── Recipe cost math ──
+// Line cost uses the same formula regardless of per_pack: pkgPrice × (qtyUsed
+// ÷ pkgQty). per_pack only changes how it's aggregated into the final
+// cost-per-pack below: normal ingredients get diluted across the batch
+// yield, per_pack ones (packaging) are added on top, undiluted.
+function fcLineCost(line){
+  const pkgQty=Number(line.pkg_qty)||0;
+  const pkgPrice=Number(line.pkg_price)||0;
+  const qtyUsed=Number(line.qty_used)||0;
+  return pkgQty>0?(pkgPrice*qtyUsed/pkgQty):0;
+}
+function smComputeRecipeCost(recipe){
+  const lines=(recipe&&Array.isArray(recipe.ingredients))?recipe.ingredients:[];
+  let diluted=0,perPackSum=0;
+  lines.forEach(line=>{
+    const lc=fcLineCost(line);
+    if(line.per_pack)perPackSum+=lc; else diluted+=lc;
+  });
+  const batchTotal=diluted+perPackSum;
+  const yieldQty=Number(recipe&&recipe.yield_qty)||0;
+  const sellQty=Number(recipe&&recipe.sell_qty)||1;
+  const costPerPack=yieldQty>0?((diluted/yieldQty)*sellQty+perPackSum):batchTotal;
+  return {batchTotal:Math.round(batchTotal*100)/100,costPerPack:Math.round(costPerPack*100)/100};
+}
+
+// ── Edit Recipe modal ──
+function openRecipeModal(productId){
+  fcCurrentProductId=productId;
+  const p=allProducts.find(x=>String(x.id)===String(productId));
+  const existing=foodCostRecipesCache[String(productId)];
+  fcCurrentRecipe={
+    ingredients:existing&&Array.isArray(existing.ingredients)?existing.ingredients.map(l=>({...l})):[],
+    yield_qty:existing?existing.yield_qty:null,
+    yield_unit:existing?existing.yield_unit:'',
+    sell_qty:existing&&existing.sell_qty!=null?existing.sell_qty:1,
+    sell_unit:existing?existing.sell_unit:''
+  };
+  document.getElementById('recipe-modal-title').textContent='🧮 Recipe cost — '+(p?p.name:'');
+  document.getElementById('recipe-yield-qty').value=fcCurrentRecipe.yield_qty!=null?fcCurrentRecipe.yield_qty:'';
+  document.getElementById('recipe-yield-unit').value=fcCurrentRecipe.yield_unit||'';
+  document.getElementById('recipe-sell-qty').value=fcCurrentRecipe.sell_qty!=null?fcCurrentRecipe.sell_qty:1;
+  document.getElementById('recipe-sell-unit').value=fcCurrentRecipe.sell_unit||'';
+  document.getElementById('recipe-modal-error').style.display='none';
+  renderRecipeRows();
+  fcRecalc();
+  openModal('recipe-modal');
+}
+function renderRecipeRows(){
+  const el=document.getElementById('recipe-ingredients-rows');
+  if(!fcCurrentRecipe.ingredients.length){
+    el.innerHTML='<div style="font-size:12px;color:var(--text-tertiary);padding:8px 2px;">No ingredients yet — add one below.</div>';
+    return;
+  }
+  el.innerHTML=fcCurrentRecipe.ingredients.map((line,idx)=>{
+    const lc=fcLineCost(line);
+    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px;align-items:center;padding:4px 2px;">
+      <input type="text" list="fc-ingredient-names" value="${fcEsc(line.name)}" oninput="fcOnFieldChange(${idx},'name',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+      <input type="number" step="0.01" min="0" value="${line.pkg_qty!=null?line.pkg_qty:''}" oninput="fcOnFieldChange(${idx},'pkg_qty',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+      <input type="text" value="${fcEsc(line.pkg_unit)}" oninput="fcOnFieldChange(${idx},'pkg_unit',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+      <input type="number" step="0.01" min="0" value="${line.pkg_price!=null?line.pkg_price:''}" oninput="fcOnFieldChange(${idx},'pkg_price',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+      <input type="number" step="0.01" min="0" value="${line.qty_used!=null?line.qty_used:''}" oninput="fcOnFieldChange(${idx},'qty_used',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
+      <button class="btn-sm" style="color:var(--red);" onclick="fcRemoveIngredientRow(${idx})" title="Remove">✕</button>
+      <div style="grid-column:1/6;font-size:11px;color:var(--text-tertiary);margin:-2px 0 4px 2px;">Line cost: £${lc.toFixed(2)}${line.per_pack?' (per pack, not diluted)':''} <label style="margin-left:10px;cursor:pointer;"><input type="checkbox" ${line.per_pack?'checked':''} onchange="fcOnFieldChange(${idx},'per_pack',this.checked)" style="width:12px;height:12px;vertical-align:middle;"/> Per pack</label></div>
+    </div>`;
+  }).join('');
+}
+function fcAddIngredientRow(){
+  fcCurrentRecipe.ingredients.push({name:'',pkg_qty:null,pkg_unit:'',pkg_price:null,qty_used:null,per_pack:false});
+  renderRecipeRows();
+  fcRecalc();
+}
+function fcRemoveIngredientRow(idx){
+  fcCurrentRecipe.ingredients.splice(idx,1);
+  renderRecipeRows();
+  fcRecalc();
+}
+function fcOnFieldChange(idx,field,value){
+  const line=fcCurrentRecipe.ingredients[idx];
+  if(!line)return;
+  if(field==='name'){
+    line.name=value;
+    // Auto-fill package size/unit/price/per-pack from the shared library on an exact name match.
+    const match=foodCostIngredients.find(i=>i.name.trim().toLowerCase()===value.trim().toLowerCase());
+    if(match){
+      line.pkg_qty=match.pkg_qty;line.pkg_unit=match.pkg_unit;line.pkg_price=match.pkg_price;line.per_pack=match.per_pack;
+      renderRecipeRows();
+    }
+  } else if(field==='per_pack'){
+    line.per_pack=!!value;
+  } else if(field==='pkg_unit'){
+    line[field]=value;
+  } else {
+    line[field]=value===''?null:parseFloat(value);
+  }
+  fcRecalc();
+}
+function fcRecalc(){
+  if(!fcCurrentRecipe)return;
+  fcCurrentRecipe.yield_qty=document.getElementById('recipe-yield-qty').value?parseFloat(document.getElementById('recipe-yield-qty').value):null;
+  fcCurrentRecipe.yield_unit=document.getElementById('recipe-yield-unit').value.trim();
+  fcCurrentRecipe.sell_qty=document.getElementById('recipe-sell-qty').value?parseFloat(document.getElementById('recipe-sell-qty').value):1;
+  fcCurrentRecipe.sell_unit=document.getElementById('recipe-sell-unit').value.trim();
+  // Update each line's displayed cost without a full re-render (keeps focus/cursor in inputs while typing)
+  document.querySelectorAll('#recipe-ingredients-rows > div').forEach((rowEl,idx)=>{
+    const line=fcCurrentRecipe.ingredients[idx];
+    if(!line)return;
+    const lc=fcLineCost(line);
+    const costDiv=rowEl.querySelector('div[style*="grid-column"]');
+    if(costDiv&&costDiv.firstChild)costDiv.firstChild.textContent=`Line cost: £${lc.toFixed(2)}${line.per_pack?' (per pack, not diluted)':''} `;
+  });
+  const computed=smComputeRecipeCost(fcCurrentRecipe);
+  document.getElementById('recipe-batch-total').textContent='£'+computed.batchTotal.toFixed(2);
+  document.getElementById('recipe-cost-per-pack').textContent='£'+computed.costPerPack.toFixed(2);
+  // "Ingredients weight so far" helper — sums qty_used for kg/g rows only (g normalized to kg).
+  let weightKg=0;
+  fcCurrentRecipe.ingredients.forEach(line=>{
+    const unit=(line.pkg_unit||'').trim().toLowerCase();
+    const qty=Number(line.qty_used)||0;
+    if(unit==='kg')weightKg+=qty;
+    else if(unit==='g')weightKg+=qty/1000;
+  });
+  const weightEl=document.getElementById('recipe-weight-so-far');
+  if(weightEl)weightEl.textContent=weightKg>0?`Ingredients weight so far (kg/g rows only): ${weightKg.toFixed(2)} kg`:'';
+}
+async function saveRecipe(){
+  const err=document.getElementById('recipe-modal-error');
+  err.style.display='none';
+  if(!fcCurrentRecipe.ingredients.length){err.textContent='Add at least one ingredient.';err.style.display='block';return;}
+  const cleanLines=[];
+  for(const line of fcCurrentRecipe.ingredients){
+    if(!line.name||!line.name.trim()){err.textContent='Every ingredient needs a name.';err.style.display='block';return;}
+    const clean={name:line.name.trim(),pkg_qty:line.pkg_qty!=null?Number(line.pkg_qty):null,pkg_unit:line.pkg_unit||null,pkg_price:line.pkg_price!=null?Number(line.pkg_price):null,qty_used:line.qty_used!=null?Number(line.qty_used):null,per_pack:!!line.per_pack};
+    clean.line_cost=fcLineCost(clean);
+    cleanLines.push(clean);
+  }
+  const computed=smComputeRecipeCost({ingredients:cleanLines,yield_qty:fcCurrentRecipe.yield_qty,sell_qty:fcCurrentRecipe.sell_qty});
+  const payload={
+    product_id:fcCurrentProductId,
+    ingredients:cleanLines,
+    total_cost:computed.batchTotal,
+    yield_qty:fcCurrentRecipe.yield_qty,
+    yield_unit:fcCurrentRecipe.yield_unit||null,
+    sell_qty:fcCurrentRecipe.sell_qty||1,
+    sell_unit:fcCurrentRecipe.sell_unit||null,
+    cost_per_unit:computed.costPerPack,
+    updated_at:new Date().toISOString()
+  };
+  try{
+    const existing=foodCostRecipesCache[String(fcCurrentProductId)];
+    let savedRecipe;
+    if(existing){
+      const rows=await sbPatch('recipes',`id=eq.${existing.id}`,payload);
+      savedRecipe=rows[0];
+    } else {
+      const rows=await sbPost('recipes',payload);
+      savedRecipe=rows[0];
+    }
+    foodCostRecipesCache[String(fcCurrentProductId)]=savedRecipe;
+    // Write the computed cost into the product's Cost field — used everywhere Profit is shown.
+    await sbPatch('products',`id=eq.${fcCurrentProductId}`,{cost_price:computed.costPerPack});
+    const p=allProducts.find(x=>String(x.id)===String(fcCurrentProductId));
+    if(p)p.cost_price=computed.costPerPack;
+    // Upsert each ingredient (matched by name) into the shared library so other
+    // recipes get autocomplete suggestions and stay in sync going forward.
+    for(const line of cleanLines){
+      const existingIng=foodCostIngredients.find(i=>i.name.trim().toLowerCase()===line.name.trim().toLowerCase());
+      try{
+        if(existingIng){
+          if(existingIng.pkg_qty!==line.pkg_qty||existingIng.pkg_unit!==line.pkg_unit||existingIng.pkg_price!==line.pkg_price||existingIng.per_pack!==line.per_pack){
+            await sbPatch('ingredients',`id=eq.${existingIng.id}`,{pkg_qty:line.pkg_qty,pkg_unit:line.pkg_unit,pkg_price:line.pkg_price,per_pack:line.per_pack,updated_at:new Date().toISOString()});
+          }
+        } else {
+          await sbPost('ingredients',{name:line.name,pkg_qty:line.pkg_qty,pkg_unit:line.pkg_unit,pkg_price:line.pkg_price,per_pack:line.per_pack});
+        }
+      }catch(e){/* best-effort library sync — the recipe itself already saved above */}
+    }
+    closeModal('recipe-modal');
+    await loadFoodCostTab();
+  }catch(e){
+    err.textContent='Error saving: '+e.message+(/relation .* does not exist/i.test(e.message)?' — did you run the migration SQL (matteo_migration_food_cost.sql)?':'');
+    err.style.display='block';
+  }
 }
 
 // ── IMAGE TOGGLE HELPERS ──
