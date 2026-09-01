@@ -7257,6 +7257,16 @@ function renderFoodCostRecipesList(){
   CATEGORIES.filter(c=>c.id!=='all').forEach((c,i)=>catRank.set(c.id,i));
   const rankOf=p=>({cat:catRank.has(p.cat)?catRank.get(p.cat):Infinity,pos:posIdx.has(String(p.id))?posIdx.get(String(p.id)):Infinity});
   const catalogSort=(a,b)=>{const ra=rankOf(a),rb=rankOf(b);return ra.cat!==rb.cat?ra.cat-rb.cat:ra.pos-rb.pos;};
+  // Groups an already catalog-sorted list into {catId,label,items} buckets, same
+  // grouping convention as the Products tab / Client Prices tab.
+  const groupByCategory=(sortedList)=>{
+    const grouped={};
+    sortedList.forEach(p=>{if(!grouped[p.cat])grouped[p.cat]=[];grouped[p.cat].push(p);});
+    const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
+    return [...new Set([...catOrder,...Object.keys(grouped)])].filter(c=>grouped[c]&&grouped[c].length)
+      .map(catId=>({catId,label:CATEGORIES.find(c=>c.id===catId)?.label||catId,items:grouped[catId]}));
+  };
+  const catSectionHtml=label=>`<div style="background:var(--bg);padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;border-top:2px solid var(--border);">${fcEsc(label)}</div>`;
 
   if(fcRecipesViewMode==='other'){
     const other=allProducts.filter(p=>!p.food_cost_tracked);
@@ -7265,13 +7275,16 @@ function renderFoodCostRecipesList(){
     let html=`<div style="display:grid;grid-template-columns:3fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
       <div>Product</div><div>Cost</div><div></div>
     </div>`;
-    list.forEach(p=>{
-      const costText=p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—';
-      html+=`<div style="display:grid;grid-template-columns:3fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
-        <div>${fcEsc(p.name)}</div>
-        <div>${costText}</div>
-        <div><button class="btn-sm" onclick="openOtherProductPriceModal(${p.id})">✏️ Edit</button></div>
-      </div>`;
+    groupByCategory(list).forEach(group=>{
+      html+=catSectionHtml(group.label);
+      group.items.forEach(p=>{
+        const costText=p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—';
+        html+=`<div style="display:grid;grid-template-columns:3fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+          <div>${fcEsc(p.name)}</div>
+          <div>${costText}</div>
+          <div><button class="btn-sm" onclick="openOtherProductPriceModal(${p.id})">✏️ Edit</button></div>
+        </div>`;
+      });
     });
     el.innerHTML=html;
     return;
@@ -7284,17 +7297,20 @@ function renderFoodCostRecipesList(){
   let html=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
     <div>Product</div><div>Recipe</div><div>Cost</div><div></div>
   </div>`;
-  list.forEach(p=>{
-    const r=foodCostRecipesCache[String(p.id)];
-    const count=r&&Array.isArray(r.ingredients)?r.ingredients.length:0;
-    const costText=r?('£'+Number(r.cost_per_unit||0).toFixed(2)):(p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—');
-    const recipeText=count?`${count} ingredient${count!==1?'s':''}`:'No recipe yet';
-    html+=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
-      <div>${fcEsc(p.name)}</div>
-      <div style="color:var(--text-secondary);">${recipeText}</div>
-      <div>${costText}</div>
-      <div><button class="btn-sm" onclick="openRecipeModal(${p.id})">Edit Recipe</button></div>
-    </div>`;
+  groupByCategory(list).forEach(group=>{
+    html+=catSectionHtml(group.label);
+    group.items.forEach(p=>{
+      const r=foodCostRecipesCache[String(p.id)];
+      const count=r&&Array.isArray(r.ingredients)?r.ingredients.length:0;
+      const costText=r?('£'+Number(r.cost_per_unit||0).toFixed(2)):(p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—');
+      const recipeText=count?`${count} ingredient${count!==1?'s':''}`:'No recipe yet';
+      html+=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+        <div>${fcEsc(p.name)}</div>
+        <div style="color:var(--text-secondary);">${recipeText}</div>
+        <div>${costText}</div>
+        <div><button class="btn-sm" onclick="openRecipeModal(${p.id})">Edit Recipe</button></div>
+      </div>`;
+    });
   });
   el.innerHTML=html;
 }
