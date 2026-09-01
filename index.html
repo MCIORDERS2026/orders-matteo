@@ -1171,7 +1171,7 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
   <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;padding-right:24px;">
     <h3 id="recipe-modal-title">🧮 Recipe cost</h3>
     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">For each ingredient: the package size you bought, what you paid for it, and how much of it this recipe uses (same unit as package size). Saving sets this product's Cost.</p>
-    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:4px 2px;">
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 40px;gap:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:4px 2px;">
       <div>Ingredient</div><div>Pkg Qty</div><div>Unit</div><div>Pkg Price</div><div>Qty Used</div><div></div>
     </div>
     <div id="recipe-ingredients-rows" style="display:flex;flex-direction:column;gap:14px;"></div>
@@ -7279,14 +7279,14 @@ function renderFoodCostRecipesList(){
     const other=allProducts.filter(p=>!p.food_cost_tracked);
     const list=other.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort(catalogSort);
     if(!list.length){el.innerHTML='<div class="empty-state">No other products found.</div>';return;}
-    let html=`<div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
+    let html=`<div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) 110px;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
       <div>Product</div><div>Cost</div><div></div>
     </div>`;
     groupByCategory(list).forEach(group=>{
       html+=catSectionHtml(group.label);
       group.items.forEach(p=>{
         const costText=p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—';
-        html+=`<div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+        html+=`<div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) 110px;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
           <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fcEsc(p.name)}</div>
           <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${costText}</div>
           <div><button class="btn-sm" onclick="openOtherProductPriceModal(${p.id})">Edit Prices</button></div>
@@ -7301,7 +7301,7 @@ function renderFoodCostRecipesList(){
   if(!tracked.length){el.innerHTML='<div class="empty-state">No items selected yet — click "☑️ Select Items" above to choose which products show up here.</div>';return;}
   const list=tracked.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort(catalogSort);
   if(!list.length){el.innerHTML='<div class="empty-state">No products found.</div>';return;}
-  let html=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
+  let html=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) 110px;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
     <div>Product</div><div>Recipe</div><div>Cost</div><div></div>
   </div>`;
   groupByCategory(list).forEach(group=>{
@@ -7311,7 +7311,7 @@ function renderFoodCostRecipesList(){
       const count=r&&Array.isArray(r.ingredients)?r.ingredients.length:0;
       const costText=r?('£'+Number(r.cost_per_unit||0).toFixed(2)):(p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—');
       const recipeText=count?`${count} ingredient${count!==1?'s':''}`:'No recipe yet';
-      html+=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+      html+=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) 110px;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fcEsc(p.name)}</div>
         <div style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${recipeText}</div>
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${costText}</div>
@@ -7324,11 +7324,11 @@ function renderFoodCostRecipesList(){
 function renderIngredientsList(){
   const el=document.getElementById('fc-ingredients-list');
   if(!el)return;
-  let html=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
+  let html=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 90px;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
     <div>Ingredient</div><div>Pkg Qty</div><div>Unit</div><div>Pkg Price</div><div>Per Pack</div><div></div>
   </div>`;
   foodCostIngredients.forEach(i=>{
-    html+=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+    html+=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 90px;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
       <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fcEsc(i.name)}</div>
       <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${i.pkg_qty!=null?i.pkg_qty:'—'}</div>
       <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fcEsc(i.pkg_unit)||'—'}</div>
@@ -7342,7 +7342,7 @@ function renderIngredientsList(){
   });
   // Inline "add new ingredient" row — same layout/behaviour as VRC's equivalent
   // row, instead of a separate "+ Add ingredient" button/modal.
-  html+=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 10px;">
+  html+=`<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 90px;gap:8px;align-items:center;padding:10px 10px;">
     <input type="text" id="fc-new-ing-name" placeholder="Ingredient name" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
     <input type="number" step="0.01" min="0" id="fc-new-ing-pkg-qty" value="1" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
     <input type="text" id="fc-new-ing-pkg-unit" value="kg" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 8px;font-size:13px;background:var(--bg);"/>
@@ -7503,7 +7503,7 @@ function renderRecipeRows(){
   }
   el.innerHTML=fcCurrentRecipe.ingredients.map((line,idx)=>{
     const lc=fcLineCost(line);
-    return `<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;">
+    return `<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 40px;gap:10px;align-items:center;">
       <input type="text" list="fc-ingredient-names" value="${fcEsc(line.name)}" oninput="fcOnFieldChange(${idx},'name',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 10px;font-size:14px;background:var(--bg);"/>
       <input type="number" step="0.01" min="0" value="${line.pkg_qty!=null?line.pkg_qty:''}" oninput="fcOnFieldChange(${idx},'pkg_qty',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 10px;font-size:14px;background:var(--bg);"/>
       <input type="text" value="${fcEsc(line.pkg_unit)}" oninput="fcOnFieldChange(${idx},'pkg_unit',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 10px;font-size:14px;background:var(--bg);"/>
