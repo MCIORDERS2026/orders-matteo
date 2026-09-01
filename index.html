@@ -641,6 +641,10 @@
 
       <div id="fc-recipes-view">
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Work out a product's real cost from its recipe: for each ingredient, enter the package size you bought, what you paid for it, and how much of it goes into this recipe. Saving updates the product's Cost (used everywhere Profit is shown).</p>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <button class="btn-sm active" id="fc-view-tracked" onclick="setFcRecipesViewMode('tracked')">🧮 Central Kitchen items</button>
+          <button class="btn-sm" id="fc-view-other" onclick="setFcRecipesViewMode('other')">📦 Other products (bought &amp; resold)</button>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
           <input type="text" id="fc-recipe-search" placeholder="Search products..." oninput="renderFoodCostRecipesList()" style="flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;background:var(--bg);"/>
           <button class="btn-sm" onclick="openFoodCostItemsModal()">☑️ Select Items</button>
@@ -7227,12 +7231,21 @@ async function loadFoodCostTab(){
     document.getElementById('fc-ingredients-list').innerHTML=`<div class="empty-state">${fcEsc(msg)}</div>`;
   }
 }
+// 'tracked' = products checked in "☑️ Select Items" (the ones with a real
+// recipe here); 'other' = everything else — items that are just bought and
+// resold as-is, priced with a plain Cost in the Products tab, no recipe needed.
+let fcRecipesViewMode='tracked';
+function setFcRecipesViewMode(mode){
+  fcRecipesViewMode=mode;
+  const btnTracked=document.getElementById('fc-view-tracked'),btnOther=document.getElementById('fc-view-other');
+  if(btnTracked)btnTracked.classList.toggle('active',mode==='tracked');
+  if(btnOther)btnOther.classList.toggle('active',mode==='other');
+  renderFoodCostRecipesList();
+}
 function renderFoodCostRecipesList(){
   const el=document.getElementById('fc-recipes-list');
   if(!el)return;
   const search=(document.getElementById('fc-recipe-search')?.value||'').trim().toLowerCase();
-  const tracked=allProducts.filter(p=>p.food_cost_tracked);
-  if(!tracked.length){el.innerHTML='<div class="empty-state">No items selected yet — click "☑️ Select Items" above to choose which products show up here.</div>';return;}
   // Same catalog order as everywhere else (CATEGORIES' admin-configured order,
   // then each product's position within allProducts — see sortItemEntries).
   const posIdx=new Map();
@@ -7240,10 +7253,30 @@ function renderFoodCostRecipesList(){
   const catRank=new Map();
   CATEGORIES.filter(c=>c.id!=='all').forEach((c,i)=>catRank.set(c.id,i));
   const rankOf=p=>({cat:catRank.has(p.cat)?catRank.get(p.cat):Infinity,pos:posIdx.has(String(p.id))?posIdx.get(String(p.id)):Infinity});
-  const list=tracked.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort((a,b)=>{
-    const ra=rankOf(a),rb=rankOf(b);
-    return ra.cat!==rb.cat?ra.cat-rb.cat:ra.pos-rb.pos;
-  });
+  const catalogSort=(a,b)=>{const ra=rankOf(a),rb=rankOf(b);return ra.cat!==rb.cat?ra.cat-rb.cat:ra.pos-rb.pos;};
+
+  if(fcRecipesViewMode==='other'){
+    const other=allProducts.filter(p=>!p.food_cost_tracked);
+    const list=other.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort(catalogSort);
+    if(!list.length){el.innerHTML='<div class="empty-state">No other products found.</div>';return;}
+    let html=`<div style="display:grid;grid-template-columns:3fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
+      <div>Product</div><div>Cost</div><div></div>
+    </div>`;
+    list.forEach(p=>{
+      const costText=p.cost_price!=null?'£'+Number(p.cost_price).toFixed(2):'—';
+      html+=`<div style="display:grid;grid-template-columns:3fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
+        <div>${fcEsc(p.name)}</div>
+        <div>${costText}</div>
+        <div><button class="btn-sm" onclick="openEditProduct(${p.id})">✏️ Edit</button></div>
+      </div>`;
+    });
+    el.innerHTML=html;
+    return;
+  }
+
+  const tracked=allProducts.filter(p=>p.food_cost_tracked);
+  if(!tracked.length){el.innerHTML='<div class="empty-state">No items selected yet — click "☑️ Select Items" above to choose which products show up here.</div>';return;}
+  const list=tracked.filter(p=>!search||p.name.toLowerCase().includes(search)).slice().sort(catalogSort);
   if(!list.length){el.innerHTML='<div class="empty-state">No products found.</div>';return;}
   let html=`<div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);padding:6px 10px;border-bottom:1px solid var(--border);">
     <div>Product</div><div>Recipe</div><div>Cost</div><div></div>
