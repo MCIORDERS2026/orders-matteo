@@ -1232,6 +1232,24 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     <div class="modal-btns"><button onclick="closeModal('foodcost-items-modal')">Cancel</button><button class="primary" onclick="saveFoodCostItems()">Save</button></div>
   </div>
 </div>
+<div class="modal-overlay" id="other-product-price-modal">
+  <div class="modal" style="max-width:380px;width:92vw;">
+    <h3 id="other-price-modal-title">💰 Edit price</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0;">This product is bought and resold as-is — just its Food Cost and Sale Value, no recipe needed.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+      <div>
+        <label style="font-size:12px;color:var(--text-secondary);">Food Cost (£)</label>
+        <input type="number" id="other-price-cost" min="0" step="0.01" placeholder="0.00" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);margin-top:4px;"/>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-secondary);">Sale Value (£)</label>
+        <input type="number" id="other-price-sale" min="0" step="0.01" placeholder="0.00" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);margin-top:4px;"/>
+      </div>
+    </div>
+    <div class="modal-error" id="other-price-error" style="display:none;"></div>
+    <div class="modal-btns"><button onclick="closeModal('other-product-price-modal')">Cancel</button><button class="primary" onclick="saveOtherProductPrice()">Save</button></div>
+  </div>
+</div>
 <div class="modal-overlay" id="add-user-modal">
   <div class="modal">
     <h3>Add new user</h3>
@@ -7252,7 +7270,7 @@ function renderFoodCostRecipesList(){
       html+=`<div style="display:grid;grid-template-columns:3fr 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
         <div>${fcEsc(p.name)}</div>
         <div>${costText}</div>
-        <div><button class="btn-sm" onclick="openEditProduct(${p.id})">✏️ Edit</button></div>
+        <div><button class="btn-sm" onclick="openOtherProductPriceModal(${p.id})">✏️ Edit</button></div>
       </div>`;
     });
     el.innerHTML=html;
@@ -7657,6 +7675,40 @@ async function saveFoodCostItems(){
     setTimeout(()=>closeModal('foodcost-items-modal'),900);
   }catch(e){
     err.textContent='Error saving: '+e.message+(/column .*food_cost_tracked.* does not exist/i.test(e.message)?' — did you run the migration SQL (matteo_migration_food_cost_items.sql)?':'');
+    err.style.display='block';
+  }
+}
+
+// ── "Other products" price editor ──
+// Bought-and-resold items (not in the Food Cost list) don't need a recipe —
+// just a plain Food Cost/Sale Value, edited from a small standalone modal
+// instead of the full Products editor (which no longer has a pricing box at all).
+let fcOtherPriceProductId=null;
+function openOtherProductPriceModal(id){
+  fcOtherPriceProductId=id;
+  const p=allProducts.find(x=>String(x.id)===String(id));
+  if(!p)return;
+  document.getElementById('other-price-modal-title').textContent='💰 Edit price — '+p.name;
+  document.getElementById('other-price-cost').value=p.cost_price!=null?p.cost_price:'';
+  document.getElementById('other-price-sale').value=p.sale_price!=null?p.sale_price:'';
+  document.getElementById('other-price-error').style.display='none';
+  openModal('other-product-price-modal');
+}
+async function saveOtherProductPrice(){
+  const err=document.getElementById('other-price-error');
+  err.style.display='none';
+  const costRaw=document.getElementById('other-price-cost').value.trim();
+  const saleRaw=document.getElementById('other-price-sale').value.trim();
+  const cost_price=costRaw?Math.max(0,parseFloat(costRaw)||0):null;
+  const sale_price=saleRaw?Math.max(0,parseFloat(saleRaw)||0):null;
+  try{
+    await sbPatch('products',`id=eq.${fcOtherPriceProductId}`,{cost_price,sale_price});
+    const p=allProducts.find(x=>String(x.id)===String(fcOtherPriceProductId));
+    if(p){p.cost_price=cost_price;p.sale_price=sale_price;}
+    closeModal('other-product-price-modal');
+    renderFoodCostRecipesList();
+  }catch(e){
+    err.textContent='Error saving: '+e.message;
     err.style.display='block';
   }
 }
