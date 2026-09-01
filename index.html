@@ -359,29 +359,25 @@
             <div class="notif-item-title">📦 Products</div>
             <div class="notif-item-text">Edit catalogue</div>
           </div>
-          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('trash')">
-            <div class="notif-item-title">🗑 Trash <span class="notif-badge" id="trash-badge" style="display:inline-flex;position:static;margin-left:6px;">0</span></div>
-            <div class="notif-item-text">Deleted orders</div>
-          </div>
-          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('activity')">
-            <div class="notif-item-title">🍳 Kitchen Activity</div>
-            <div class="notif-item-text">Order changes made by Kitchen staff</div>
-          </div>
-          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('sales')">
-            <div class="notif-item-title">📊 Sales Metrics</div>
-            <div class="notif-item-text">Best/worst sellers by client & date</div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('foodcost')">
+            <div class="notif-item-title">🧮 Food Cost</div>
+            <div class="notif-item-text">Calculate a recipe's cost from its ingredients</div>
           </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('prices')">
             <div class="notif-item-title">💷 Client Prices</div>
             <div class="notif-item-text">Set per-client prices (admin reports only)</div>
           </div>
-          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('foodcost')">
-            <div class="notif-item-title">🧮 Food Cost</div>
-            <div class="notif-item-text">Calculate a recipe's cost from its ingredients</div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('sales')">
+            <div class="notif-item-title">📊 Sales Metrics</div>
+            <div class="notif-item-text">Best/worst sellers by client & date</div>
           </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();openCutoffSettings()">
             <div class="notif-item-title">⏰ Cut-off Settings</div>
             <div class="notif-item-text" id="cutoff-menu-status">Mon & Thu at 12:00 PM</div>
+          </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('activity')">
+            <div class="notif-item-title">🍳 Kitchen Activity</div>
+            <div class="notif-item-text">Order changes made by Kitchen staff</div>
           </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();openBackupHistory()">
             <div class="notif-item-title">🗄️ Backup History</div>
@@ -390,6 +386,10 @@
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('admin-menu-dropdown').classList.remove('open');showAdminTab('chat')">
             <div class="notif-item-title">💬 Chat</div>
             <div class="notif-item-text">Messages to clients</div>
+          </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('trash')">
+            <div class="notif-item-title">🗑 Trash <span class="notif-badge" id="trash-badge" style="display:inline-flex;position:static;margin-left:6px;">0</span></div>
+            <div class="notif-item-text">Deleted orders</div>
           </div>
           <div class="notif-item" onclick="doLogout()">
             <div class="notif-item-title" style="color:var(--red);">↩ Sign out</div>
