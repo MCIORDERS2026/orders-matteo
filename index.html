@@ -7289,7 +7289,7 @@ function renderFoodCostRecipesList(){
         html+=`<div style="display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border-light);font-size:13px;">
           <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fcEsc(p.name)}</div>
           <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${costText}</div>
-          <div><button class="btn-sm" onclick="openOtherProductPriceModal(${p.id})">✏️ Edit</button></div>
+          <div><button class="btn-sm" onclick="openOtherProductPriceModal(${p.id})">Edit Prices</button></div>
         </div>`;
       });
     });
