@@ -1305,21 +1305,6 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     <div class="field"><label>Name</label><input type="text" id="prod-name" placeholder="Product name"/></div>
     <div class="field"><label>Description / Unit</label><input type="text" id="prod-description" placeholder="e.g. 1 kg, Unit, Box..."/></div>
     <div class="field"><label>Order in multiples of <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(e.g. 12 = clients can only order 12, 24, 36...)</span></label><input type="number" id="prod-order-multiple" min="1" max="999" value="1" placeholder="1"/></div>
-    <div class="field" style="background:var(--green-light);border:1px solid var(--green);border-radius:var(--radius-sm);padding:12px 14px;">
-      <label style="font-weight:600;margin-bottom:8px;display:block;">💰 Pricing <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(admin only — never shown to clients)</span></label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>
-          <label style="font-size:12px;font-weight:400;">Food Cost (£)</label>
-          <input type="number" id="prod-cost-price" min="0" step="0.01" placeholder="0.00" oninput="updateProductProfitPreview()" onclick="fcMaybeShowLockedMessage()" style="margin-top:4px;width:100%;box-sizing:border-box;"/>
-          <div id="prod-cost-locked-note" style="display:none;font-size:11px;color:var(--text-tertiary);margin-top:4px;">🧮 This is a Food Cost item — its Cost comes from its recipe. Go to Menu → Food Cost to add/edit it there.</div>
-        </div>
-        <div>
-          <label style="font-size:12px;font-weight:400;">Sale Value (£)</label>
-          <input type="number" id="prod-sale-price" min="0" step="0.01" placeholder="0.00" oninput="updateProductProfitPreview()" style="margin-top:4px;width:100%;box-sizing:border-box;"/>
-        </div>
-      </div>
-      <div style="margin-top:10px;font-size:13px;" id="prod-profit-preview">Profit: —</div>
-    </div>
     <div class="field"><label>Category</label>
       <select id="prod-cat">
         <!-- populated dynamically by updateProdCatDropdown() -->
@@ -7717,10 +7702,6 @@ function openAddProduct(){
   document.getElementById('prod-name').value='';
   document.getElementById('prod-description').value='';
   document.getElementById('prod-order-multiple').value='1';
-  document.getElementById('prod-cost-price').value='';
-  document.getElementById('prod-sale-price').value='';
-  setProductCostFieldLocked(false); // brand-new products can't be Food Cost items yet
-  updateProductProfitPreview();
   document.getElementById('prod-cat').value='sauces';
   document.getElementById('add-product-error').style.display='none';
   document.getElementById('prod-image-preview').style.display='none';
@@ -7736,10 +7717,6 @@ async function openEditProduct(id){
     document.getElementById('prod-name').value=p.name;
     document.getElementById('prod-description').value=p.description||'';
     document.getElementById('prod-order-multiple').value=p.order_multiple||1;
-    document.getElementById('prod-cost-price').value=p.cost_price!=null?p.cost_price:'';
-    document.getElementById('prod-sale-price').value=p.sale_price!=null?p.sale_price:'';
-    setProductCostFieldLocked(!!p.food_cost_tracked);
-    updateProductProfitPreview();
     document.getElementById('prod-cat').value=p.cat;
     document.getElementById('add-product-error').style.display='none';
     document.getElementById('prod-image-file').value='';
@@ -7753,47 +7730,10 @@ async function openEditProduct(id){
     openModal('add-product-modal');
   }catch(e){alert('Error loading product.');}
 }
-// Products selected for Menu -> Food Cost (products.food_cost_tracked) get their
-// Cost computed from their recipe there — locking the plain "Food Cost (£)" field
-// here keeps the two from fighting over the same number. Same message VRC shows
-// on its equivalent locked field.
-let editingProductFoodCostLocked=false;
-function setProductCostFieldLocked(locked){
-  editingProductFoodCostLocked=locked;
-  const input=document.getElementById('prod-cost-price');
-  const note=document.getElementById('prod-cost-locked-note');
-  if(input){
-    input.readOnly=locked;
-    input.style.background=locked?'#F3F4F6':'';
-    input.style.cursor=locked?'not-allowed':'';
-  }
-  if(note)note.style.display=locked?'block':'none';
-}
-function fcMaybeShowLockedMessage(){
-  if(editingProductFoodCostLocked){
-    alert('This is a Food Cost item — its Cost comes from its recipe.\n\nGo to Menu → Food Cost to add/edit the recipe; saving it there updates the Cost automatically.');
-  }
-}
-// Food Cost / Sale Value / Profit are admin-only bookkeeping fields — never sent
-// to or shown in any client-facing view (product cards, cart, orders, PDFs...).
-function updateProductProfitPreview(){
-  const el=document.getElementById('prod-profit-preview');
-  if(!el)return;
-  const cost=parseFloat(document.getElementById('prod-cost-price').value)||0;
-  const sale=parseFloat(document.getElementById('prod-sale-price').value)||0;
-  const profit=sale-cost;
-  const margin=sale>0?(profit/sale*100):0;
-  const color=profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)');
-  el.innerHTML=`Profit: <b style="color:${color};">£${profit.toFixed(2)}</b>`+(sale>0?` <span style="color:var(--text-tertiary);font-size:11px;">(${margin.toFixed(1)}% margin)</span>`:'');
-}
 async function saveProduct(){
   const name=document.getElementById('prod-name').value.trim();
   const description=document.getElementById('prod-description').value.trim();
   const order_multiple=Math.max(1,Math.min(999,parseInt(document.getElementById('prod-order-multiple').value)||1));
-  const costRaw=document.getElementById('prod-cost-price').value.trim();
-  const saleRaw=document.getElementById('prod-sale-price').value.trim();
-  const cost_price=costRaw?Math.max(0,parseFloat(costRaw)||0):null;
-  const sale_price=saleRaw?Math.max(0,parseFloat(saleRaw)||0):null;
   const cat=document.getElementById('prod-cat').value;
   const err=document.getElementById('add-product-error');
   if(!name){err.textContent='Name is required.';err.style.display='block';return;}
@@ -7815,11 +7755,11 @@ async function saveProduct(){
   }
 
   try{
-    const payload={name,description,cat,image_url,order_multiple,sale_price};
-    // Food Cost items keep their Cost in sync with their recipe (Menu -> Food
-    // Cost) — never let this plain editor overwrite it, even if the readonly
-    // field was somehow bypassed client-side.
-    if(!editingProductFoodCostLocked)payload.cost_price=cost_price;
+    // Food Cost (£) and Sale Value (£) are no longer set from this editor —
+    // omitting them from the payload leaves whatever is already in the
+    // database untouched on PATCH. Food Cost items get theirs from their
+    // recipe (Menu -> Food Cost); everything else keeps its existing value.
+    const payload={name,description,cat,image_url,order_multiple};
     let savedId=editingProductId;
     if(editingProductId){
       await sbPatch('products',`id=eq.${editingProductId}`,payload);
