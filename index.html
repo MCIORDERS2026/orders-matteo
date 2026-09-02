@@ -4246,6 +4246,10 @@ async function loadCompleteOrders(){
     const rows=await sbGet('orders_history','status=eq.delivered&deleted_at=is.null&order=delivered_at.desc.nullslast,created_at.desc');
     completeOrdersCache=rows;
     loadCompleteBadge(rows.length);
+    // Admin + Invoicer see sale prices on this tab (Invoicer's whole job is
+    // invoicing off these prices) — Kitchen doesn't, so only fetch/need this cache
+    // when it'll actually be used.
+    if(isAdmin||isInvoicer)await ensureClientPricesCache();
     // Populate the client checklist for the history Excel export (preserve current checks).
     // Sourced from the users table (all active clients), not just usernames present in
     // delivered orders — otherwise a client with no delivered orders yet (or a renamed
@@ -4317,11 +4321,23 @@ function renderCompleteList(rows){
       const date=o.delivered_at?(new Date(o.delivered_at).toLocaleDateString('en-GB')+' '+new Date(o.delivered_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):(o.timestamp||'');
       // Invoicer can view but never edit order items — no qty input / remove button / add-item row for them.
       const canEditItems=!isInvoicer;
+      // Admin + Invoicer see sale prices here (per-client custom price if set, else
+      // the product's default sale_price) — Kitchen doesn't need £ figures.
+      const showPrices=isAdmin||isInvoicer;
+      let orderTotal=0;
       const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
+        let priceHtml='';
+        if(showPrices){
+          const unit=smPriceOf(p,o.username);
+          const lineTotal=unit!=null?unit*Number(q):null;
+          if(lineTotal!=null)orderTotal+=lineTotal;
+          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;">${unit!=null?`${smFmtMoney(unit)} × ${q} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
+        }
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
           <div class="qty-controls">
+            ${priceHtml}
             ${canEditItems?`<input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
               onchange="updateCompleteItem('${o.id}',${id},this.value)"
               style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:13px;"/>
@@ -4331,6 +4347,7 @@ function renderCompleteList(rows){
           </div>
         </div>`;
       }).join('');
+      const orderTotalHtml=showPrices?`<span style="font-size:12px;color:var(--text-secondary);font-weight:600;">${smFmtMoney(orderTotal)}</span>`:'';
       const addItemHtml=canEditItems?`<div class="add-item-row">
         ${productPickerHtml('zc-add',o.id)}
         <input type="number" id="zc-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
@@ -4372,6 +4389,7 @@ function renderCompleteList(rows){
           </span>
           <span class="order-status" style="background:#F3F4F6;color:#374151;border:1px solid #D1D5DB;">🏁 Delivered</span>
           <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
+          ${orderTotalHtml}
         </div>
         <div class="order-card-body" id="zcb-${o.id}">
           <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px;">📅 Order placed: ${o.timestamp||'—'}</div>
@@ -4441,6 +4459,7 @@ async function loadInvoicedOrders(){
   try{
     const rows=await sbGet('orders_history','invoiced=eq.true&deleted_at=is.null&order=invoiced_at.desc.nullslast');
     invoicedOrdersCache=rows;
+    if(isAdmin||isInvoicer)await ensureClientPricesCache();
     renderInvoicedList(rows);
   }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
 }
@@ -4452,14 +4471,27 @@ function renderInvoicedList(rows){
     el.innerHTML=rows.map(o=>{
       const count=Object.values(o.items||{}).reduce((a,b)=>a+b,0);
       const date=o.invoiced_at?(new Date(o.invoiced_at).toLocaleDateString('en-GB')+' '+new Date(o.invoiced_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):'';
+      const showPrices=isAdmin||isInvoicer;
+      let orderTotal=0;
       const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
         const checked=(o.invoiced_items||{})[id]===true;
+        let priceHtml='';
+        if(showPrices){
+          const unit=smPriceOf(p,o.username);
+          const lineTotal=unit!=null?unit*Number(q):null;
+          if(lineTotal!=null)orderTotal+=lineTotal;
+          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);">${unit!=null?`${smFmtMoney(unit)} × ${q} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
+        }
         return `<div class="order-item-row">
           <span>${checked?'✅':'⬜'} ${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
-          <span style="font-size:13px;font-weight:600;">${q}</span>
+          <div style="display:flex;align-items:center;gap:12px;">
+            ${priceHtml}
+            <span style="font-size:13px;font-weight:600;">${q}</span>
+          </div>
         </div>`;
       }).join('');
+      const orderTotalHtml=showPrices?`<span style="font-size:12px;color:var(--text-secondary);font-weight:600;">${smFmtMoney(orderTotal)}</span>`:'';
       return `<div class="order-card delivered" style="border-color:#6D28D9;">
         <div class="order-card-header" onclick="toggleBody('zib-${o.id}')">
           <span class="order-card-user">
@@ -4470,6 +4502,7 @@ function renderInvoicedList(rows){
           </span>
           <span class="order-status" style="background:#EDE9FE;color:#6D28D9;border:1px solid #DDD6FE;">🧾 Invoiced</span>
           <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
+          ${orderTotalHtml}
         </div>
         <div class="order-card-body" id="zib-${o.id}">
           ${itemRows}
@@ -4796,7 +4829,7 @@ async function fetchSalesClientUsers(){
     clientCustomPricesCache={};
     rows.forEach(u=>{clientCustomPricesCache[u.username]=u.custom_prices||{};});
     kitchenUsernamesSet=new Set(rows.filter(u=>u.role==='kitchen'||u.role==='invoicer'||SM_EXCLUDED_USERNAMES.includes(u.username)).map(u=>u.username));
-    return rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&!SM_EXCLUDED_USERNAMES.includes(u.username));
+    return rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&u.role!=='invoicer'&&!SM_EXCLUDED_USERNAMES.includes(u.username));
   }catch(e){return[];}
 }
 // ── Client filter for the main Sales Metrics view — multi-select checklist (not just
