@@ -827,6 +827,10 @@
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--text-secondary);">Invoiced:</span>
+        <div id="complete-invoiced-filter" style="display:flex;gap:6px;"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);">From:</span>
         <input type="date" id="complete-hist-date-from" onchange="applyCompleteFilter()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
         <span style="font-size:12px;color:var(--text-secondary);">To:</span>
@@ -959,6 +963,20 @@
     <div class="modal-btns">
       <button onclick="closeModal('invoice-checklist-modal')">Close</button>
       <button class="primary" id="invoice-checklist-mark-btn" style="background:#6D28D9;border-color:#6D28D9;" disabled onclick="markOrderInvoiced(currentInvoiceChecklistOrderId)">🧾 Mark invoiced</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="item-note-modal">
+  <div class="modal" style="max-width:420px;width:92vw;">
+    <h3 id="item-note-title">📝 Note</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Shown to the Invoicer next to this item before they check it off.</p>
+    <div class="field">
+      <textarea id="item-note-text" rows="4" placeholder="e.g. Client asked for this substitution, confirm before invoicing..." style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);resize:vertical;box-sizing:border-box;"></textarea>
+    </div>
+    <div class="modal-btns">
+      <button onclick="closeModal('item-note-modal')">Cancel</button>
+      <button class="primary" onclick="saveItemNote()">Save note</button>
     </div>
   </div>
 </div>
@@ -1569,7 +1587,54 @@ function findOrderAnyCache(id){
     ||(typeof completedOrdersCache!=='undefined'&&completedOrdersCache.find(o=>o.id===id))
     ||(typeof deliveryOrdersCache!=='undefined'&&deliveryOrdersCache.find(o=>o.id===id))
     ||(typeof completeOrdersCache!=='undefined'&&completeOrdersCache.find(o=>o.id===id))
+    ||(typeof invoicedOrdersCache!=='undefined'&&invoicedOrdersCache.find(o=>o.id===id))
     ||null;
+}
+// ── Per-item notes (New Orders / In Production / Complete) — a free-text comment
+// on one product within an order, meant for the Invoicer to read (in the "Check
+// items" checklist modal) before they tick that item off. Admin/Kitchen can add or
+// edit these; Invoicer only ever sees them, read-only.
+let itemNoteContext=null;
+function openItemNoteModal(orderId,productId){
+  const o=findOrderAnyCache(orderId);
+  if(!o)return;
+  itemNoteContext={orderId,productId:String(productId)};
+  const p=allProducts.find(x=>String(x.id)===String(productId));
+  document.getElementById('item-note-title').textContent=`📝 Note — ${p?p.name:'#'+productId}`;
+  document.getElementById('item-note-text').value=(o.item_notes&&o.item_notes[String(productId)])||'';
+  openModal('item-note-modal');
+}
+async function saveItemNote(){
+  if(!itemNoteContext)return;
+  const {orderId,productId}=itemNoteContext;
+  const o=findOrderAnyCache(orderId);
+  if(!o)return;
+  const text=document.getElementById('item-note-text').value.trim();
+  const notes={...(o.item_notes||{})};
+  if(text)notes[productId]=text; else delete notes[productId];
+  try{
+    await sbPatch('orders_history',`id=eq.${orderId}`,{item_notes:notes});
+    o.item_notes=notes;
+    const p=allProducts.find(x=>String(x.id)===productId);
+    logKitchenActivity(o,'item_note',(text?'Note set':'Note removed')+' on '+(p?p.name:'#'+productId));
+    closeModal('item-note-modal');
+    refreshOrderListContaining(o);
+  }catch(e){alert('Error saving note: '+e.message);}
+}
+// Small 📝 button reused in every item row (New Orders / In Production / Complete) —
+// amber when a note already exists, grey otherwise. Hidden for Invoicer, who only
+// reads these (in the Complete tab's Check-items modal), never writes them.
+function itemNoteBtnHtml(o,id){
+  if(isInvoicer)return'';
+  const hasNote=!!(o.item_notes&&o.item_notes[String(id)]);
+  return `<button onclick="event.stopPropagation();openItemNoteModal('${o.id}','${id}')" title="${hasNote?'Edit note for Invoicer':'Add note for Invoicer'}" style="border:none;background:none;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;color:${hasNote?'#D97706':'#9CA3AF'};">📝</button>`;
+}
+// Targeted refresh — only re-renders whichever tab list currently holds this
+// order, instead of reloading everything.
+function refreshOrderListContaining(o){
+  if(typeof allOrdersCache!=='undefined'&&allOrdersCache.includes(o)&&typeof renderOrdersList==='function')renderOrdersList();
+  if(typeof completedOrdersCache!=='undefined'&&completedOrdersCache.includes(o)&&typeof renderIPList==='function')renderIPList();
+  if(typeof completeOrdersCache!=='undefined'&&completeOrdersCache.includes(o)&&typeof applyCompleteFilter==='function')applyCompleteFilter();
 }
 // Compares an order's items before/after a save and returns a short, human-readable
 // list of what changed (added / removed / qty updated) for the activity log.
@@ -2965,6 +3030,7 @@ function renderOrdersList(){
       return `<div class="order-item-row">
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
         <div style="display:flex;align-items:center;gap:6px">
+          ${itemNoteBtnHtml(o,id)}
           <input class="admin-qty-input" type="number" value="${q}" min="0" max="999"
             onchange="updateOrderItem('${o.id}',${id},this.value)" title="Edit quantity"/>
           <span style="font-size:11px;color:var(--text-tertiary)">qty</span>
@@ -3233,6 +3299,7 @@ function renderIPList(){
       return `<div class="order-item-row">
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
         <div class="qty-controls">
+          ${itemNoteBtnHtml(o,id)}
           <input class="admin-qty-input" type="number" value="${q}" min="0" max="999"
             onchange="updateIPItem('${o.id}',${id},this.value)"
             style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:13px;"/>
@@ -4290,30 +4357,54 @@ async function loadCompleteOrders(){
         </label>`;
       }).join('');
     }
+    renderCompleteInvoicedFilter();
     applyCompleteFilter();
   }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
 }
 
+// ── Invoiced filter (All / Invoiced / Not invoiced) — same pill toggle as VRC's
+// Complete tab. Client-side only, applied together with the client/date filters
+// below in applyCompleteFilter().
+let completeInvoicedFilter='all';
+function renderCompleteInvoicedFilter(){
+  const el=document.getElementById('complete-invoiced-filter');
+  if(!el)return;
+  const opts=[['all','All'],['invoiced','🧾 Invoiced'],['not_invoiced','Not invoiced']];
+  el.innerHTML=opts.map(([v,label])=>{
+    const active=completeInvoicedFilter===v;
+    return `<button class="btn-sm" onclick="setCompleteInvoicedFilter('${v}')" style="${active?'border-color:#6D28D9;color:#6D28D9;font-weight:600;background:#F5F3FF;':''}">${label}</button>`;
+  }).join('');
+}
+function setCompleteInvoicedFilter(v){
+  completeInvoicedFilter=v;
+  renderCompleteInvoicedFilter();
+  applyCompleteFilter();
+}
+
 // Filters the on-screen Complete list (client-side, from the already-loaded
 // completeOrdersCache — no extra query) by whichever clients are checked above
-// (none checked = show all clients) and the From/To date range against
-// delivered_at. Uses the exact same matching logic as the "Excel (client
-// history)" export just below it, so what you see is what you'd download.
+// (none checked = show all clients), the Invoiced pill (All/Invoiced/Not invoiced)
+// and the From/To date range against delivered_at. Uses the exact same matching
+// logic as the "Excel (client history)" export just below it, so what you see is
+// what you'd download.
 function applyCompleteFilter(){
   const checked=[...document.querySelectorAll('#complete-client-checklist input[type=checkbox]:checked')].map(c=>c.value);
   const fromVal=document.getElementById('complete-hist-date-from')?.value||'';
   const toVal=document.getElementById('complete-hist-date-to')?.value||'';
   let list=completeOrdersCache||[];
   if(checked.length)list=list.filter(o=>checked.includes(o.username));
+  if(completeInvoicedFilter==='invoiced')list=list.filter(o=>o.invoiced);
+  else if(completeInvoicedFilter==='not_invoiced')list=list.filter(o=>!o.invoiced);
   if(fromVal)list=list.filter(o=>o.delivered_at&&o.delivered_at>=fromVal+'T00:00:00');
   if(toVal)list=list.filter(o=>o.delivered_at&&o.delivered_at<=toVal+'T23:59:59.999');
 
   const noteEl=document.getElementById('complete-filter-note');
   if(noteEl){
-    const active=checked.length||fromVal||toVal;
+    const active=checked.length||fromVal||toVal||completeInvoicedFilter!=='all';
     if(active){
       const bits=[];
       if(checked.length)bits.push(`${checked.length} client${checked.length===1?'':'s'}`);
+      if(completeInvoicedFilter!=='all')bits.push(completeInvoicedFilter==='invoiced'?'invoiced only':'not invoiced only');
       if(fromVal||toVal)bits.push(`${fromVal||'…'} → ${toVal||'…'}`);
       noteEl.textContent=`Showing ${list.length} of ${(completeOrdersCache||[]).length} orders — filtered by ${bits.join(' · ')}.`;
       noteEl.style.display='block';
@@ -4350,6 +4441,7 @@ function renderCompleteList(rows){
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
           <div class="qty-controls">
+            ${itemNoteBtnHtml(o,id)}
             ${priceHtml}
             ${canEditItems?`<input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
               onchange="updateCompleteItem('${o.id}',${id},this.value)"
@@ -4441,13 +4533,18 @@ function renderInvoiceChecklistModalBody(o){
     const lineTotal=unit!=null?unit*Number(q):null;
     if(lineTotal!=null)orderTotal+=lineTotal;
     const priceHtml=unit!=null?`${smFmtMoney(unit)} × ${q} = <strong>${smFmtMoney(lineTotal)}</strong>`:'—';
-    return `<label style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--border-light);${clickable?'cursor:pointer;':'cursor:not-allowed;opacity:.5;'}">
-      <span style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" ${checked?'checked':''} ${clickable?'':'disabled'} onchange="toggleInvoiceItem('${o.id}','${id}',this.checked)" style="width:15px;height:15px;accent-color:#6D28D9;flex-shrink:0;"/>
-        <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
-      </span>
-      <span style="color:var(--text-secondary);white-space:nowrap;">${priceHtml}</span>
-    </label>`;
+    const note=(o.item_notes&&o.item_notes[id])||'';
+    const noteHtml=note?`<div style="margin:2px 0 6px 23px;font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:5px 8px;white-space:pre-wrap;">📝 ${fcEsc(note)}</div>`:'';
+    return `<div style="border-bottom:1px solid var(--border-light);padding:7px 0;">
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;${clickable?'cursor:pointer;':'cursor:not-allowed;opacity:.5;'}">
+        <span style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" ${checked?'checked':''} ${clickable?'':'disabled'} onchange="toggleInvoiceItem('${o.id}','${id}',this.checked)" style="width:15px;height:15px;accent-color:#6D28D9;flex-shrink:0;"/>
+          <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
+        </span>
+        <span style="color:var(--text-secondary);white-space:nowrap;">${priceHtml}</span>
+      </label>
+      ${noteHtml}
+    </div>`;
   }).join('');
   body.innerHTML=rowsHtml||'<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0;">No items.</div>';
   const checkedCount=sortedIds.filter(id=>invoicedItems[id]===true).length;
