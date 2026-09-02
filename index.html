@@ -6186,7 +6186,7 @@ async function ensureAdminProdClientSelect(){
   if(!sel||adminProdClientListCache.length)return;
   try{
     const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
-    adminProdClientListCache=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen');
+    adminProdClientListCache=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&u.role!=='invoicer');
     sel.innerHTML='<option value="">Default price</option>'+adminProdClientListCache.map(u=>`<option value="${u.username}">${displayNameFor(u.username)||u.username}</option>`).join('');
     sel.value=adminProdPriceClient;
   }catch(e){}
@@ -6356,7 +6356,7 @@ async function loadClientPricesTab(){
       allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
     }
     const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
-    clientPricesUsersCache=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen');
+    clientPricesUsersCache=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&u.role!=='invoicer');
     const prevSelected=sel.value;
     sel.innerHTML=clientPricesUsersCache.map(u=>`<option value="${u.username}">${displayNameFor(u.username)||u.username}</option>`).join('');
     const toSelect=clientPricesUsersCache.some(u=>u.username===prevSelected)?prevSelected:(clientPricesUsersCache[0]?clientPricesUsersCache[0].username:'');
