@@ -950,6 +950,19 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="invoice-checklist-modal">
+  <div class="modal" style="max-width:540px;width:95vw;">
+    <h3 id="invoice-checklist-title">☑️ Check items</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Check items in order, top to bottom — each one unlocks the next. Once every item is checked, "Mark invoiced" below becomes available.</p>
+    <div id="invoice-checklist-body" style="max-height:48vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 12px;"></div>
+    <div id="invoice-checklist-total" style="text-align:right;font-size:14px;font-weight:700;padding:10px 4px 0;color:var(--red);"></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('invoice-checklist-modal')">Close</button>
+      <button class="primary" id="invoice-checklist-mark-btn" style="background:#6D28D9;border-color:#6D28D9;" disabled onclick="markOrderInvoiced(currentInvoiceChecklistOrderId)">🧾 Mark invoiced</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="user-action-modal">
   <div class="modal" style="max-width:400px;width:92vw;">
     <h3 id="user-action-title">🔒 Confirm</h3>
@@ -4353,30 +4366,12 @@ function renderCompleteList(rows){
         <input type="number" id="zc-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
         <button class="btn-sm green" onclick="addCompleteItem('${o.id}')">Add</button>
       </div>`:'';
-      // ── Invoicing checklist (admin + invoicer only) — each item must be ticked off
-      // IN ORDER before "Mark invoiced" unlocks. A tick is clickable if it's already
-      // checked (so it can be unticked) or every item before it is checked.
+      // ── Invoicing checklist (admin + invoicer only) — checked off in a modal (Check
+      // items button below) rather than inline, so ticking a box doesn't re-render this
+      // whole list (which was jumping the page around on every click).
       const invoicedItems=o.invoiced_items||{};
       const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
-      const allTicked=sortedIds.length>0&&sortedIds.every(id=>invoicedItems[id]===true);
-      let invoiceChecklistHtml='';
-      if((isAdmin||isInvoicer)&&!o.invoiced){
-        let unlocked=true;
-        const rowsHtml=sortedIds.map(id=>{
-          const p=allProducts.find(x=>String(x.id)===id);
-          const checked=invoicedItems[id]===true;
-          const clickable=checked||unlocked;
-          if(!checked)unlocked=false; // once we hit an unticked item, everything after it is locked
-          return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;${clickable?'cursor:pointer;':'cursor:not-allowed;opacity:.5;'}">
-            <input type="checkbox" ${checked?'checked':''} ${clickable?'':'disabled'} onchange="toggleInvoiceItem('${o.id}','${id}',this.checked)" style="width:15px;height:15px;accent-color:#6D28D9;flex-shrink:0;"/>
-            <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
-          </label>`;
-        }).join('');
-        invoiceChecklistHtml=`<div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6D28D9;margin-bottom:6px;">🧾 Invoicing checklist — tick items in order</div>
-          ${rowsHtml||'<div style="font-size:12px;color:var(--text-tertiary);">No items.</div>'}
-        </div>`;
-      }
+      const checkedCount=sortedIds.filter(id=>invoicedItems[id]===true).length;
       const invoicedBadge=o.invoiced?`<span style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-left:4px;">🧾 Invoiced${o.invoiced_at?' '+new Date(o.invoiced_at).toLocaleDateString('en-GB'):''}</span>`:'';
       return `<div class="order-card delivered" style="border-color:#6B6B6B;">
         <div class="order-card-header" onclick="toggleBody('zcb-${o.id}')">
@@ -4396,11 +4391,10 @@ function renderCompleteList(rows){
           ${o.merge_note?`<div style="font-size:11px;color:#6D28D9;background:#F5F3FF;border-radius:6px;padding:6px 10px;margin-bottom:8px;">🔀 ${o.merge_note}</div>`:''}
           ${itemRows}
           ${addItemHtml}
-          ${invoiceChecklistHtml}
           <div class="order-actions">
             <button class="btn-sm" onclick="generateOrderPDF(completeOrdersCache.find(x=>x.id==='${o.id}'),{pickingSlipNotice:true})">🖨 PDF</button>
             ${!isInvoicer?`<button class="btn-sm" onclick="backToDelivery('${o.id}')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;">↩ Back to Delivery</button>`:''}
-            ${(isAdmin||isInvoicer)&&!o.invoiced?`<button class="btn-sm" onclick="markOrderInvoiced('${o.id}')" ${allTicked?'':'disabled'} style="background:${allTicked?'#6D28D9':'#E5E7EB'};border-color:${allTicked?'#6D28D9':'#D1D5DB'};color:${allTicked?'#fff':'#9CA3AF'};${allTicked?'cursor:pointer;':'cursor:not-allowed;'}">🧾 Mark invoiced</button>`:''}
+            ${(isAdmin||isInvoicer)&&!o.invoiced?`<button class="btn-sm" id="check-items-btn-${o.id}" onclick="event.stopPropagation();openInvoiceChecklistModal('${o.id}')" style="background:#EDE9FE;border-color:#DDD6FE;color:#6D28D9;">☑️ Check items (${checkedCount}/${sortedIds.length})</button>`:''}
             ${(isAdmin||isInvoicer)&&o.invoiced?`<button class="btn-sm" onclick="unInvoiceOrder('${o.id}')" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">↩ Un-invoice</button>`:''}
             ${!isKitchenAdmin&&!isInvoicer?`<button class="btn-sm red" onclick="deleteCompleteOrder('${o.id}')">🗑 Delete</button>`:''}
           </div>
@@ -4411,9 +4405,67 @@ function renderCompleteList(rows){
 }
 
 // ── Invoicing (Invoicer role + admin, Complete/Invoiced tabs) ──
+// The checklist lives in a modal (openInvoiceChecklistModal below) rather than
+// inline in the Complete list, so ticking a box only re-renders the modal's own
+// body — not the whole order list — matching VRC's "Check items" popup and
+// avoiding the page jumping around on every click.
 let invoicedOrdersCache=[];
+let currentInvoiceChecklistOrderId=null;
+function findInvoicingOrder(orderId){
+  return completeOrdersCache.find(x=>String(x.id)===String(orderId))||invoicedOrdersCache.find(x=>String(x.id)===String(orderId))||null;
+}
+function openInvoiceChecklistModal(orderId){
+  const o=findInvoicingOrder(orderId);
+  if(!o)return;
+  currentInvoiceChecklistOrderId=orderId;
+  document.getElementById('invoice-checklist-title').textContent=`☑️ ${o.username}${o.order_number?' — #'+o.order_number:''}`;
+  renderInvoiceChecklistModalBody(o);
+  openModal('invoice-checklist-modal');
+}
+function renderInvoiceChecklistModalBody(o){
+  const body=document.getElementById('invoice-checklist-body');
+  const totalEl=document.getElementById('invoice-checklist-total');
+  const markBtn=document.getElementById('invoice-checklist-mark-btn');
+  if(!body)return;
+  const invoicedItems=o.invoiced_items||{};
+  const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
+  let unlocked=true;
+  let orderTotal=0;
+  const rowsHtml=sortedIds.map(id=>{
+    const p=allProducts.find(x=>String(x.id)===id);
+    const q=o.items[id];
+    const checked=invoicedItems[id]===true;
+    const clickable=checked||unlocked;
+    if(!checked)unlocked=false; // once we hit an unticked item, everything after it stays locked
+    const unit=smPriceOf(p,o.username);
+    const lineTotal=unit!=null?unit*Number(q):null;
+    if(lineTotal!=null)orderTotal+=lineTotal;
+    const priceHtml=unit!=null?`${smFmtMoney(unit)} × ${q} = <strong>${smFmtMoney(lineTotal)}</strong>`:'—';
+    return `<label style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--border-light);${clickable?'cursor:pointer;':'cursor:not-allowed;opacity:.5;'}">
+      <span style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" ${checked?'checked':''} ${clickable?'':'disabled'} onchange="toggleInvoiceItem('${o.id}','${id}',this.checked)" style="width:15px;height:15px;accent-color:#6D28D9;flex-shrink:0;"/>
+        <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
+      </span>
+      <span style="color:var(--text-secondary);white-space:nowrap;">${priceHtml}</span>
+    </label>`;
+  }).join('');
+  body.innerHTML=rowsHtml||'<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0;">No items.</div>';
+  const checkedCount=sortedIds.filter(id=>invoicedItems[id]===true).length;
+  if(totalEl)totalEl.textContent=orderTotal>0?`Total: ${smFmtMoney(orderTotal)}`:'';
+  if(markBtn){
+    const allTicked=sortedIds.length>0&&checkedCount===sortedIds.length;
+    markBtn.textContent=`🧾 Mark invoiced (${checkedCount}/${sortedIds.length})`;
+    markBtn.disabled=!allTicked;
+    markBtn.style.opacity=allTicked?'1':'.5';
+    markBtn.style.cursor=allTicked?'pointer':'not-allowed';
+  }
+  // Keep the small "Check items (X/N)" button on the underlying card in sync too,
+  // without re-rendering the rest of the list.
+  const cardBtn=document.getElementById('check-items-btn-'+o.id);
+  if(cardBtn)cardBtn.textContent=`☑️ Check items (${checkedCount}/${sortedIds.length})`;
+}
 async function toggleInvoiceItem(orderId,productId,checked){
-  const o=completeOrdersCache.find(x=>String(x.id)===String(orderId))||invoicedOrdersCache.find(x=>String(x.id)===String(orderId));
+  const o=findInvoicingOrder(orderId);
   if(!o)return;
   const items={...(o.invoiced_items||{})};
   if(checked)items[String(productId)]=true; else delete items[String(productId)];
@@ -4422,21 +4474,21 @@ async function toggleInvoiceItem(orderId,productId,checked){
     o.invoiced_items=items;
     const p=allProducts.find(x=>String(x.id)===String(productId));
     logKitchenActivity(o,checked?'invoice_item_checked':'invoice_item_unchecked',(p?p.name:'#'+productId));
-    if(completeOrdersCache.includes(o))applyCompleteFilter();
-    if(invoicedOrdersCache.includes(o))renderInvoicedList(invoicedOrdersCache);
+    renderInvoiceChecklistModalBody(o);
   }catch(e){alert('Error saving: '+e.message);}
 }
 async function markOrderInvoiced(orderId){
-  const o=completeOrdersCache.find(x=>String(x.id)===String(orderId));
+  const o=findInvoicingOrder(orderId);
   if(!o)return;
   const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
   const invoicedItems=o.invoiced_items||{};
-  if(!sortedIds.length||!sortedIds.every(id=>invoicedItems[id]===true)){alert('Tick off every item on the checklist first.');return;}
+  if(!sortedIds.length||!sortedIds.every(id=>invoicedItems[id]===true)){alert('Check off every item on the checklist first.');return;}
   const now=new Date().toISOString();
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced:true,invoiced_at:now});
     o.invoiced=true;o.invoiced_at=now;
     logKitchenActivity(o,'marked_invoiced','Order #'+(o.order_number||o.id)+' marked invoiced');
+    closeModal('invoice-checklist-modal');
     applyCompleteFilter();
   }catch(e){alert('Error saving: '+e.message);}
 }
