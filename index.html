@@ -4486,9 +4486,7 @@ function renderCompleteList(rows){
           <div class="order-actions">
             <button class="btn-sm" onclick="generateOrderPDF(completeOrdersCache.find(x=>x.id==='${o.id}'),{pickingSlipNotice:true})">🖨 PDF</button>
             ${!isInvoicer?`<button class="btn-sm" onclick="backToDelivery('${o.id}')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;">↩ Back to Delivery</button>`:''}
-            ${(isAdmin||isInvoicer)&&!o.invoiced?`<button class="btn-sm" id="check-items-btn-${o.id}" onclick="event.stopPropagation();openInvoiceChecklistModal('${o.id}')" style="background:#EDE9FE;border-color:#DDD6FE;color:#6D28D9;">☑️ Check items (${checkedCount}/${sortedIds.length})</button>`:''}
-            ${(isAdmin||isInvoicer)&&!o.invoiced?`<button class="btn-sm" onclick="event.stopPropagation();quickCheckAllItemsTemp('${o.id}')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;" title="TEMPORARY — checks every item at once for clearing the backlog fast">⚡ Check all (temp)</button>`:''}
-            ${(isAdmin||isInvoicer)&&o.invoiced?`<button class="btn-sm" onclick="unInvoiceOrder('${o.id}')" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">↩ Un-invoice</button>`:''}
+            ${(isAdmin||isInvoicer)&&!o.invoiced?`<button class="btn-sm" id="check-items-btn-${o.id}" onclick="event.stopPropagation();openInvoiceChecklistModal('${o.id}')" style="background:#EDE9FE;border-color:#DDD6FE;color:#6D28D9;">☑️ Check items (${checkedCount}/${sortedIds.length})</button>`:''}            ${(isAdmin||isInvoicer)&&o.invoiced?`<button class="btn-sm" onclick="unInvoiceOrder('${o.id}')" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">↩ Un-invoice</button>`:''}
             ${!isKitchenAdmin&&!isInvoicer?`<button class="btn-sm red" onclick="deleteCompleteOrder('${o.id}')">🗑 Delete</button>`:''}
           </div>
         </div>
@@ -4561,26 +4559,6 @@ function renderInvoiceChecklistModalBody(o){
   // without re-rendering the rest of the list.
   const cardBtn=document.getElementById('check-items-btn-'+o.id);
   if(cardBtn)cardBtn.textContent=`☑️ Check items (${checkedCount}/${sortedIds.length})`;
-}
-// ⚠️ TEMPORARY — for clearing the backlog of orders completed before the Invoicer
-// feature existed. Ticks every item on the checklist at once instead of one by
-// one, then opens the modal so "Mark invoiced" is ready to click. Remove this
-// button + function once the backlog is caught up (see "⚡ Check all (temp)"
-// button in renderCompleteList's order-actions above).
-async function quickCheckAllItemsTemp(orderId){
-  const o=findInvoicingOrder(orderId);
-  if(!o)return;
-  const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
-  const items={};
-  sortedIds.forEach(id=>{items[id]=true;});
-  try{
-    await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced_items:items});
-    o.invoiced_items=items;
-    logKitchenActivity(o,'invoice_item_checked','Checked all items at once (temp bulk tool) — Order #'+(o.order_number||o.id));
-    const cardBtn=document.getElementById('check-items-btn-'+o.id);
-    if(cardBtn)cardBtn.textContent=`☑️ Check items (${sortedIds.length}/${sortedIds.length})`;
-    openInvoiceChecklistModal(orderId);
-  }catch(e){alert('Error saving: '+e.message);}
 }
 async function toggleInvoiceItem(orderId,productId,checked){
   const o=findInvoicingOrder(orderId);
