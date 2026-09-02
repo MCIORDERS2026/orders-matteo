@@ -427,10 +427,11 @@
   </div>
   <!-- ADMIN TABS (main tabs only) -->
   <div class="tabs" id="admin-tabs" style="display:none;">
-    <div class="tab active" onclick="showAdminTab('orders',this)">🆕 New Orders <span class="badge" id="pending-badge" style="display:none">0</span></div>
-    <div class="tab" onclick="showAdminTab('completed',this)">🍳 In Production <span class="badge" id="inproduction-badge" style="display:none">0</span></div>
-    <div class="tab" onclick="showAdminTab('delivery',this)">🚚 Delivery <span class="badge" id="delivery-badge" style="display:none">0</span></div>
+    <div class="tab active invoicer-hide" onclick="showAdminTab('orders',this)">🆕 New Orders <span class="badge" id="pending-badge" style="display:none">0</span></div>
+    <div class="tab invoicer-hide" onclick="showAdminTab('completed',this)">🍳 In Production <span class="badge" id="inproduction-badge" style="display:none">0</span></div>
+    <div class="tab invoicer-hide" onclick="showAdminTab('delivery',this)">🚚 Delivery <span class="badge" id="delivery-badge" style="display:none">0</span></div>
     <div class="tab" onclick="showAdminTab('complete',this)">✅ Complete</div>
+    <div class="tab kitchen-hide" onclick="showAdminTab('invoiced',this)">🧾 Invoiced</div>
   </div>
 
   <div class="main">
@@ -843,6 +844,15 @@
         <span style="font-size:11px;color:var(--text-tertiary);">— Excel/PDF above use whatever is checked; if nothing's checked, they use everything currently shown (respects the filter).</span>
       </div>
       <div id="complete-list"><div class="empty-state">Loading...</div></div>
+    </div>
+
+    <!-- ADMIN: INVOICED (running checklist of orders marked invoiced) -->
+    <div id="tab-invoiced" style="display:none;">
+      <div class="section-toolbar">
+        <h2>🧾 Invoiced</h2>
+        <button class="btn-sm" onclick="loadInvoicedOrders()">↻ Refresh</button>
+      </div>
+      <div id="invoiced-list"><div class="empty-state">Loading...</div></div>
     </div>
 
     <!-- ADMIN: CHAT PAGE -->
@@ -1292,11 +1302,13 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
       <input type="text" id="edit-phone" placeholder="e.g. 07721 141191" style="margin-top:6px;"/>
     </div>
     <div class="field" style="background:var(--green-light);border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 12px;">
-      <label style="display:flex;align-items:center;gap:9px;font-size:13px;cursor:pointer;font-weight:500;">
-        <input type="checkbox" id="edit-user-kitchen" style="width:16px;height:16px;accent-color:var(--green);cursor:pointer;flex-shrink:0;"/>
-        🍳 Kitchen staff (sub-admin)
-      </label>
-      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;margin-left:25px;">Gets access to New Orders, In Production, Delivery and Complete only — no Users, Products, Trash, Sales Metrics or Settings. Keeps the 👁 online-clients button, no notification bell.</div>
+      <label style="font-size:13px;font-weight:500;">Account type</label>
+      <select id="edit-user-role" onchange="updateEditUserRoleHint()" style="margin-top:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);">
+        <option value="">Client</option>
+        <option value="kitchen">🍳 Kitchen staff (sub-admin)</option>
+        <option value="invoicer">🧾 Invoicer (sub-admin)</option>
+      </select>
+      <div id="edit-user-role-hint" style="font-size:11px;color:var(--text-secondary);margin-top:6px;"></div>
     </div>
     <div class="field">
       <label style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;">
@@ -1469,12 +1481,14 @@ async function sbDeleteReturning(t,q){
 }
 
 // ── STATE ──
-let currentUser=null,isAdmin=false,isKitchenAdmin=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null,editingExistingOrderId=null;
-// "Staff" = full admin OR Kitchen sub-admin — both get the same 4 operational tabs
-// (New Orders / In Production / Delivery / Complete) and the same order-management
-// actions. Only true admin (isAdmin) gets the notification bell and the rest of the
-// admin menu (Users / Products / Trash / Sales Metrics / Settings / Chat).
-function isStaff(){return isAdmin||isKitchenAdmin;}
+let currentUser=null,isAdmin=false,isKitchenAdmin=false,isInvoicer=false,currentUserId=null,cart={},activeCat='all',adminProdCat='all',adminProdStatus='all',userCutoffOverride=null,editingExistingOrderId=null;
+// "Staff" = full admin OR Kitchen sub-admin OR Invoicer sub-admin — all three get
+// admin-style chrome (no cart, admin menu instead of client menu). Only true admin
+// (isAdmin) gets the notification bell and the rest of the admin menu (Users /
+// Products / Trash / Sales Metrics / Settings / Chat). Kitchen gets the 4
+// operational tabs (New Orders / In Production / Delivery / Complete); Invoicer
+// gets only Complete + Invoiced, and can't edit order items anywhere.
+function isStaff(){return isAdmin||isKitchenAdmin||isInvoicer;}
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
 
 // Order items are stored as a {productId: qty} object, and object keys that look
@@ -1525,7 +1539,7 @@ function sortItemEntries(entries){
 // accounts specifically (isKitchenAdmin), per how this was requested — the real
 // admin's own actions aren't logged here.
 async function logKitchenActivity(order,action,details){
-  if(!isKitchenAdmin||!details)return;
+  if(!(isKitchenAdmin||isInvoicer)||!details)return;
   try{
     await sbPost('order_activity_log',{
       order_id:String(order&&order.id!=null?order.id:''),
@@ -1802,14 +1816,15 @@ async function init(){
       currentUser=u;
       currentUserId=data.session.user.id;
       isAdmin=(u===ADMIN_USERNAME);
-      isKitchenAdmin=isAdmin?false:await fetchIsKitchenAdmin(u);
+      if(isAdmin){isKitchenAdmin=false;isInvoicer=false;}
+      else{const role=await fetchUserRole(u);isKitchenAdmin=role==='kitchen';isInvoicer=role==='invoicer';}
       try{
         await launch();
         return;
       }catch(launchErr){
         // Session might be stale/invalid - sign out and show login
         try{await sbClient.auth.signOut();}catch(e){}
-        currentUser=null;currentUserId=null;isAdmin=false;isKitchenAdmin=false;
+        currentUser=null;currentUserId=null;isAdmin=false;isKitchenAdmin=false;isInvoicer=false;
       }
     }
   }catch(e){/* fall through to login */}
@@ -1824,15 +1839,19 @@ async function isUserDeleted(username){
     return !!(rows[0]&&rows[0].deleted_at);
   }catch(e){return false;}
 }
-// "Kitchen" accounts are a sub-admin role (see Users → Edit → 🍳 Kitchen staff): same
-// order-management tabs as the real admin, but without Users/Products/Trash/Sales
-// Metrics/Settings/Chat and without the notification bell.
-async function fetchIsKitchenAdmin(username){
+// "Kitchen" and "Invoicer" accounts are sub-admin roles (see Users → Edit →
+// Account type). Kitchen gets the same order-management tabs as the real admin
+// (New Orders/In Production/Delivery/Complete), without Users/Products/Trash/Sales
+// Metrics/Settings/Chat and without the notification bell. Invoicer only gets
+// Complete + Invoiced, sees full prices, and can't edit order items anywhere.
+async function fetchUserRole(username){
   try{
     const rows=await sbGet('users',`username=ilike.${encodeURIComponent(username)}`);
-    return !!(rows[0]&&rows[0].role==='kitchen');
-  }catch(e){return false;}
+    return (rows[0]&&rows[0].role)||'client';
+  }catch(e){return 'client';}
 }
+// Kept for any other call sites expecting a boolean.
+async function fetchIsKitchenAdmin(username){return (await fetchUserRole(username))==='kitchen';}
 async function doLogin(){
   const u=document.getElementById('login-user').value.trim().toLowerCase();
   const p=document.getElementById('login-pass').value;
@@ -1851,7 +1870,8 @@ async function doLogin(){
       currentUser=u;
       currentUserId=data.user.id;
       isAdmin=(u===ADMIN_USERNAME);
-      isKitchenAdmin=isAdmin?false:await fetchIsKitchenAdmin(u);
+      if(isAdmin){isKitchenAdmin=false;isInvoicer=false;}
+      else{const role=await fetchUserRole(u);isKitchenAdmin=role==='kitchen';isInvoicer=role==='invoicer';}
       await launch();
     }
   }catch(e){err.textContent='Connection error. Please try again.';err.style.display='block';}
@@ -1922,7 +1942,7 @@ async function launch(){
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='block';
   const staff=isStaff();
-  document.getElementById('user-badge').textContent=isAdmin?'👑 admin':(isKitchenAdmin?'🍳 '+(displayNameFor(currentUser)||currentUser):currentUser);
+  document.getElementById('user-badge').textContent=isAdmin?'👑 admin':(isKitchenAdmin?'🍳 '+(displayNameFor(currentUser)||currentUser):(isInvoicer?'🧾 '+(displayNameFor(currentUser)||currentUser):currentUser));
   document.getElementById('cart-toggle-btn').style.display=staff?'none':'';
   document.getElementById('client-menu-wrap').style.display=staff?'none':'inline-block';
   document.getElementById('admin-menu-wrap').style.display=staff?'inline-block':'none';
@@ -1932,14 +1952,19 @@ async function launch(){
   // Client vs admin tabs bar just changed visibility — remeasure the stacked
   // sticky header offsets (see recalcStickyOffsets above).
   recalcStickyOffsets();
-  // Kitchen sub-admins only see the 4 operational tabs via the admin menu — hide
-  // every other admin-menu item and show just "Sign out".
+  // Kitchen/Invoicer sub-admins only see their allowed tabs via the admin menu —
+  // hide every other admin-menu item and show just "Sign out".
   document.querySelectorAll('.admin-menu-full-item').forEach(el=>{el.style.display=isAdmin?'':'none';});
   const menuHeader=document.getElementById('admin-menu-header');
-  if(menuHeader)menuHeader.textContent=isAdmin?'Admin':(isKitchenAdmin?'Kitchen':'Menu');
+  if(menuHeader)menuHeader.textContent=isAdmin?'Admin':(isKitchenAdmin?'Kitchen':(isInvoicer?'Invoicer':'Menu'));
   // Kitchen staff can't delete orders (New Orders / In Production toolbar buttons —
   // the Complete tab's per-order delete button is handled inline in its own template).
   document.querySelectorAll('.kitchen-hide-delete').forEach(el=>{el.style.display=isKitchenAdmin?'none':'';});
+  // New Orders / In Production / Delivery tab buttons are hidden from Invoicer
+  // (Complete + Invoiced only); the Invoiced tab button is hidden from Kitchen
+  // (it has no invoicing role) — both stay visible to the real admin.
+  document.querySelectorAll('#admin-tabs .invoicer-hide').forEach(el=>{el.style.display=isInvoicer?'none':'';});
+  document.querySelectorAll('#admin-tabs .kitchen-hide').forEach(el=>{el.style.display=isKitchenAdmin?'none':'';});
   if(isAdmin){
     showAdminTab('orders');
     await checkAdminPendingNotifications();
@@ -1962,6 +1987,12 @@ async function launch(){
     fetchDisplayNameMap();
     sbGet('orders_history','status=eq.in_production&deleted_at=is.null').then(r=>{const b=document.getElementById('inproduction-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
     sbGet('orders_history','status=eq.completed&deleted_at=is.null').then(r=>{const b=document.getElementById('delivery-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
+    checkOnlineClients();
+    setInterval(checkOnlineClients,15000);
+  } else if(isInvoicer){
+    // Complete + Invoiced only, no notification bell, no cut-off/category logic
+    // (Invoicer never places orders). Sees full prices, can't edit order items.
+    showAdminTab('complete');
     checkOnlineClients();
     setInterval(checkOnlineClients,15000);
   } else {
@@ -2825,14 +2856,17 @@ function editOrderFromHistory(orderId){
 // ── ADMIN TABS ──
 let _usersPollInterval=null;
 const KITCHEN_ALLOWED_TABS=['orders','completed','delivery','complete'];
+const INVOICER_ALLOWED_TABS=['complete','invoiced'];
 function showAdminTab(t,el){
   // Kitchen sub-admins only ever get the 4 operational tabs — even if something
   // tries to navigate elsewhere (e.g. a stale menu click), fall back to New Orders.
   if(isKitchenAdmin&&!KITCHEN_ALLOWED_TABS.includes(t)){t='orders';el=null;}
+  // Invoicer sub-admins only ever get Complete + Invoiced — same fallback pattern.
+  if(isInvoicer&&!INVOICER_ALLOWED_TABS.includes(t)){t='complete';el=null;}
   // Flush any pending Client Prices autosave before navigating away, so leaving the
   // tab right after typing never loses the last edit.
   if(clientPricesAutoSaveTimer){clearTimeout(clientPricesAutoSaveTimer);clientPricesAutoSaveTimer=null;saveClientPrices();}
-  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost','invoiced'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -2853,6 +2887,7 @@ function showAdminTab(t,el){
   if(t==='chat'){chatHideComposePage();chatLoadHistory();chatEnsureUsers();}
   if(t==='prices'){loadClientPricesTab();}
   if(t==='foodcost'){loadFoodCostTab();}
+  if(t==='invoiced'){loadInvoicedOrders();}
   // Keep "online now" dots fresh while the Users tab is open; stop polling elsewhere.
   if(_usersPollInterval){clearInterval(_usersPollInterval);_usersPollInterval=null;}
   if(t==='users'){_usersPollInterval=setInterval(loadUsers,10000);}
@@ -4223,7 +4258,7 @@ async function loadCompleteOrders(){
         // Same order as the Users management list (sort_order, then created_at) rather than
         // alphabetical, so this checklist matches how the admin has clients arranged there.
         const userRows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
-        clientUsers=userRows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen').map(u=>u.username);
+        clientUsers=userRows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&u.role!=='invoicer').map(u=>u.username);
       }catch(e){}
       // Fallback: also include any username present in orders history but missing from
       // the users list above (e.g. a deleted user's historical orders), so no data is hidden.
@@ -4280,31 +4315,59 @@ function renderCompleteList(rows){
     el.innerHTML=rows.map(o=>{
       const count=Object.values(o.items||{}).reduce((a,b)=>a+b,0);
       const date=o.delivered_at?(new Date(o.delivered_at).toLocaleDateString('en-GB')+' '+new Date(o.delivered_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):(o.timestamp||'');
+      // Invoicer can view but never edit order items — no qty input / remove button / add-item row for them.
+      const canEditItems=!isInvoicer;
       const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
         const p=allProducts.find(x=>x.id==id);
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
           <div class="qty-controls">
-            <input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
+            ${canEditItems?`<input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
               onchange="updateCompleteItem('${o.id}',${id},this.value)"
               style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:13px;"/>
             <span class="qty-label">qty</span>
-            <button onclick="removeCompleteItem('${o.id}',${id})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px;" title="Remove">✕</button>
+            <button onclick="removeCompleteItem('${o.id}',${id})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px;" title="Remove">✕</button>`
+            :`<span style="font-size:13px;font-weight:600;">${q}</span>`}
           </div>
         </div>`;
       }).join('');
-      const addItemHtml=`<div class="add-item-row">
+      const addItemHtml=canEditItems?`<div class="add-item-row">
         ${productPickerHtml('zc-add',o.id)}
         <input type="number" id="zc-add-qty-${o.id}" class="admin-qty-input" placeholder="qty" min="1" max="999" value="1"/>
         <button class="btn-sm green" onclick="addCompleteItem('${o.id}')">Add</button>
-      </div>`;
+      </div>`:'';
+      // ── Invoicing checklist (admin + invoicer only) — each item must be ticked off
+      // IN ORDER before "Mark invoiced" unlocks. A tick is clickable if it's already
+      // checked (so it can be unticked) or every item before it is checked.
+      const invoicedItems=o.invoiced_items||{};
+      const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
+      const allTicked=sortedIds.length>0&&sortedIds.every(id=>invoicedItems[id]===true);
+      let invoiceChecklistHtml='';
+      if((isAdmin||isInvoicer)&&!o.invoiced){
+        let unlocked=true;
+        const rowsHtml=sortedIds.map(id=>{
+          const p=allProducts.find(x=>String(x.id)===id);
+          const checked=invoicedItems[id]===true;
+          const clickable=checked||unlocked;
+          if(!checked)unlocked=false; // once we hit an unticked item, everything after it is locked
+          return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;${clickable?'cursor:pointer;':'cursor:not-allowed;opacity:.5;'}">
+            <input type="checkbox" ${checked?'checked':''} ${clickable?'':'disabled'} onchange="toggleInvoiceItem('${o.id}','${id}',this.checked)" style="width:15px;height:15px;accent-color:#6D28D9;flex-shrink:0;"/>
+            <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
+          </label>`;
+        }).join('');
+        invoiceChecklistHtml=`<div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6D28D9;margin-bottom:6px;">🧾 Invoicing checklist — tick items in order</div>
+          ${rowsHtml||'<div style="font-size:12px;color:var(--text-tertiary);">No items.</div>'}
+        </div>`;
+      }
+      const invoicedBadge=o.invoiced?`<span style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-left:4px;">🧾 Invoiced${o.invoiced_at?' '+new Date(o.invoiced_at).toLocaleDateString('en-GB'):''}</span>`:'';
       return `<div class="order-card delivered" style="border-color:#6B6B6B;">
         <div class="order-card-header" onclick="toggleBody('zcb-${o.id}')">
           <input type="checkbox" id="zchk-${o.id}" onclick="event.stopPropagation()" style="width:15px;height:15px;cursor:pointer;accent-color:var(--green);margin-right:4px;"/>
           <span class="order-card-user">
             ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''}
             ${o.username}
-            ${o.ordered_by?`<span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''}
+            ${o.ordered_by?`<span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''}${invoicedBadge}
             <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— Completed ${date} <button onclick="event.stopPropagation();editCompletedDate('${o.id}')" style="border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:0 2px;" title="Edit completion date">✏️</button></span>
           </span>
           <span class="order-status" style="background:#F3F4F6;color:#374151;border:1px solid #D1D5DB;">🏁 Delivered</span>
@@ -4315,10 +4378,104 @@ function renderCompleteList(rows){
           ${o.merge_note?`<div style="font-size:11px;color:#6D28D9;background:#F5F3FF;border-radius:6px;padding:6px 10px;margin-bottom:8px;">🔀 ${o.merge_note}</div>`:''}
           ${itemRows}
           ${addItemHtml}
+          ${invoiceChecklistHtml}
           <div class="order-actions">
             <button class="btn-sm" onclick="generateOrderPDF(completeOrdersCache.find(x=>x.id==='${o.id}'),{pickingSlipNotice:true})">🖨 PDF</button>
-            <button class="btn-sm" onclick="backToDelivery('${o.id}')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;">↩ Back to Delivery</button>
-            ${!isKitchenAdmin?`<button class="btn-sm red" onclick="deleteCompleteOrder('${o.id}')">🗑 Delete</button>`:''}
+            ${!isInvoicer?`<button class="btn-sm" onclick="backToDelivery('${o.id}')" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E;">↩ Back to Delivery</button>`:''}
+            ${(isAdmin||isInvoicer)&&!o.invoiced?`<button class="btn-sm" onclick="markOrderInvoiced('${o.id}')" ${allTicked?'':'disabled'} style="background:${allTicked?'#6D28D9':'#E5E7EB'};border-color:${allTicked?'#6D28D9':'#D1D5DB'};color:${allTicked?'#fff':'#9CA3AF'};${allTicked?'cursor:pointer;':'cursor:not-allowed;'}">🧾 Mark invoiced</button>`:''}
+            ${(isAdmin||isInvoicer)&&o.invoiced?`<button class="btn-sm" onclick="unInvoiceOrder('${o.id}')" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">↩ Un-invoice</button>`:''}
+            ${!isKitchenAdmin&&!isInvoicer?`<button class="btn-sm red" onclick="deleteCompleteOrder('${o.id}')">🗑 Delete</button>`:''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
+}
+
+// ── Invoicing (Invoicer role + admin, Complete/Invoiced tabs) ──
+let invoicedOrdersCache=[];
+async function toggleInvoiceItem(orderId,productId,checked){
+  const o=completeOrdersCache.find(x=>String(x.id)===String(orderId))||invoicedOrdersCache.find(x=>String(x.id)===String(orderId));
+  if(!o)return;
+  const items={...(o.invoiced_items||{})};
+  if(checked)items[String(productId)]=true; else delete items[String(productId)];
+  try{
+    await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced_items:items});
+    o.invoiced_items=items;
+    const p=allProducts.find(x=>String(x.id)===String(productId));
+    logKitchenActivity(o,checked?'invoice_item_checked':'invoice_item_unchecked',(p?p.name:'#'+productId));
+    if(completeOrdersCache.includes(o))applyCompleteFilter();
+    if(invoicedOrdersCache.includes(o))renderInvoicedList(invoicedOrdersCache);
+  }catch(e){alert('Error saving: '+e.message);}
+}
+async function markOrderInvoiced(orderId){
+  const o=completeOrdersCache.find(x=>String(x.id)===String(orderId));
+  if(!o)return;
+  const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
+  const invoicedItems=o.invoiced_items||{};
+  if(!sortedIds.length||!sortedIds.every(id=>invoicedItems[id]===true)){alert('Tick off every item on the checklist first.');return;}
+  const now=new Date().toISOString();
+  try{
+    await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced:true,invoiced_at:now});
+    o.invoiced=true;o.invoiced_at=now;
+    logKitchenActivity(o,'marked_invoiced','Order #'+(o.order_number||o.id)+' marked invoiced');
+    applyCompleteFilter();
+  }catch(e){alert('Error saving: '+e.message);}
+}
+async function unInvoiceOrder(orderId){
+  if(!confirm('Un-invoice this order? This resets its invoicing checklist.'))return;
+  const o=completeOrdersCache.find(x=>String(x.id)===String(orderId))||invoicedOrdersCache.find(x=>String(x.id)===String(orderId));
+  if(!o)return;
+  try{
+    await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced:false,invoiced_at:null,invoiced_items:{}});
+    o.invoiced=false;o.invoiced_at=null;o.invoiced_items={};
+    logKitchenActivity(o,'un_invoiced','Order #'+(o.order_number||o.id)+' un-invoiced');
+    applyCompleteFilter();
+    loadInvoicedOrders();
+  }catch(e){alert('Error saving: '+e.message);}
+}
+async function loadInvoicedOrders(){
+  const el=document.getElementById('invoiced-list');
+  if(!el)return;
+  el.innerHTML='<div class="empty-state">Loading...</div>';
+  try{
+    const rows=await sbGet('orders_history','invoiced=eq.true&deleted_at=is.null&order=invoiced_at.desc.nullslast');
+    invoicedOrdersCache=rows;
+    renderInvoicedList(rows);
+  }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
+}
+function renderInvoicedList(rows){
+  const el=document.getElementById('invoiced-list');
+  if(!el)return;
+  try{
+    if(!rows.length){el.innerHTML='<div class="empty-state">No invoiced orders yet.</div>';return;}
+    el.innerHTML=rows.map(o=>{
+      const count=Object.values(o.items||{}).reduce((a,b)=>a+b,0);
+      const date=o.invoiced_at?(new Date(o.invoiced_at).toLocaleDateString('en-GB')+' '+new Date(o.invoiced_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):'';
+      const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
+        const p=allProducts.find(x=>x.id==id);
+        const checked=(o.invoiced_items||{})[id]===true;
+        return `<div class="order-item-row">
+          <span>${checked?'✅':'⬜'} ${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
+          <span style="font-size:13px;font-weight:600;">${q}</span>
+        </div>`;
+      }).join('');
+      return `<div class="order-card delivered" style="border-color:#6D28D9;">
+        <div class="order-card-header" onclick="toggleBody('zib-${o.id}')">
+          <span class="order-card-user">
+            ${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}
+            ${o.username}
+            ${o.ordered_by?`<span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''}
+            <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— Invoiced ${date}</span>
+          </span>
+          <span class="order-status" style="background:#EDE9FE;color:#6D28D9;border:1px solid #DDD6FE;">🧾 Invoiced</span>
+          <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
+        </div>
+        <div class="order-card-body" id="zib-${o.id}">
+          ${itemRows}
+          <div class="order-actions">
+            <button class="btn-sm" onclick="generateOrderPDF(invoicedOrdersCache.find(x=>x.id==='${o.id}'),{pickingSlipNotice:true})">🖨 PDF</button>
+            <button class="btn-sm" onclick="unInvoiceOrder('${o.id}')" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">↩ Un-invoice</button>
           </div>
         </div>
       </div>`;
@@ -4517,6 +4674,7 @@ async function exportClientHistoryExcel(){
 }
 
 async function backToDelivery(id){
+  if(isInvoicer)return; // Invoicer cannot move/edit orders
   if(!confirm('Move this order back to Delivery?'))return;
   const order=findOrderAnyCache(id);
   try{
@@ -4529,7 +4687,7 @@ async function backToDelivery(id){
 }
 
 function deleteCompleteOrder(id){
-  if(isKitchenAdmin)return; // Kitchen staff cannot delete orders
+  if(isKitchenAdmin||isInvoicer)return; // Kitchen/Invoicer staff cannot delete orders
   const o=completeOrdersCache.find(x=>x.id===id);
   ordersToDelete=o?[o]:[{id}];
   document.getElementById('delete-modal-title').textContent='🗑 Delete order';
@@ -4637,7 +4795,7 @@ async function fetchSalesClientUsers(){
     rows.forEach(u=>{if(u.display_name)usersDisplayNameMap[u.username]=u.display_name;});
     clientCustomPricesCache={};
     rows.forEach(u=>{clientCustomPricesCache[u.username]=u.custom_prices||{};});
-    kitchenUsernamesSet=new Set(rows.filter(u=>u.role==='kitchen'||SM_EXCLUDED_USERNAMES.includes(u.username)).map(u=>u.username));
+    kitchenUsernamesSet=new Set(rows.filter(u=>u.role==='kitchen'||u.role==='invoicer'||SM_EXCLUDED_USERNAMES.includes(u.username)).map(u=>u.username));
     return rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&!SM_EXCLUDED_USERNAMES.includes(u.username));
   }catch(e){return[];}
 }
@@ -5614,7 +5772,7 @@ async function loadUsers(){
             <button onclick="moveUser('${u.username}',1)" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:10px;padding:0 3px;line-height:1;opacity:.7;transition:opacity .15s;" title="Move down">⌄</button>
           </div>
           ${dot}
-          ${u.username}${u.display_name?` <span style="color:var(--text-tertiary);font-size:11px;font-weight:400;">(${u.display_name})</span>`:''}${u.role==='kitchen'?` <span style="background:var(--green-light);color:var(--green-dark);font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;">🍳 Kitchen</span>`:''}
+          ${u.username}${u.display_name?` <span style="color:var(--text-tertiary);font-size:11px;font-weight:400;">(${u.display_name})</span>`:''}${u.role==='kitchen'?` <span style="background:var(--green-light);color:var(--green-dark);font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;">🍳 Kitchen</span>`:''}${u.role==='invoicer'?` <span style="background:#EDE9FE;color:#6D28D9;font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;">🧾 Invoicer</span>`:''}
         </span>
         <span style="font-family:monospace">${u.password}</span>
         <button class="btn-sm" onclick="openEditUser('${u.username}','${u.auth_user_id||''}')">✏️ Edit</button>
@@ -5853,14 +6011,16 @@ function openEditUser(username,authUserId){
   document.getElementById('edit-display-name').value='';
   document.getElementById('edit-address').value='';
   document.getElementById('edit-phone').value='';
-  document.getElementById('edit-user-kitchen').checked=false;
+  document.getElementById('edit-user-role').value='';
+  updateEditUserRoleHint();
   document.getElementById('edit-user-error').style.display='none';
   document.getElementById('edit-user-products').innerHTML='<div style="font-size:12px;color:var(--text-tertiary);">Loading...</div>';
   sbGet('users',`username=eq.${encodeURIComponent(username)}`).then(rows=>{
     document.getElementById('edit-display-name').value=(rows[0]&&rows[0].display_name)||'';
     document.getElementById('edit-address').value=(rows[0]&&rows[0].address)||'';
     document.getElementById('edit-phone').value=(rows[0]&&rows[0].phone)||'';
-    document.getElementById('edit-user-kitchen').checked=!!(rows[0]&&rows[0].role==='kitchen');
+    document.getElementById('edit-user-role').value=(rows[0]&&(rows[0].role==='kitchen'||rows[0].role==='invoicer'))?rows[0].role:'';
+    updateEditUserRoleHint();
     const userCats=(rows[0]&&rows[0].visible_categories)||[];
     const userProds=(rows[0]&&rows[0].visible_products)||[];
     const userProdSet=new Set(userProds.map(String));
@@ -5898,6 +6058,16 @@ function openEditUser(username,authUserId){
     document.getElementById('edit-user-products').innerHTML=html||'<div style="font-size:12px;color:var(--text-tertiary);">No products found.</div>';
   }).catch(()=>{});
   openModal('edit-user-modal');
+}
+function updateEditUserRoleHint(){
+  const v=document.getElementById('edit-user-role').value;
+  const hint=document.getElementById('edit-user-role-hint');
+  if(!hint)return;
+  hint.textContent=v==='kitchen'
+    ?'Gets access to New Orders, In Production, Delivery and Complete only — no Users, Products, Trash, Sales Metrics or Settings. Keeps the 👁 online-clients button, no notification bell.'
+    :v==='invoicer'
+    ?'Gets access to Complete and Invoiced only. Sees full prices, can\'t edit order items. No Users, Products, Trash, Sales Metrics or Settings.'
+    :'Regular client account — places orders from the catalogue.';
 }
 function updateCatLabel(catId,checked){
   const label=document.getElementById('cat-label-'+catId);
@@ -5944,7 +6114,7 @@ async function saveUserSettings(){
       display_name:document.getElementById('edit-display-name').value.trim()||null,
       address:document.getElementById('edit-address').value.trim()||null,
       phone:document.getElementById('edit-phone').value.trim()||null,
-      role:document.getElementById('edit-user-kitchen').checked?'kitchen':null
+      role:document.getElementById('edit-user-role').value||null
     };
     if(usernameChanged) updatePayload.username=newUsername;
     await sbPatch('users',`username=eq.${encodeURIComponent(editingUsername)}`,updatePayload);
