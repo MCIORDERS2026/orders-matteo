@@ -1283,6 +1283,14 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
       <label>Name on PDF / Excel <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(optional — e.g. "01 - Battersea". Leave blank to just use the username)</span></label>
       <input type="text" id="edit-display-name" placeholder="e.g. 01 - Battersea" style="margin-top:6px;"/>
     </div>
+    <div class="field">
+      <label>Delivery address <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(optional — printed on the Delivery Note)</span></label>
+      <input type="text" id="edit-address" placeholder="e.g. Unit 36, Eleanor Street, E3 4UR" style="margin-top:6px;"/>
+    </div>
+    <div class="field">
+      <label>Contact phone <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(optional — printed on the Delivery Note)</span></label>
+      <input type="text" id="edit-phone" placeholder="e.g. 07721 141191" style="margin-top:6px;"/>
+    </div>
     <div class="field" style="background:var(--green-light);border:1px solid var(--green);border-radius:var(--radius-sm);padding:10px 12px;">
       <label style="display:flex;align-items:center;gap:9px;font-size:13px;cursor:pointer;font-weight:500;">
         <input type="checkbox" id="edit-user-kitchen" style="width:16px;height:16px;accent-color:var(--green);cursor:pointer;flex-shrink:0;"/>
@@ -3467,7 +3475,7 @@ async function printSelectedDeliveryPDFs(){
     return c&&c.checked;
   });
   if(!checked.length){alert('Select at least one order using the checkboxes above.');return;}
-  printDeliveryPDFMulti(checked);
+  await printDeliveryPDFMulti(checked);
 }
 
 async function loadDeliveryOrder(orderId){
@@ -3779,9 +3787,17 @@ async function exportDeliveryExcelMulti(){
   if(btn){btn.disabled=false;btn.textContent='⬇ Excel';}
 }
 
-function printDeliveryPDFMulti(orders){
+async function printDeliveryPDFMulti(orders){
   const CAT_ORDER=['sauces','oven','desserts','small-packs','cheeses','cured-meat','vegg','frozen','dry','pastas','drinks','oils','packaging','chemical','office','backup'];
   const date=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+
+  // Delivery address / contact phone live on the client's user row (Users tab ->
+  // Edit -> Delivery address/Contact phone), not on the order itself.
+  let addressMap={};
+  try{
+    const allUsersRows=await sbGet('users','deleted_at=is.null');
+    allUsersRows.forEach(u=>{addressMap[u.username]={address:u.address,phone:u.phone};});
+  }catch(e){/* PDF still works without address/phone if this fails */}
 
   const orderBlocks=orders.map((o,idx)=>{
     const items=o.items||{};
@@ -3848,6 +3864,7 @@ function printDeliveryPDFMulti(orders){
     }
 
     const orderDate=o.timestamp||o.created_at||'';
+    const clientInfo=addressMap[o.username]||{};
 
     return `<div style="${idx>0?'page-break-before:always;':''}font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;padding:8px 12px;">
 
@@ -3879,6 +3896,18 @@ function printDeliveryPDFMulti(orders){
         </div>`:''}
       </div>
 
+      <!-- Delivery address / contact phone -->
+      ${(clientInfo.address||clientInfo.phone)?`<div style="display:flex;gap:10px;margin-bottom:10px;">
+        ${clientInfo.address?`<div style="background:#f4f4f4;border-radius:6px;padding:6px 12px;flex:1;">
+          <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Delivery address</div>
+          <div style="font-size:13px;font-weight:600;">${clientInfo.address}</div>
+        </div>`:''}
+        ${clientInfo.phone?`<div style="background:#f4f4f4;border-radius:6px;padding:6px 12px;flex:1;">
+          <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Contact phone</div>
+          <div style="font-size:13px;font-weight:600;">${clientInfo.phone}</div>
+        </div>`:''}
+      </div>`:''}
+
       <!-- 2-column product table -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <table style="width:100%;border-collapse:collapse;">
@@ -3895,6 +3924,13 @@ function printDeliveryPDFMulti(orders){
           </tr></thead>
           <tbody>${renderRows(right)}</tbody>
         </table>
+      </div>
+
+      <!-- Signature -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:40px;">
+        <div style="border-top:1px solid #999;padding-top:4px;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Received by (name)</div>
+        <div style="border-top:1px solid #999;padding-top:4px;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Date</div>
+        <div style="border-top:1px solid #999;padding-top:4px;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Signature</div>
       </div>
 
       <div style="margin-top:10px;padding:7px 10px;background:#FFF8E1;border-radius:6px;font-size:9.5px;color:#92400E;border-left:3px solid #F59E0B;">
@@ -3931,6 +3967,14 @@ async function printDeliveryPDF(){
   const username=optText.split(' — ')[0]||'client';
   const orderNum=optText.match(/#(\d+)/)?.[1]||'';
   const date=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+  const order=deliveryOrdersCache.find(o=>o.id===deliveryOrderId)||{};
+  // Delivery address / contact phone live on the client's user row (Users tab ->
+  // Edit -> Delivery address/Contact phone), not on the order itself.
+  let clientRow=null;
+  try{
+    const rows=await sbGet('users',`username=eq.${encodeURIComponent(order.username||username)}`);
+    clientRow=rows&&rows[0];
+  }catch(e){/* PDF still works without address/phone if this fails */}
 
   const CAT_ORDER=['sauces','oven','desserts','small-packs','cheeses','cured-meat','vegg','frozen','dry','pastas','drinks','oils','packaging','chemical','office','backup'];
 
@@ -3979,10 +4023,30 @@ async function printDeliveryPDF(){
           <div style="font-size:12px;color:#555;margin-top:2px;">${date}</div>
         </div>
       </div>
-      <div style="background:#f4f4f4;border-radius:8px;padding:10px 14px;margin-bottom:20px;display:inline-block;">
-        <span style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Client</span>
-        <div style="font-size:16px;font-weight:700;margin-top:2px;">${username}</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <div style="background:#f4f4f4;border-radius:8px;padding:10px 14px;flex:1;min-width:140px;">
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Client</div>
+          <div style="font-size:16px;font-weight:700;margin-top:2px;">${username}</div>
+        </div>
+        ${order.ordered_by?`<div style="background:#e6f9f2;border-radius:8px;padding:10px 14px;flex:1;min-width:140px;">
+          <div style="font-size:11px;color:#1D9E75;text-transform:uppercase;letter-spacing:.5px;">Ordered by</div>
+          <div style="font-size:16px;font-weight:700;color:#1D9E75;margin-top:2px;">${order.ordered_by}</div>
+        </div>`:''}
+        ${order.timestamp?`<div style="background:#f4f4f4;border-radius:8px;padding:10px 14px;flex:1;min-width:140px;">
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Order placed</div>
+          <div style="font-size:14px;font-weight:600;margin-top:2px;">${order.timestamp}</div>
+        </div>`:''}
       </div>
+      ${(clientRow&&(clientRow.address||clientRow.phone))?`<div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+        ${clientRow.address?`<div style="background:#f4f4f4;border-radius:8px;padding:10px 14px;flex:1;min-width:220px;">
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Delivery address</div>
+          <div style="font-size:14px;font-weight:600;margin-top:2px;">${clientRow.address}</div>
+        </div>`:''}
+        ${clientRow.phone?`<div style="background:#f4f4f4;border-radius:8px;padding:10px 14px;flex:1;min-width:160px;">
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;">Contact phone</div>
+          <div style="font-size:14px;font-weight:600;margin-top:2px;">${clientRow.phone}</div>
+        </div>`:''}
+      </div>`:''}
       <table style="width:100%;border-collapse:collapse;">
         <thead>
           <tr style="background:#ebebeb;">
@@ -3993,6 +4057,11 @@ async function printDeliveryPDF(){
         </thead>
         <tbody>${itemSections}</tbody>
       </table>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:50px;">
+        <div style="border-top:1px solid #999;padding-top:5px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Received by (name)</div>
+        <div style="border-top:1px solid #999;padding-top:5px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Date</div>
+        <div style="border-top:1px solid #999;padding-top:5px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Signature</div>
+      </div>
       <div style="margin-top:16px;padding:10px 14px;background:#FFF8E1;border-radius:8px;font-size:12px;color:#92400E;border-left:3px solid #F59E0B;">
         This is a Picking Slip only. The corresponding invoice for this order will be sent separately.
       </div>
@@ -5782,11 +5851,15 @@ function openEditUser(username,authUserId){
   document.getElementById('edit-username').value=username;
   document.getElementById('edit-password').value='';
   document.getElementById('edit-display-name').value='';
+  document.getElementById('edit-address').value='';
+  document.getElementById('edit-phone').value='';
   document.getElementById('edit-user-kitchen').checked=false;
   document.getElementById('edit-user-error').style.display='none';
   document.getElementById('edit-user-products').innerHTML='<div style="font-size:12px;color:var(--text-tertiary);">Loading...</div>';
   sbGet('users',`username=eq.${encodeURIComponent(username)}`).then(rows=>{
     document.getElementById('edit-display-name').value=(rows[0]&&rows[0].display_name)||'';
+    document.getElementById('edit-address').value=(rows[0]&&rows[0].address)||'';
+    document.getElementById('edit-phone').value=(rows[0]&&rows[0].phone)||'';
     document.getElementById('edit-user-kitchen').checked=!!(rows[0]&&rows[0].role==='kitchen');
     const userCats=(rows[0]&&rows[0].visible_categories)||[];
     const userProds=(rows[0]&&rows[0].visible_products)||[];
@@ -5869,6 +5942,8 @@ async function saveUserSettings(){
       visible_categories:selectedCats.length?selectedCats:null,
       visible_products:selectedProds.length?selectedProds:null,
       display_name:document.getElementById('edit-display-name').value.trim()||null,
+      address:document.getElementById('edit-address').value.trim()||null,
+      phone:document.getElementById('edit-phone').value.trim()||null,
       role:document.getElementById('edit-user-kitchen').checked?'kitchen':null
     };
     if(usernameChanged) updatePayload.username=newUsername;
