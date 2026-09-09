@@ -1439,7 +1439,7 @@ const ADMIN_USERNAME='admin';
 const ADMIN_PASS='office2026';
 const EMAIL_DOMAIN='@matteo.local';
 const WORKER_URL='https://matteo-admin.jefersonmottauk.workers.dev';
-const WORKER_SECRET='mt-9f8x2-secret-2026';
+const WORKER_SECRET='HLRBJmAwiQYMF_TL1fzGxrlBj5p4p6lusQniJY_JYFU';
 // Cut-off settings (overrideable by admin)
 function loadCutoffSettings(){
   try{
@@ -2233,7 +2233,7 @@ function renderNotifBell(){
         const onclick=n.order_id?`navigateToOrder('${n.order_id}','${n.id}')`:`markMsgRead('${n.id}')`;
         return `<div class="notif-item" onclick="${onclick}">
           <div class="notif-item-title">💬 Message from supplier${n.order_id?' 🔗':''}</div>
-          <div class="notif-item-text">${n.message}</div>
+          <div class="notif-item-text">${fcEsc(n.message)}</div>
           ${n.order_id?`<div style="font-size:11px;color:var(--green);margin-top:3px;">Tap to view linked order →</div>`:''}
         </div>`;
       }
@@ -2781,7 +2781,7 @@ async function loadClientMessages(){
           <span style="font-size:11px;color:var(--text-tertiary);">📅 ${sentDate}</span>
           ${readDate&&!isNew?`<span style="font-size:11px;color:var(--green-dark);">👁 Viewed: ${readDate}</span>`:''}
         </div>
-        <div style="font-size:14px;color:var(--text);line-height:1.6;">${m.message}</div>
+        <div style="font-size:14px;color:var(--text);line-height:1.6;">${fcEsc(m.message)}</div>
       </div>`;
     }).join('');
   }catch(e){
@@ -2894,7 +2894,7 @@ async function loadClientHistory(){
                 <span style="flex:1;"></span>
                 <span style="font-size:10px;color:var(--text-tertiary);">Sent: ${sentDate}</span>
               </div>
-              <div style="font-size:13px;color:#085041;line-height:1.5;margin-bottom:4px;">${m.message}</div>
+              <div style="font-size:13px;color:#085041;line-height:1.5;margin-bottom:4px;">${fcEsc(m.message)}</div>
               ${readDate?`<div style="font-size:10px;color:var(--green-dark);opacity:.7;">👁 Viewed: ${readDate}</div>`:''}
             </div>`;
           }).join('')}</div>`
@@ -6858,7 +6858,7 @@ async function chatLoadHistory(){
           <span style="font-size:11px;color:var(--text-tertiary);white-space:nowrap;">${date}</span>
           ${deleteBtn}
         </div>
-        <div style="font-size:14px;color:var(--text);line-height:1.6;">${g.message}</div>
+        <div style="font-size:14px;color:var(--text);line-height:1.6;">${fcEsc(g.message)}</div>
         ${recipientsRow}
       </div>`;
     }).join('');
