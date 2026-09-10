@@ -6524,6 +6524,28 @@ async function loadClientPricesForUser(username){
     renderClientPricesList();
   }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
 }
+function cpComputeProfit(cost,price){
+  const c=cost!=null?Number(cost):null;
+  const p=(price!=null&&price!=='')?Number(price):null;
+  if(c==null||p==null)return{profit:null,pct:null,color:'var(--text-tertiary)',text:'—'};
+  const profit=p-c;
+  const pct=p>0?(profit/p*100):null;
+  const color=profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)');
+  const text='£'+profit.toFixed(2)+(pct!=null?' ('+pct.toFixed(0)+'%)':'');
+  return{profit,pct,color,text};
+}
+function updateClientPriceProfitRow(productId){
+  const p=allProducts.find(x=>String(x.id)===String(productId));
+  if(!p)return;
+  const input=document.querySelector(`input[data-price-prod-id="${productId}"]`);
+  const val=input?input.value:'';
+  const cost=p.cost_price!=null?Number(p.cost_price):null;
+  const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
+  const effective=(val!==''&&val!=null)?val:defaultPrice;
+  const result=cpComputeProfit(cost,effective);
+  const el=document.getElementById('cp-profit-'+productId);
+  if(el){el.style.color=result.color;el.textContent=result.text;}
+}
 function renderClientPricesList(){
   const el=document.getElementById('prices-list');
   if(!el)return;
@@ -6539,10 +6561,14 @@ function renderClientPricesList(){
     grouped[catId].forEach(p=>{
       const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
       const custom=clientPricesOriginal[String(p.id)];
+      const cost=p.cost_price!=null?Number(p.cost_price):null;
+      const cpProfit=cpComputeProfit(cost,custom!=null?custom:defaultPrice);
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--border);">
         <span style="flex:1;font-size:13px;">${p.name}</span>
+        <span style="font-size:11px;color:var(--text-tertiary);min-width:80px;">Cost: ${cost!=null?'£'+cost.toFixed(2):'—'}</span>
         <span style="font-size:11px;color:var(--text-tertiary);min-width:90px;">Default: ${defaultPrice!=null?'£'+defaultPrice.toFixed(2):'—'}</span>
-        <input type="number" step="0.01" min="0" data-price-prod-id="${p.id}" value="${custom!=null?custom:''}" placeholder="—" oninput="scheduleAutoSaveClientPrices()" style="width:90px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:13px;"/>
+        <input type="number" step="0.01" min="0" data-price-prod-id="${p.id}" value="${custom!=null?custom:''}" placeholder="—" oninput="scheduleAutoSaveClientPrices();updateClientPriceProfitRow('${p.id}')" style="width:90px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 8px;font-size:13px;"/>
+        <span id="cp-profit-${p.id}" style="font-size:11px;color:${cpProfit.color};min-width:100px;text-align:right;font-weight:600;">${cpProfit.text}</span>
       </div>`;
     });
   });
