@@ -634,6 +634,7 @@
         <span id="prices-save-status" style="font-size:12px;color:var(--green-dark);display:none;">✓ Saved</span>
       </div>
       <div id="prices-list"><div class="empty-state">Select a client above.</div></div>
+      <div id="prices-avg-profit" style="display:none;padding:12px 16px;text-align:right;font-size:13px;font-weight:600;border-top:2px solid var(--border);"></div>
     </div>
 
     <!-- ADMIN: FOOD COST -->
@@ -6545,6 +6546,28 @@ function updateClientPriceProfitRow(productId){
   const result=cpComputeProfit(cost,effective);
   const el=document.getElementById('cp-profit-'+productId);
   if(el){el.style.color=result.color;el.textContent=result.text;}
+  updateClientPricesAvgProfit();
+}
+function updateClientPricesAvgProfit(){
+  const el=document.getElementById('prices-avg-profit');
+  if(!el)return;
+  if(!allProducts.length){el.style.display='none';return;}
+  let sum=0,count=0;
+  allProducts.forEach(p=>{
+    const cost=p.cost_price!=null?Number(p.cost_price):null;
+    const input=document.querySelector(`input[data-price-prod-id="${p.id}"]`);
+    const val=input?input.value:'';
+    const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
+    const effective=(val!==''&&val!=null)?val:defaultPrice;
+    const result=cpComputeProfit(cost,effective);
+    if(result.pct!=null){sum+=result.pct;count++;}
+  });
+  if(!count){el.style.display='none';return;}
+  const avg=sum/count;
+  const color=avg>0?'var(--green-dark)':(avg<0?'var(--red)':'var(--text-secondary)');
+  el.style.display='block';
+  el.style.color=color;
+  el.textContent=`Average profit margin: ${avg.toFixed(1)}% (${count} priced product${count>1?'s':''})`;
 }
 function renderClientPricesList(){
   const el=document.getElementById('prices-list');
@@ -6572,6 +6595,7 @@ function renderClientPricesList(){
     });
   });
   el.innerHTML=html;
+  updateClientPricesAvgProfit();
 }
 async function saveClientPrices(){
   const status=document.getElementById('prices-save-status');
