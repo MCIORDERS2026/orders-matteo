@@ -986,12 +986,10 @@
 </div>
 
 <div class="modal-overlay" id="price-history-modal">
-  <div class="modal" style="max-width:620px;width:92vw;">
+  <div class="modal" style="max-width:1200px;width:96vw;height:90vh;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
     <h3>📊 Price History — <span id="ph-client-name"></span></h3>
-    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Every recorded price change for this client, product by product. Past orders always keep the price shown at the time — this is just for reviewing what changed and when.</p>
-    <select id="ph-product-select" onchange="renderPriceHistoryChart(this.value)" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;background:var(--bg);margin-bottom:12px;box-sizing:border-box;"></select>
-    <div style="height:200px;margin-bottom:14px;"><canvas id="ph-chart"></canvas></div>
-    <div id="ph-changes-list"></div>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Every recorded price change for this client, across all products. Past orders always keep the price shown at the time — this is just for reviewing what changed and when.</p>
+    <div id="ph-grid" style="flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;padding:2px 4px 2px 2px;align-content:start;"></div>
     <div class="modal-btns">
       <button onclick="closeModal('price-history-modal')">Close</button>
     </div>
@@ -6746,83 +6744,51 @@ function printClientPricesPDF(){
     document.getElementById('pdf-back-btn-wrap').style.display='block';
   },150));
 }
-// ── Report: current effective price per product, for every client at once ──
-async function exportAllClientsPricesExcel(){
-  if(!allProducts.length){alert('No products found.');return;}
-  try{
-    const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
-    const clients=rows.filter(u=>u.username!==ADMIN_USERNAME&&u.role!=='kitchen'&&u.role!=='invoicer');
-    if(!clients.length){alert('No clients found.');return;}
-    const today=new Date().toISOString().slice(0,10);
-    const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
-    const grouped={};
-    allProducts.forEach(p=>{if(!grouped[p.cat])grouped[p.cat]=[];grouped[p.cat].push(p);});
-    const allCats=[...new Set([...catOrder,...Object.keys(grouped)])].filter(c=>grouped[c]&&grouped[c].length);
-    const aoa=[
-      ['MATTEO ORDERS — CURRENT CLIENT PRICES (ALL CLIENTS)'],
-      ['Date: '+new Date().toLocaleDateString('en-GB')],
-      [''],
-      ['CATEGORY','PRODUCT','DEFAULT',...clients.map(c=>displayNameFor(c.username)||c.username)]
-    ];
-    allCats.forEach(catId=>{
-      const catLabel=CATEGORIES.find(c=>c.id===catId)?.label||catId;
-      grouped[catId].forEach(p=>{
-        const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
-        const row=[catLabel,p.name,defaultPrice!=null?defaultPrice:''];
-        clients.forEach(c=>{
-          const custom=cpResolvePriceForDate((c.custom_prices||{})[String(p.id)],today);
-          const effective=custom!=null?custom:defaultPrice;
-          row.push(effective!=null?effective:'');
-        });
-        aoa.push(row);
-      });
-    });
-    const wb=XLSX.utils.book_new();
-    const ws=XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols']=[{wch:16},{wch:28},{wch:10},...clients.map(()=>({wch:12}))];
-    XLSX.utils.book_append_sheet(wb,ws,'Client Prices');
-    XLSX.writeFile(wb,`client-prices-all-clients-${today}.xlsx`);
-  }catch(e){alert('Error generating report: '+e.message);}
-}
 // ── Price History modal: browse recorded price changes for the currently
-// selected client, one product at a time, with a line chart of price over time
-// plus a change-by-change list showing increases (green) / decreases (red). ──
-let priceHistoryChartInstance=null;
+// selected client, ALL products at once in a scrollable grid, each with its
+// own line chart of price over time plus a change-by-change list showing
+// increases (green) / decreases (red). ──
+let priceHistoryChartInstances=[];
 function openPriceHistoryModal(){
   if(!clientPricesCurrentUser){alert('Please select a client first.');return;}
   document.getElementById('ph-client-name').textContent=displayNameFor(clientPricesCurrentUser)||clientPricesCurrentUser;
   const withHistory=allProducts.filter(p=>Array.isArray(clientPricesOriginal[String(p.id)])&&clientPricesOriginal[String(p.id)].length);
-  const sel=document.getElementById('ph-product-select');
-  const chartWrap=document.getElementById('ph-chart').parentElement;
+  const grid=document.getElementById('ph-grid');
+  priceHistoryChartInstances.forEach(c=>{try{c.destroy();}catch(e){}});
+  priceHistoryChartInstances=[];
   if(!withHistory.length){
-    sel.style.display='none';
-    chartWrap.style.display='none';
-    document.getElementById('ph-changes-list').innerHTML='<div class="empty-state">No price changes recorded yet for this client.</div>';
+    grid.style.display='block';
+    grid.innerHTML='<div class="empty-state">No price changes recorded yet for this client.</div>';
     openModal('price-history-modal');
     return;
   }
-  sel.style.display='';
-  chartWrap.style.display='';
-  sel.innerHTML=withHistory.map(p=>`<option value="${p.id}">${fcEsc(p.name)}</option>`).join('');
+  grid.style.display='grid';
+  grid.innerHTML=withHistory.map(p=>`
+    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;display:flex;flex-direction:column;gap:8px;background:var(--surface);">
+      <div style="font-weight:700;font-size:14px;">${fcEsc(p.name)}</div>
+      <div style="height:140px;"><canvas id="ph-chart-${p.id}"></canvas></div>
+      <div id="ph-changes-${p.id}" style="max-height:150px;overflow-y:auto;"></div>
+    </div>
+  `).join('');
   openModal('price-history-modal');
-  renderPriceHistoryChart(withHistory[0].id);
+  withHistory.forEach(p=>renderPriceHistoryCard(p.id));
 }
-function renderPriceHistoryChart(productId){
+function renderPriceHistoryCard(productId){
   const p=allProducts.find(x=>String(x.id)===String(productId));
   const raw=clientPricesOriginal[String(productId)];
   const history=Array.isArray(raw)?raw.slice().sort((a,b)=>a.from<b.from?-1:(a.from>b.from?1:0)):[];
-  const canvas=document.getElementById('ph-chart');
-  if(priceHistoryChartInstance){priceHistoryChartInstance.destroy();priceHistoryChartInstance=null;}
-  const listEl=document.getElementById('ph-changes-list');
+  const canvas=document.getElementById(`ph-chart-${productId}`);
+  const listEl=document.getElementById(`ph-changes-${productId}`);
+  if(!canvas||!listEl)return;
   if(!history.length){
-    listEl.innerHTML='<div class="empty-state">No price changes recorded yet for this product.</div>';
+    listEl.innerHTML='<div class="empty-state">No price changes recorded yet.</div>';
     return;
   }
   const pointColors=history.map((h,i)=>{
     if(i===0)return '#9CA3AF';
     return h.price>history[i-1].price?'#1D9E75':(h.price<history[i-1].price?'#DC2626':'#9CA3AF');
   });
-  priceHistoryChartInstance=new Chart(canvas.getContext('2d'),{
+  const chart=new Chart(canvas.getContext('2d'),{
     type:'line',
     data:{
       labels:history.map(h=>new Date(h.from).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})),
@@ -6833,7 +6799,7 @@ function renderPriceHistoryChart(productId){
         backgroundColor:'rgba(29,158,117,.12)',
         fill:true,
         tension:.15,
-        pointRadius:5,
+        pointRadius:4,
         pointBackgroundColor:pointColors,
         pointBorderColor:pointColors,
         spanGaps:true
@@ -6846,12 +6812,13 @@ function renderPriceHistoryChart(productId){
       scales:{y:{beginAtZero:false,ticks:{callback:v=>'£'+v}}}
     }
   });
+  priceHistoryChartInstances.push(chart);
   let rowsHtml='';
   history.forEach((h,i)=>{
     const dateLabel=new Date(h.from).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
     const priceLabel=h.price!=null?'£'+Number(h.price).toFixed(2):'— (removed, falls back to default)';
     if(i===0){
-      rowsHtml+=`<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      rowsHtml+=`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
         <span>${dateLabel}</span><span style="font-weight:600;">${priceLabel}</span><span style="color:var(--text-tertiary);">Starting price</span>
       </div>`;
     }else{
@@ -6869,7 +6836,7 @@ function renderPriceHistoryChart(productId){
         const color=flat?'var(--text-secondary)':(up?'var(--green-dark)':'var(--red)');
         deltaHtml=`<span style="color:${color};font-weight:600;">${arrow} ${flat?'no change':(Math.abs(diff).toFixed(2)+' ('+(up?'+':'-')+Math.abs(pct).toFixed(1)+'%)')}</span>`;
       }
-      rowsHtml+=`<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      rowsHtml+=`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
         <span>${dateLabel}</span><span style="font-weight:600;">${priceLabel}</span>${deltaHtml}
       </div>`;
     }
