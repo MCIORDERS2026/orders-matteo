@@ -626,6 +626,8 @@
         <h2>💷 Client Prices</h2>
         <button class="btn-sm" onclick="loadClientPricesTab()">↻ Refresh</button>
         <button class="btn-sm green" onclick="manualSaveClientPrices()">💾 Save now</button>
+        <button class="btn-sm amber" onclick="exportClientPricesExcel()">⬇ Excel</button>
+        <button class="btn-sm" onclick="printClientPricesPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF</button>
       </div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Set a custom price per product for a specific client — used only for admin reports (never shown to the client). Leave a field blank to fall back to the product's default sale price. Prices save automatically as you type.</p>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
@@ -4434,7 +4436,7 @@ function renderCompleteList(rows){
         const p=allProducts.find(x=>x.id==id);
         let priceHtml='';
         if(showPrices){
-          const unit=smPriceOf(p,o.username);
+          const unit=smPriceOf(p,o.username,smOrderDate(o));
           const lineTotal=unit!=null?unit*Number(q):null;
           if(lineTotal!=null)orderTotal+=lineTotal;
           priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;">${unit!=null?`${smFmtMoney(unit)} × ${q} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
@@ -4529,7 +4531,7 @@ function renderInvoiceChecklistModalBody(o){
     const checked=invoicedItems[id]===true;
     const clickable=checked||unlocked;
     if(!checked)unlocked=false; // once we hit an unticked item, everything after it stays locked
-    const unit=smPriceOf(p,o.username);
+    const unit=smPriceOf(p,o.username,smOrderDate(o));
     const lineTotal=unit!=null?unit*Number(q):null;
     if(lineTotal!=null)orderTotal+=lineTotal;
     const priceHtml=unit!=null?`${smFmtMoney(unit)} × ${q} = <strong>${smFmtMoney(lineTotal)}</strong>`:'—';
@@ -4627,7 +4629,7 @@ function renderInvoicedList(rows){
         const checked=(o.invoiced_items||{})[id]===true;
         let priceHtml='';
         if(showPrices){
-          const unit=smPriceOf(p,o.username);
+          const unit=smPriceOf(p,o.username,smOrderDate(o));
           const lineTotal=unit!=null?unit*Number(q):null;
           if(lineTotal!=null)orderTotal+=lineTotal;
           priceHtml=`<span style="font-size:12px;color:var(--text-secondary);">${unit!=null?`${smFmtMoney(unit)} × ${q} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
@@ -5056,11 +5058,70 @@ async function ensureClientPricesCache(){
   }catch(e){}
   return clientCustomPricesCache;
 }
-function smPriceOf(p,username){
+// Custom client prices support history: a product's entry in users.custom_prices
+// is either a plain number (legacy — no history, always applies) or an array of
+// {price, from:'YYYY-MM-DD'} sorted ascending by date. cpResolvePriceForDate picks
+// whichever entry was in effect on a given date (defaults to today), so changing a
+// client's price today doesn't retroactively change what past orders show — see
+// cpApplyPriceEdit(), which is what actually appends new history entries on save.
+function cpResolvePriceForDate(value,dateStr){
+  if(value==null)return null;
+  if(typeof value==='number')return value;
+  if(Array.isArray(value)){
+    if(!value.length)return null;
+    const target=dateStr||new Date().toISOString().slice(0,10);
+    let applicable=null;
+    for(const entry of value){
+      if(entry&&entry.from<=target)applicable=entry;else break;
+    }
+    // No entry covers this date -> there was genuinely no custom price back then
+    // (a brand-new override doesn't retroactively apply to older orders).
+    if(!applicable)return null;
+    return applicable.price!=null?Number(applicable.price):null;
+  }
+  return null;
+}
+// The most current (latest-dated) price for a custom_prices entry — used when
+// editing in the Client Prices tab, where you always want to see/edit today's
+// price, not a historical one.
+function cpCurrentPriceValue(value){
+  if(value==null)return null;
+  if(typeof value==='number')return value;
+  if(Array.isArray(value)&&value.length)return value[value.length-1].price;
+  return null;
+}
+// Called on save: given the raw stored value for one product (number, history
+// array, or null/undefined) and the new value typed into the field, returns the
+// raw value to persist. If the effective price actually changed, the OLD price is
+// preserved as a dated history entry (so past orders keep showing it) and the new
+// price is recorded as effective from today. If nothing changed, returns the
+// input untouched so we never rewrite history needlessly.
+function cpApplyPriceEdit(oldRawValue,newValue,todayStr){
+  const todayVal=todayStr||new Date().toISOString().slice(0,10);
+  const oldCurrent=cpCurrentPriceValue(oldRawValue);
+  const changed=(oldCurrent==null&&newValue!=null)||(oldCurrent!=null&&newValue==null)||(oldCurrent!=null&&newValue!=null&&Number(oldCurrent)!==Number(newValue));
+  if(!changed)return oldRawValue;
+  let history;
+  if(Array.isArray(oldRawValue))history=oldRawValue.slice();
+  else if(typeof oldRawValue==='number')history=[{price:oldRawValue,from:'2000-01-01'}];
+  else history=[];
+  history=history.filter(e=>e&&e.from!==todayVal);
+  history.push({price:newValue,from:todayVal});
+  history.sort((a,b)=>a.from<b.from?-1:(a.from>b.from?1:0));
+  return history;
+}
+// The date an order's price should resolve against — its completion/delivery
+// date, since that's what determines which side of a price change it falls on.
+// Orders not yet delivered (no delivered_at) fall back to today's live price.
+function smOrderDate(o){return o&&o.delivered_at?String(o.delivered_at).slice(0,10):null;}
+function smPriceOf(p,username,dateStr){
   if(!p)return null;
   if(username){
     const custom=clientCustomPricesCache[username];
-    if(custom&&custom[String(p.id)]!=null)return Number(custom[String(p.id)]);
+    if(custom&&custom[String(p.id)]!=null){
+      const resolved=cpResolvePriceForDate(custom[String(p.id)],dateStr);
+      if(resolved!=null)return resolved;
+    }
   }
   return p.sale_price!=null?Number(p.sale_price):null;
 }
@@ -5155,7 +5216,7 @@ async function loadSalesCompare(){
         perProduct[id]=(perProduct[id]||0)+qty;
         units+=qty;
         const prod=allProducts.find(x=>String(x.id)===String(id));
-        const price=smPriceOf(prod,o.username);
+        const price=smPriceOf(prod,o.username,smOrderDate(o));
         if(price!=null)revenue+=smMoneyQty(prod,qty)*price;
       });
     });
@@ -5281,7 +5342,7 @@ async function loadSalesBreakdown(){
         const qty=Number(q)||0;
         rowTotal+=qty;
         const prod=allProducts.find(x=>String(x.id)===String(id));
-        const price=smPriceOf(prod,o.username);
+        const price=smPriceOf(prod,o.username,smOrderDate(o));
         if(price!=null)rowRevenue+=smMoneyQty(prod,qty)*price;
       });
       if(rowTotal>0)perClient[o.username]=(perClient[o.username]||0)+rowTotal;
@@ -5292,7 +5353,7 @@ async function loadSalesBreakdown(){
       const raw=Number((o.items||{})[productId])||0;
       if(raw>0){
         perClient[o.username]=(perClient[o.username]||0)+raw;
-        const price=smPriceOf(p,o.username);
+        const price=smPriceOf(p,o.username,smOrderDate(o));
         if(price!=null)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+smMoneyQty(p,raw)*price;
       }
     });
@@ -5563,7 +5624,7 @@ async function loadSalesMetrics(){
       // sale_price — see smPriceOf/clientCustomPricesCache above. smMoneyQty adjusts
       // for Lasagna, which is priced per tray, not per slice — see smIsTrayPriced above.
       const prod=allProducts.find(x=>String(x.id)===String(id));
-      const price=smPriceOf(prod,o.username);
+      const price=smPriceOf(prod,o.username,smOrderDate(o));
       if(price!=null){
         const lineRevenue=smMoneyQty(prod,qty)*price;
         rowRevenue+=lineRevenue;
@@ -6362,7 +6423,7 @@ function productRow(p){
   let sale=p.sale_price!=null?Number(p.sale_price):null;
   let saleIsCustom=false;
   if(adminProdPriceClient){
-    const custom=adminProdClientPricesCache[String(p.id)];
+    const custom=cpCurrentPriceValue(adminProdClientPricesCache[String(p.id)]);
     if(custom!=null){sale=Number(custom);saleIsCustom=true;}
   }
   const hasBoth=cost!=null&&sale!=null;
@@ -6569,6 +6630,108 @@ function updateClientPricesAvgProfit(){
   el.style.color=color;
   el.textContent=`Average profit margin: ${avg.toFixed(1)}% (${count} priced product${count>1?'s':''})`;
 }
+function cpBuildExportRows(){
+  const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
+  const grouped={};
+  allProducts.forEach(p=>{if(!grouped[p.cat])grouped[p.cat]=[];grouped[p.cat].push(p);});
+  const allCats=[...new Set([...catOrder,...Object.keys(grouped)])].filter(c=>grouped[c]&&grouped[c].length);
+  const out=[];
+  let sumPct=0,countPct=0;
+  allCats.forEach(catId=>{
+    const catLabel=CATEGORIES.find(c=>c.id===catId)?.label||catId;
+    grouped[catId].forEach(p=>{
+      const cost=p.cost_price!=null?Number(p.cost_price):null;
+      const input=document.querySelector(`input[data-price-prod-id="${p.id}"]`);
+      const val=input?input.value:'';
+      const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
+      const effective=(val!==''&&val!=null)?Number(val):defaultPrice;
+      const result=cpComputeProfit(cost,effective);
+      if(result.pct!=null){sumPct+=result.pct;countPct++;}
+      out.push({catLabel,name:p.name,cost,price:effective,profit:result.profit,pct:result.pct});
+    });
+  });
+  const avgPct=countPct?(sumPct/countPct):null;
+  return{rows:out,avgPct};
+}
+function exportClientPricesExcel(){
+  if(!clientPricesCurrentUser){alert('Please select a client first.');return;}
+  if(!allProducts.length){alert('No products found.');return;}
+  const{rows,avgPct}=cpBuildExportRows();
+  const date=new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
+  const aoa=[
+    ['MATTEO ORDERS — CLIENT PRICES'],
+    ['Client: '+clientPricesCurrentUser.toUpperCase()],
+    ['Date: '+date],
+    [''],
+    ['CATEGORY','PRODUCT','COST','PRICE','PROFIT','PROFIT %']
+  ];
+  rows.forEach(r=>{
+    aoa.push([
+      r.catLabel,
+      r.name,
+      r.cost!=null?r.cost:'',
+      r.price!=null?r.price:'',
+      r.profit!=null?Number(r.profit.toFixed(2)):'',
+      r.pct!=null?Number(r.pct.toFixed(1)):''
+    ]);
+  });
+  aoa.push(['']);
+  aoa.push(['','','','','Average profit margin:',avgPct!=null?avgPct.toFixed(1)+'%':'—']);
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:16},{wch:28},{wch:10},{wch:10},{wch:10},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,ws,clientPricesCurrentUser.substring(0,31));
+  XLSX.writeFile(wb,`client-prices-${clientPricesCurrentUser}-${date}.xlsx`);
+}
+function printClientPricesPDF(){
+  if(!clientPricesCurrentUser){alert('Please select a client first.');return;}
+  if(!allProducts.length){alert('No products found.');return;}
+  const{rows,avgPct}=cpBuildExportRows();
+  let rowsHtml='';
+  let lastCat=null;
+  rows.forEach(r=>{
+    if(r.catLabel!==lastCat){
+      rowsHtml+=`<tr style="background:#ebebeb;"><td colspan="5" style="padding:6px 8px;font-weight:700;font-size:11px;text-transform:uppercase;">${fcEsc(r.catLabel)}</td></tr>`;
+      lastCat=r.catLabel;
+    }
+    rowsHtml+=`<tr>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;">${fcEsc(r.name)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.cost!=null?'£'+r.cost.toFixed(2):'—'}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.price!=null?'£'+Number(r.price).toFixed(2):'—'}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.profit!=null?'£'+r.profit.toFixed(2):'—'}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.pct!=null?r.pct.toFixed(1)+'%':'—'}</td>
+    </tr>`;
+  });
+  const avgText=avgPct!=null?avgPct.toFixed(1)+'%':'—';
+  const html=`
+    <div style="max-width:720px;margin:0 auto;">
+      <div style="border-bottom:2px solid #1D9E75;padding-bottom:10px;margin-bottom:16px;">
+        <div style="font-size:22px;font-weight:700;color:#1D9E75;">Matteo Orders</div>
+        <div style="font-size:12px;color:#555;margin-top:4px;">Client Prices — ${fcEsc(clientPricesCurrentUser)}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#ebebeb;">
+          <th style="padding:6px 8px;text-align:left;">Product</th>
+          <th style="padding:6px 8px;text-align:right;">Cost</th>
+          <th style="padding:6px 8px;text-align:right;">Price</th>
+          <th style="padding:6px 8px;text-align:right;">Profit</th>
+          <th style="padding:6px 8px;text-align:right;">Profit %</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div style="margin-top:14px;text-align:right;font-weight:700;font-size:13px;">Average profit margin: ${avgText}</div>
+      <div style="margin-top:16px;font-size:10px;color:#888;">Generated ${new Date().toLocaleDateString('en-GB')}</div>
+    </div>`;
+  const area=document.getElementById('pdf-print-area');
+  area.innerHTML=html;
+  area.style.display='block';
+  window._pdfOrigTitle=document.title;
+  document.title='Matteo Orders - Client Prices - '+clientPricesCurrentUser;
+  requestAnimationFrame(()=>setTimeout(()=>{
+    window.print();
+    document.getElementById('pdf-back-btn-wrap').style.display='block';
+  },150));
+}
 function renderClientPricesList(){
   const el=document.getElementById('prices-list');
   if(!el)return;
@@ -6583,7 +6746,7 @@ function renderClientPricesList(){
     html+=`<div style="background:var(--bg);padding:6px 16px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;border-top:2px solid var(--border);">${catLabel}</div>`;
     grouped[catId].forEach(p=>{
       const defaultPrice=p.sale_price!=null?Number(p.sale_price):null;
-      const custom=clientPricesOriginal[String(p.id)];
+      const custom=cpCurrentPriceValue(clientPricesOriginal[String(p.id)]);
       const cost=p.cost_price!=null?Number(p.cost_price):null;
       const cpProfit=cpComputeProfit(cost,custom!=null?custom:defaultPrice);
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--border);">
@@ -6601,13 +6764,16 @@ async function saveClientPrices(){
   const status=document.getElementById('prices-save-status');
   if(!clientPricesCurrentUser)return;
   const inputs=[...document.querySelectorAll('#prices-list input[data-price-prod-id]')];
+  const today=new Date().toISOString().slice(0,10);
   const updated={};
   inputs.forEach(inp=>{
+    const productId=inp.getAttribute('data-price-prod-id');
     const val=inp.value.trim();
-    if(val!==''){
-      const num=parseFloat(val);
-      if(!isNaN(num)&&num>=0)updated[inp.getAttribute('data-price-prod-id')]=num;
-    }
+    const num=val!==''?parseFloat(val):NaN;
+    const newValue=(!isNaN(num)&&num>=0)?num:null;
+    const oldRaw=clientPricesOriginal[productId]!=null?clientPricesOriginal[productId]:null;
+    const newRaw=cpApplyPriceEdit(oldRaw,newValue,today);
+    if(newRaw!=null)updated[productId]=newRaw;
   });
   try{
     await sbPatch('users',`username=eq.${encodeURIComponent(clientPricesCurrentUser)}`,{custom_prices:Object.keys(updated).length?updated:null});
