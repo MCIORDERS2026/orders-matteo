@@ -5143,33 +5143,36 @@ function smPriceOf(p,username,dateStr){
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
-// Each product below is bought/sold by the PACK (order_multiple units) — its Food
-// Cost AND every client's price (default or custom) represent the whole pack, not
-// one raw unit. Verified per-product against real cost/price data before adding
-// (dividing by the pack size must make commercial sense — see chat history for the
-// numbers checked for each). ALL money math (cost and revenue) in Sales Metrics
-// uses "packs sold" (raw units ÷ order_multiple) for these, not the raw unit count.
-// Deliberately an opt-in whitelist — do NOT add a product without confirming its
-// cost_price/sale_price are genuinely per-pack first (this exact assumption was
-// wrong when generalized to every order_multiple product without checking, and had
-// to be reverted). Where a product name is a substring of another (e.g. "Ragu" vs
-// "Backup Ragu", "Tomato Sauce" vs "Backup Tomato Sauce", "Cheesecake Nutella" vs
-// "Wild Berry Cheesecake"), the more specific string is used so confirming one
-// doesn't accidentally also flip the other, unconfirmed product.
-const SM_TRAY_PRICED_PRODUCTS=['lasagna','focaccia','foccacia','nutella','tiramisu','wild berry','cherry tomato','piadina','backup ragu','backup tomato sauce','lemon dressing','vinaigrette'];
+// Each product below is bought/sold by the PACK/TRAY (order_multiple units) — its
+// Food Cost AND every client's price (default or custom) represent the whole
+// pack, not one raw unit. Only Lasagna and Focaccia qualify: their description
+// literally names a container ("Tray 12 pcs" / "10 pcs"), and their cost_price
+// only makes commercial sense as a whole-tray figure (e.g. Lasagna at £24.09
+// would be an absurd per-portion food cost, but is a sane £2.01/portion once
+// divided by 12).
+// Every other order_multiple product (Tiramisu, Cheesecake Nutella, Wild Berry
+// Cheesecake, Piadina, Cherry Tomato, Lemon Dressing, Vinaigrette, Ragu, Tomato
+// Sauce, Guanciale Cooked) was checked against real cost/price data on
+// 2026-09-11 and confirmed to be priced per individual unit/KG — order_multiple
+// there is only a minimum-order-increment rule, not a pricing pack. (The
+// clearest case: Tiramisu's £7.31 cost against several clients' £6.20 price
+// only makes sense, i.e. isn't a hidden loss, if both are per individual unit.)
+// Confirmed with the business owner — do NOT add a product back to this list
+// without the same kind of real-number check (this exact "divide by
+// order_multiple for every product" assumption was tried and reverted twice
+// already; see chat history).
+const SM_TRAY_PRICED_PRODUCTS=['lasagna','focaccia','foccacia'];
 function smIsTrayPriced(p){return !!(p&&SM_TRAY_PRICED_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function smMoneyQty(p,raw){
   if(!p||!smIsTrayPriced(p))return raw;
   const mult=(p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
   return mult>1?Math.round((raw/mult)*100)/100:raw;
 }
-// Products in this list use the pack-adjusted quantity for cost/revenue math (see
-// SM_TRAY_PRICED_PRODUCTS/smMoneyQty above), but the admin wants the "Units sold"
-// column in the Food Cost Report to keep showing the raw unit count instead —
-// purely cosmetic, no effect on the £ figures. Lasagna/Focaccia are the only
-// SM_TRAY_PRICED_PRODUCTS members NOT in this list, so their display stays
-// pack-adjusted (not raw) as originally set up.
-const SM_RAW_DISPLAY_PRODUCTS=['nutella','tiramisu','wild berry','cherry tomato','piadina','backup ragu','backup tomato sauce','lemon dressing','vinaigrette'];
+// Cosmetic-only "Units sold" display override for tray-priced products that the
+// admin wants shown as raw units rather than pack-adjusted (no effect on £
+// figures). Empty now that only Lasagna/Focaccia remain tray-priced — both keep
+// the pack-adjusted display, so nothing currently needs to be in this list.
+const SM_RAW_DISPLAY_PRODUCTS=[];
 function smIsRawDisplay(p){return !!(p&&SM_RAW_DISPLAY_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function populateSalesCompareClients(nonAdmin){
   const wrap=document.getElementById('sm-compare-clients');
