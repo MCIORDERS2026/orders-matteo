@@ -4449,9 +4449,10 @@ function renderCompleteList(rows){
         let priceHtml='';
         if(showPrices){
           const unit=smPriceOf(p,o.username,smOrderDate(o));
-          const lineTotal=unit!=null?unit*Number(q):null;
+          const moneyQty=smMoneyQty(p,Number(q));
+          const lineTotal=unit!=null?unit*moneyQty:null;
           if(lineTotal!=null)orderTotal+=lineTotal;
-          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;">${unit!=null?`${smFmtMoney(unit)} × ${q} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
+          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;">${unit!=null?`${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
         }
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
@@ -4544,9 +4545,10 @@ function renderInvoiceChecklistModalBody(o){
     const clickable=checked||unlocked;
     if(!checked)unlocked=false; // once we hit an unticked item, everything after it stays locked
     const unit=smPriceOf(p,o.username,smOrderDate(o));
-    const lineTotal=unit!=null?unit*Number(q):null;
+    const moneyQty=smMoneyQty(p,Number(q));
+    const lineTotal=unit!=null?unit*moneyQty:null;
     if(lineTotal!=null)orderTotal+=lineTotal;
-    const priceHtml=unit!=null?`${smFmtMoney(unit)} × ${q} = <strong>${smFmtMoney(lineTotal)}</strong>`:'—';
+    const priceHtml=unit!=null?`${smFmtMoney(unit)} × ${moneyQty} = <strong>${smFmtMoney(lineTotal)}</strong>`:'—';
     const note=(o.item_notes&&o.item_notes[id])||'';
     const noteHtml=note?`<div style="margin:2px 0 6px 23px;font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:5px 8px;white-space:pre-wrap;">📝 ${fcEsc(note)}</div>`:'';
     return `<div style="border-bottom:1px solid var(--border-light);padding:7px 0;">
@@ -4642,9 +4644,10 @@ function renderInvoicedList(rows){
         let priceHtml='';
         if(showPrices){
           const unit=smPriceOf(p,o.username,smOrderDate(o));
-          const lineTotal=unit!=null?unit*Number(q):null;
+          const moneyQty=smMoneyQty(p,Number(q));
+          const lineTotal=unit!=null?unit*moneyQty:null;
           if(lineTotal!=null)orderTotal+=lineTotal;
-          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);">${unit!=null?`${smFmtMoney(unit)} × ${q} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
+          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);">${unit!=null?`${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
         }
         return `<div class="order-item-row">
           <span>${checked?'✅':'⬜'} ${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
