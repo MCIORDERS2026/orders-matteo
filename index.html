@@ -177,7 +177,7 @@
   .order-actions{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);}
   .admin-qty-input{width:45px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);}
   .add-item-row{display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);}
-  .add-item-select{flex:1;border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-size:12px;background:var(--bg);color:var(--text);min-width:0;}
+  .add-item-select{flex:1;border:1px solid var(--border);border-radius:4px;padding:9px 12px;font-size:14px;background:var(--bg);color:var(--text);min-width:0;}
   /* USERS TABLE */
   .user-table{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
   .user-row{display:grid;grid-template-columns:1fr 1fr auto auto;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border-light);font-size:13px;gap:10px;}
@@ -3839,18 +3839,18 @@ function renderDeliveryEditor(order){
     <div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;background:var(--surface);">
       <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">➕ Add product to delivery</div>
       <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
-        <div style="flex:1;min-width:180px;position:relative;">
+        <div style="flex:2;min-width:260px;position:relative;">
           <input type="text" id="delivery-add-search" placeholder="🔍 Search product..." autocomplete="off"
-            style="width:100%;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:13px;background:var(--bg);color:var(--text);box-sizing:border-box;"
+            style="width:100%;border:1px solid var(--border);border-radius:4px;padding:9px 12px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box;"
             oninput="filterDeliveryProducts(this.value)"
             onfocus="document.getElementById('delivery-prod-results').style.display='block'"
           />
-          <div id="delivery-prod-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.1);">
+          <div id="delivery-prod-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;z-index:50;box-shadow:0 6px 18px rgba(0,0,0,.14);">
             ${allProducts.map(p=>`
               <div class="notif-item" onclick="selectDeliveryProduct('${p.id}','${(p.name+(fmtDesc(p.description))).replace(/'/g,'&#39;')}')"
-                style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);">
-                ${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">${wrapDesc(p.description)}</span>`:''}
-                <span style="float:right;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${p.cat}</span>
+                style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;cursor:pointer;font-size:15px;border-bottom:1px solid var(--border-light);">
+                <span>${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:12px;">${wrapDesc(p.description)}</span>`:''}</span>
+                <span style="flex-shrink:0;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px;">${p.cat}</span>
               </div>`).join('')}
           </div>
         </div>
@@ -3875,14 +3875,14 @@ function filterDeliveryProducts(query){
   const q=query.trim().toLowerCase();
   const items=allProducts.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)||(p.cat||'').toLowerCase().includes(q));
   if(!items.length){
-    results.innerHTML='<div style="padding:10px 12px;font-size:13px;color:var(--text-tertiary);">No products found.</div>';
+    results.innerHTML='<div style="padding:12px 14px;font-size:14px;color:var(--text-tertiary);">No products found.</div>';
   } else {
     results.innerHTML=items.map(p=>`
       <div onclick="selectDeliveryProduct('${p.id}','${(p.name+(fmtDesc(p.description))).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')"
-        style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);"
+        style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;cursor:pointer;font-size:15px;border-bottom:1px solid var(--border-light);"
         onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background=''">
-        ${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">${wrapDesc(p.description)}</span>`:''}
-        <span style="float:right;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${p.cat}</span>
+        <span>${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:12px;">${wrapDesc(p.description)}</span>`:''}</span>
+        <span style="flex-shrink:0;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px;">${p.cat}</span>
       </div>`).join('');
   }
   results.style.display='block';
@@ -6353,14 +6353,20 @@ function productsInCatalogOrder(){
 // a product name instead of scrolling. Keeps the same hidden-input id pattern the existing
 // addItemToOrder / addIPItem / addCompleteItem functions already read from (`${prefix}-prod-${orderId}`),
 // so those functions needed no changes at all.
+// Widened + enlarged per the admin's request — the old 160px-min/13px-font
+// version got squeezed down to almost nothing next to the qty input and Add
+// button in the "add product" row, making it hard to actually read/scan the
+// dropdown results. Now: a wider, taller input, a taller/roomier dropdown
+// (more visible rows before scrolling), bigger text, and a category pill
+// instead of small floated uppercase text so items are easier to tell apart.
 function productPickerHtml(prefix, orderId){
-  return `<div class="prod-picker-wrap" style="flex:1;min-width:160px;position:relative;">
+  return `<div class="prod-picker-wrap" style="flex:2;min-width:260px;position:relative;">
     <input type="text" id="${prefix}-search-${orderId}" class="add-item-select" placeholder="🔍 Search product..." autocomplete="off"
       style="width:100%;box-sizing:border-box;"
       oninput="filterProductPicker('${prefix}','${orderId}',this.value)"
       onfocus="filterProductPicker('${prefix}','${orderId}',this.value)"/>
     <input type="hidden" id="${prefix}-prod-${orderId}"/>
-    <div id="${prefix}-results-${orderId}" class="prod-picker-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:4px;max-height:220px;overflow-y:auto;z-index:60;box-shadow:0 4px 12px rgba(0,0,0,.1);"></div>
+    <div id="${prefix}-results-${orderId}" class="prod-picker-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;z-index:60;box-shadow:0 6px 18px rgba(0,0,0,.14);"></div>
   </div>`;
 }
 function filterProductPicker(prefix, orderId, query){
@@ -6369,14 +6375,14 @@ function filterProductPicker(prefix, orderId, query){
   const q=query.trim().toLowerCase();
   const items=q?allProducts.filter(p=>p.name.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)):productsInCatalogOrder();
   if(!items.length){
-    results.innerHTML='<div style="padding:8px 12px;font-size:13px;color:var(--text-tertiary);">No products found.</div>';
+    results.innerHTML='<div style="padding:12px 14px;font-size:14px;color:var(--text-tertiary);">No products found.</div>';
   } else {
     results.innerHTML=items.map(p=>`
       <div onclick="selectProductPicker('${prefix}','${orderId}','${p.id}','${(p.name+fmtDesc(p.description)).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')"
-        style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);"
+        style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;cursor:pointer;font-size:15px;border-bottom:1px solid var(--border-light);"
         onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background=''">
-        ${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">${wrapDesc(p.description)}</span>`:''}
-        <span style="float:right;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${p.cat}</span>
+        <span>${p.name}${p.description?` <span style="color:var(--text-tertiary);font-size:12px;">${wrapDesc(p.description)}</span>`:''}</span>
+        <span style="flex-shrink:0;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px;">${p.cat}</span>
       </div>`).join('');
   }
   results.style.display='block';
