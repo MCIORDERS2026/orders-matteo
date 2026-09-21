@@ -5080,7 +5080,17 @@ let salesCompareChecked=new Set();
 let salesChartCompare=null;
 let salesCompareLastAggregate=null;
 const SM_COMPARE_COLORS=['#DC2626','#2563EB','#1D9E75','#F59E0B','#7C3AED','#0EA5E9','#DB2777','#65A30D','#EA580C','#0891B2'];
-const SM_PACK_PRODUCTS=['lasagna','focaccia','foccacia'];
+// Empty since 2026-09-21 — Lasagna and Focaccia moved to per-INDIVIDUAL-UNIT
+// pricing at the admin's request (Food Cost cost AND every client's sale price
+// are now entered per single portion/piece, not per whole tray). order_multiple
+// on these products is now purely a minimum-order-increment rule, exactly like
+// every other order_multiple product already in the app — so nothing in the app
+// should divide their quantity by order_multiple anymore. See smIsTrayPriced
+// below for the matching (also now empty) sibling list, and the chat history
+// entry from 2026-09-21 for the reasoning. Do not repopulate this without a
+// fresh confirmation from the business owner — this exact assumption has been
+// flipped twice before.
+const SM_PACK_PRODUCTS=[];
 function smPackAdjustedQty(p,raw){
   if(!p)return raw;
   const isPack=SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
@@ -5089,9 +5099,9 @@ function smPackAdjustedQty(p,raw){
 }
 // ── Money helpers ──
 // £ figures are always derived from RAW units × cost_price/sale_price — never from
-// the Lasagna/Focaccia "pack" display quantity above, since that conversion is
-// purely a unit-count convenience for those two products and has nothing to do
-// with pricing math.
+// the pack-adjusted display quantity above (currently a no-op for every product,
+// since SM_PACK_PRODUCTS is empty), since that conversion is purely a unit-count
+// display convenience and has nothing to do with pricing math.
 // Per-client custom prices (users.custom_prices, set in the Client Prices admin tab)
 // override the product's default sale_price when computing revenue for THAT client's
 // orders. Cache is keyed by username -> {productId(string): price}; refreshed by
@@ -5191,25 +5201,23 @@ function smPriceOf(p,username,dateStr){
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
-// Each product below is bought/sold by the PACK/TRAY (order_multiple units) — its
-// Food Cost AND every client's price (default or custom) represent the whole
-// pack, not one raw unit. Only Lasagna and Focaccia qualify: their description
-// literally names a container ("Tray 12 pcs" / "10 pcs"), and their cost_price
-// only makes commercial sense as a whole-tray figure (e.g. Lasagna at £24.09
-// would be an absurd per-portion food cost, but is a sane £2.01/portion once
-// divided by 12).
-// Every other order_multiple product (Tiramisu, Cheesecake Nutella, Wild Berry
-// Cheesecake, Piadina, Cherry Tomato, Lemon Dressing, Vinaigrette, Ragu, Tomato
-// Sauce, Guanciale Cooked) was checked against real cost/price data on
-// 2026-09-11 and confirmed to be priced per individual unit/KG — order_multiple
-// there is only a minimum-order-increment rule, not a pricing pack. (The
-// clearest case: Tiramisu's £7.31 cost against several clients' £6.20 price
-// only makes sense, i.e. isn't a hidden loss, if both are per individual unit.)
-// Confirmed with the business owner — do NOT add a product back to this list
-// without the same kind of real-number check (this exact "divide by
-// order_multiple for every product" assumption was tried and reverted twice
-// already; see chat history).
-const SM_TRAY_PRICED_PRODUCTS=['lasagna','focaccia','foccacia'];
+// Empty since 2026-09-21. Lasagna and Focaccia used to live here (their price
+// represented the whole pack/tray, divided by order_multiple before
+// multiplying). The admin has since re-entered both products' Food Cost cost
+// and every client's sale price as a PER-INDIVIDUAL-UNIT figure (one portion /
+// one piece), matching how every other order_multiple product already works —
+// so raw order quantity × unit price is now correct for them too, with
+// order_multiple left as just a minimum-order-increment rule, not a pricing
+// pack. (Previously: Tiramisu, Cheesecake Nutella, Wild Berry Cheesecake,
+// Piadina, Cherry Tomato, Lemon Dressing, Vinaigrette, Ragu, Tomato Sauce,
+// Guanciale Cooked were already confirmed per-unit on 2026-09-11; Lasagna and
+// Focaccia join them now by explicit admin instruction, not a cost-margin
+// check — if a future audit finds their price/cost genuinely represents a
+// whole tray again, re-add here.)
+// Do NOT add a product back to this list without a fresh confirmation from the
+// business owner — this exact "divide by order_multiple" assumption has been
+// flipped multiple times already; see chat history.
+const SM_TRAY_PRICED_PRODUCTS=[];
 function smIsTrayPriced(p){return !!(p&&SM_TRAY_PRICED_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function smMoneyQty(p,raw){
   if(!p||!smIsTrayPriced(p))return raw;
@@ -5218,8 +5226,8 @@ function smMoneyQty(p,raw){
 }
 // Cosmetic-only "Units sold" display override for tray-priced products that the
 // admin wants shown as raw units rather than pack-adjusted (no effect on £
-// figures). Empty now that only Lasagna/Focaccia remain tray-priced — both keep
-// the pack-adjusted display, so nothing currently needs to be in this list.
+// figures). Empty since SM_TRAY_PRICED_PRODUCTS itself is now empty (see above)
+// — there are no pack-priced products left to override the display for.
 const SM_RAW_DISPLAY_PRODUCTS=[];
 function smIsRawDisplay(p){return !!(p&&SM_RAW_DISPLAY_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k)));}
 function populateSalesCompareClients(nonAdmin){
@@ -5576,8 +5584,9 @@ function computeFoodCostReport(perProduct,perProductRevenue){
   const rows=allProducts.map(p=>{
     const raw=perProduct[p.id]||0;
     if(raw<=0)return null;
-    // moneyQty = pack-adjusted quantity used ONLY for the cost calculation below —
-    // trays/packs for Lasagna/Focaccia/Cheesecake Nutella. See smMoneyQty above.
+    // moneyQty = pack-adjusted quantity used ONLY for the cost calculation below.
+    // Currently a no-op passthrough (raw units) since SM_TRAY_PRICED_PRODUCTS is
+    // empty — see smMoneyQty above.
     const moneyQty=smMoneyQty(p,raw);
     // qty = what's shown in the "Units sold" column. Same as moneyQty, EXCEPT
     // Cheesecake Nutella, which keeps the raw unit count on screen (cosmetic only —
@@ -5687,8 +5696,8 @@ async function loadSalesMetrics(){
       perProduct[id]=(perProduct[id]||0)+qty;
       rowUnits+=qty;
       // Uses THIS order's client custom price when set, else the product's default
-      // sale_price — see smPriceOf/clientCustomPricesCache above. smMoneyQty adjusts
-      // for Lasagna, which is priced per tray, not per slice — see smIsTrayPriced above.
+      // sale_price — see smPriceOf/clientCustomPricesCache above. smMoneyQty is
+      // currently a no-op passthrough (raw units) — see smIsTrayPriced above.
       const prod=findProductAny(id);
       const price=smPriceOf(prod,o.username,smOrderDate(o));
       if(price!=null){
@@ -5733,12 +5742,11 @@ async function loadSalesMetrics(){
   contentEl.style.display='block';
   emptyEl.style.display='none';
 
-  // ONLY specific products (see SM_PACK_PRODUCTS above) are shown as "packs" (raw
-  // units ÷ their order multiple) in Sales Metrics — e.g. Lasagna sold in trays of
-  // 12 shows as 1 per tray. This is intentionally NOT automatic for every
-  // "multiples of N" product (other products use that field just to enforce a
-  // minimum order size, not a pack/tray count worth reporting). Never affects the
-  // catalogue, cart, or orders.
+  // ONLY products listed in SM_PACK_PRODUCTS (currently none — see above) are
+  // shown as "packs" (raw units ÷ their order multiple) in Sales Metrics. This is
+  // intentionally NOT automatic for every "multiples of N" product (those use
+  // that field just to enforce a minimum order size, not a pack/tray count worth
+  // reporting). Never affects the catalogue, cart, or orders.
   const catalog=allProducts.map(p=>{
     const raw=perProduct[p.id]||0;
     const isPackProduct=SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
