@@ -836,14 +836,6 @@
         <button class="btn-sm amber" onclick="exportCompleteSelectedExcel()">⬇ Excel (selected)</button>
         <button class="btn-sm" onclick="printCompleteSelectedPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF (selected)</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;">
-        <div style="position:relative;flex:1;max-width:320px;">
-          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text-tertiary);pointer-events:none;">🔍</span>
-          <input type="text" id="complete-search" placeholder="Search order # or client…" oninput="applyCompleteFilter()"
-            style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px 7px 28px;font-size:13px;background:var(--bg);box-sizing:border-box;"/>
-        </div>
-        <button id="complete-search-clear" onclick="document.getElementById('complete-search').value='';applyCompleteFilter();" style="display:none;border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:13px;">✕ Clear</button>
-      </div>
       <div style="display:flex;align-items:flex-start;gap:10px;padding:0 0 10px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);padding-top:7px;">Clients:</span>
         <div id="complete-client-checklist" style="display:flex;flex-wrap:wrap;gap:6px;max-width:600px;"></div>
@@ -864,6 +856,14 @@
         <button class="btn-sm green" onclick="applyCompleteFilter()">🔍 Filter list</button>
         <button class="btn-sm" onclick="document.getElementById('complete-hist-date-from').value='';document.getElementById('complete-hist-date-to').value='';applyCompleteFilter();" style="color:var(--text-secondary);">✕ Clear dates</button>
         <button class="btn-sm amber" onclick="exportClientHistoryExcel()">⬇ Excel (client history)</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;">
+        <div style="position:relative;flex:1;max-width:320px;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text-tertiary);pointer-events:none;">🔍</span>
+          <input type="text" id="complete-search" placeholder="Search order # or client…" oninput="applyCompleteFilter()"
+            style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px 7px 28px;font-size:13px;background:var(--bg);box-sizing:border-box;"/>
+        </div>
+        <button id="complete-search-clear" onclick="document.getElementById('complete-search').value='';applyCompleteFilter();" style="display:none;border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:13px;">✕ Clear</button>
       </div>
       <div id="complete-filter-note" style="font-size:12px;color:var(--text-tertiary);padding:0 0 8px;display:none;"></div>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 10px;">
