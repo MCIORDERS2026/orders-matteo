@@ -5157,18 +5157,21 @@ function cpCurrentPriceValue(value){
 // price is recorded as effective from today. If nothing changed, returns the
 // input untouched so we never rewrite history needlessly.
 //
-// PRICE_HISTORY_PAUSED — set true 2026-09-21 at the admin's request: they need to
-// bulk-correct a batch of client prices and want each correction to apply to
-// EVERY order for that product/client, past and future, not just from today
-// forward. While this is true, saveClientPrices() below skips cpApplyPriceEdit
-// entirely and just writes the plain corrected number, which cpResolvePriceForDate
+// PRICE_HISTORY_PAUSED — was set true on 2026-09-21 at the admin's request while
+// they bulk-corrected a batch of client prices (each correction needed to apply
+// to EVERY order for that product/client, past and future, not just from today
+// forward). While true, saveClientPrices() below skipped cpApplyPriceEdit
+// entirely and just wrote the plain corrected number, which cpResolvePriceForDate
 // already treats as "always applies, regardless of date" (see its `typeof
-// value==='number'` branch) — so no other function needed to change. Any product
-// that already had dated history gets that history collapsed into the one
-// corrected number the moment it's saved again. Set back to false once the admin
-// says the correction pass is done, to resume normal date-aware behavior (from
-// that point on, edits will only affect orders from that day forward again).
-let PRICE_HISTORY_PAUSED=true;
+// value==='number'` branch). The admin confirmed on 2026-09-21 that the
+// correction pass (including replicating Battersea's and Wembley's price lists
+// to several other clients) is done, so this is back to false: saveClientPrices()
+// now calls cpApplyPriceEdit again, meaning any price edit from this point only
+// affects orders from today forward and preserves history for earlier orders. If
+// the admin needs another bulk-correction pass later, set this back to true
+// temporarily and set it back to false when they say they're done — do not leave
+// it true by default.
+let PRICE_HISTORY_PAUSED=false;
 function cpApplyPriceEdit(oldRawValue,newValue,todayStr){
   const todayVal=todayStr||new Date().toISOString().slice(0,10);
   const oldCurrent=cpCurrentPriceValue(oldRawValue);
