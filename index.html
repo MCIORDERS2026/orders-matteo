@@ -3847,7 +3847,7 @@ function renderDeliveryEditor(order){
           <input type="text" id="delivery-add-search" placeholder="🔍 Search product..." autocomplete="off"
             style="width:100%;border:1px solid var(--border);border-radius:4px;padding:9px 12px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box;"
             oninput="filterDeliveryProducts(this.value)"
-            onfocus="document.getElementById('delivery-prod-results').style.display='block'"
+            onfocus="filterDeliveryProducts(this.value)"
           />
           <div id="delivery-prod-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;z-index:50;box-shadow:0 6px 18px rgba(0,0,0,.14);">
             ${allProducts.map(p=>`
@@ -3875,6 +3875,7 @@ function renderDeliveryEditor(order){
 
 function filterDeliveryProducts(query){
   const results=document.getElementById('delivery-prod-results');
+  const input=document.getElementById('delivery-add-search');
   if(!results)return;
   const q=query.trim().toLowerCase();
   const items=allProducts.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)||(p.cat||'').toLowerCase().includes(q));
@@ -3889,6 +3890,11 @@ function filterDeliveryProducts(query){
         <span style="flex-shrink:0;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px;">${p.cat}</span>
       </div>`).join('');
   }
+  // Same viewport-aware flip as productPickerHtml's dropdown (see
+  // positionPickerDropdown) — this search box is the last thing before the
+  // Delivery tab's action buttons, so it's almost always near the bottom of the
+  // visible page.
+  if(input&&typeof positionPickerDropdown==='function')positionPickerDropdown(input,results);
   results.style.display='block';
 }
 
@@ -6411,8 +6417,31 @@ function productPickerHtml(prefix, orderId){
     <div id="${prefix}-results-${orderId}" class="prod-picker-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;z-index:60;box-shadow:0 6px 18px rgba(0,0,0,.14);"></div>
   </div>`;
 }
+// Flips the product-search dropdown to open UPWARD (and caps its height to
+// whatever room actually exists) when there isn't enough space below it in the
+// viewport. This widget is almost always the last thing in a long order card —
+// right above the action buttons — so the old "always open downward" behavior
+// regularly rendered most of the list off the bottom of the screen with no way
+// to see it without first scrolling the whole page. Recomputed on every open
+// since scroll position/window size can change between opens.
+function positionPickerDropdown(anchorEl,resultsEl){
+  const rect=anchorEl.getBoundingClientRect();
+  const spaceBelow=window.innerHeight-rect.bottom;
+  const spaceAbove=rect.top;
+  const margin=16;
+  if(spaceBelow<220&&spaceAbove>spaceBelow){
+    resultsEl.style.top='auto';
+    resultsEl.style.bottom='100%';
+    resultsEl.style.maxHeight=Math.max(120,Math.min(340,spaceAbove-margin))+'px';
+  }else{
+    resultsEl.style.top='100%';
+    resultsEl.style.bottom='auto';
+    resultsEl.style.maxHeight=Math.max(120,Math.min(340,spaceBelow-margin))+'px';
+  }
+}
 function filterProductPicker(prefix, orderId, query){
   const results=document.getElementById(`${prefix}-results-${orderId}`);
+  const input=document.getElementById(`${prefix}-search-${orderId}`);
   if(!results)return;
   const q=query.trim().toLowerCase();
   const items=q?allProducts.filter(p=>p.name.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)):productsInCatalogOrder();
@@ -6427,6 +6456,7 @@ function filterProductPicker(prefix, orderId, query){
         <span style="flex-shrink:0;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px;">${p.cat}</span>
       </div>`).join('');
   }
+  if(input)positionPickerDropdown(input,results);
   results.style.display='block';
 }
 function selectProductPicker(prefix, orderId, id, name){
