@@ -981,9 +981,15 @@
     <div class="field">
       <textarea id="item-note-text" rows="4" placeholder="e.g. Client asked for this substitution, confirm before invoicing..." style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);resize:vertical;box-sizing:border-box;"></textarea>
     </div>
+    <div class="field" style="margin-top:14px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">Override price for this sale only (optional)</label>
+      <input type="number" id="item-note-price" step="0.01" min="0" placeholder="Standard price: £—"
+        style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);box-sizing:border-box;"/>
+      <p style="font-size:11px;color:var(--text-tertiary);margin-top:5px;">Only changes what's shown/charged for this product in this one order. The client's Client Price and the product's Food Cost are never touched. Leave blank to use the standard price.</p>
+    </div>
     <div class="modal-btns">
       <button onclick="closeModal('item-note-modal')">Cancel</button>
-      <button class="primary" onclick="saveItemNote()">Save note</button>
+      <button class="primary" onclick="saveItemNote()">Save</button>
     </div>
   </div>
 </div>
@@ -1651,6 +1657,16 @@ function openItemNoteModal(orderId,productId){
   const p=findProductAny(productId);
   document.getElementById('item-note-title').textContent=`📝 Note — ${p?p.name:'#'+productId}`;
   document.getElementById('item-note-text').value=(o.item_notes&&o.item_notes[String(productId)])||'';
+  const priceInput=document.getElementById('item-note-price');
+  if(priceInput){
+    // Placeholder shows the STANDARD price (client's Client Price or the
+    // product's default), ignoring any existing override, purely as a reference
+    // so the admin knows what they're changing away from.
+    const standard=(typeof smPriceOf==='function')?smPriceOf(p,o.username,(typeof smOrderDate==='function')?smOrderDate(o):null):null;
+    priceInput.placeholder='Standard price: '+((typeof smFmtMoney==='function')?smFmtMoney(standard):(standard!=null?('£'+Number(standard).toFixed(2)):'—'));
+    const override=itemPriceOverride(o,productId);
+    priceInput.value=override!=null?override:'';
+  }
   openModal('item-note-modal');
 }
 async function saveItemNote(){
@@ -1661,22 +1677,33 @@ async function saveItemNote(){
   const text=document.getElementById('item-note-text').value.trim();
   const notes={...(o.item_notes||{})};
   if(text)notes[productId]=text; else delete notes[productId];
+  const priceInput=document.getElementById('item-note-price');
+  const priceRaw=priceInput?priceInput.value.trim():'';
+  const priceNum=priceRaw!==''?parseFloat(priceRaw):NaN;
+  const overrides={...(o.item_price_overrides||{})};
+  if(priceRaw!==''&&!isNaN(priceNum)&&priceNum>=0)overrides[productId]=priceNum; else delete overrides[productId];
   try{
-    await sbPatch('orders_history',`id=eq.${orderId}`,{item_notes:notes});
+    await sbPatch('orders_history',`id=eq.${orderId}`,{item_notes:notes,item_price_overrides:overrides});
     o.item_notes=notes;
+    o.item_price_overrides=overrides;
     const p=findProductAny(productId);
-    logKitchenActivity(o,'item_note',(text?'Note set':'Note removed')+' on '+(p?p.name:'#'+productId));
+    const priceLog=overrides[productId]!=null?` — price overridden to £${overrides[productId].toFixed(2)} for this sale`:'';
+    logKitchenActivity(o,'item_note',(text?'Note set':'Note removed')+' on '+(p?p.name:'#'+productId)+priceLog);
     closeModal('item-note-modal');
     refreshOrderListContaining(o);
-  }catch(e){alert('Error saving note: '+e.message);}
+  }catch(e){alert('Error saving: '+e.message);}
 }
 // Small 📝 button reused in every item row (New Orders / In Production / Complete) —
-// amber when a note already exists, grey otherwise. Hidden for Invoicer, who only
-// reads these (in the Complete tab's Check-items modal), never writes them.
+// amber when a note or a per-sale price override already exists, grey otherwise.
+// Hidden for Invoicer, who only reads these (in the Complete tab's Check-items
+// modal), never writes them.
 function itemNoteBtnHtml(o,id){
   if(isInvoicer)return'';
   const hasNote=!!(o.item_notes&&o.item_notes[String(id)]);
-  return `<button onclick="event.stopPropagation();openItemNoteModal('${o.id}','${id}')" title="${hasNote?'Edit note for Invoicer':'Add note for Invoicer'}" style="border:none;background:none;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;color:${hasNote?'#D97706':'#9CA3AF'};">📝</button>`;
+  const hasPriceOverride=itemPriceOverride(o,id)!=null;
+  const active=hasNote||hasPriceOverride;
+  const title=hasPriceOverride?(hasNote?'Edit note & price override':'Edit price override for this sale'):(hasNote?'Edit note for Invoicer':'Add note or override price for this sale');
+  return `<button onclick="event.stopPropagation();openItemNoteModal('${o.id}','${id}')" title="${title}" style="border:none;background:none;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;color:${active?'#D97706':'#9CA3AF'};">📝</button>`;
 }
 // Targeted refresh — only re-renders whichever tab list currently holds this
 // order, instead of reloading everything.
@@ -4483,11 +4510,12 @@ function renderCompleteList(rows){
         const p=findProductAny(id);
         let priceHtml='';
         if(showPrices){
-          const unit=smPriceOf(p,o.username,smOrderDate(o));
+          const overridden=itemPriceOverride(o,id)!=null;
+          const unit=smEffectivePrice(o,p,id);
           const moneyQty=smMoneyQty(p,Number(q));
           const lineTotal=unit!=null?unit*moneyQty:null;
           if(lineTotal!=null)orderTotal+=lineTotal;
-          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;">${unit!=null?`${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
+          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;" title="${overridden?'Price overridden for this sale only':''}">${unit!=null?`${overridden?'✏️ ':''}${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:${overridden?'#D97706':'var(--text-primary)'};">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
         }
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
@@ -4579,11 +4607,12 @@ function renderInvoiceChecklistModalBody(o){
     const checked=invoicedItems[id]===true;
     const clickable=checked||unlocked;
     if(!checked)unlocked=false; // once we hit an unticked item, everything after it stays locked
-    const unit=smPriceOf(p,o.username,smOrderDate(o));
+    const overridden=itemPriceOverride(o,id)!=null;
+    const unit=smEffectivePrice(o,p,id);
     const moneyQty=smMoneyQty(p,Number(q));
     const lineTotal=unit!=null?unit*moneyQty:null;
     if(lineTotal!=null)orderTotal+=lineTotal;
-    const priceHtml=unit!=null?`${smFmtMoney(unit)} × ${moneyQty} = <strong>${smFmtMoney(lineTotal)}</strong>`:'—';
+    const priceHtml=unit!=null?`${overridden?'✏️ ':''}${smFmtMoney(unit)} × ${moneyQty} = <strong style="${overridden?'color:#D97706;':''}">${smFmtMoney(lineTotal)}</strong>`:'—';
     const note=(o.item_notes&&o.item_notes[id])||'';
     const noteHtml=note?`<div style="margin:2px 0 6px 23px;font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:5px 8px;white-space:pre-wrap;">📝 ${fcEsc(note)}</div>`:'';
     return `<div style="border-bottom:1px solid var(--border-light);padding:7px 0;">
@@ -4678,11 +4707,12 @@ function renderInvoicedList(rows){
         const checked=(o.invoiced_items||{})[id]===true;
         let priceHtml='';
         if(showPrices){
-          const unit=smPriceOf(p,o.username,smOrderDate(o));
+          const overridden=itemPriceOverride(o,id)!=null;
+          const unit=smEffectivePrice(o,p,id);
           const moneyQty=smMoneyQty(p,Number(q));
           const lineTotal=unit!=null?unit*moneyQty:null;
           if(lineTotal!=null)orderTotal+=lineTotal;
-          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);">${unit!=null?`${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:var(--text-primary);">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
+          priceHtml=`<span style="font-size:12px;color:var(--text-secondary);" title="${overridden?'Price overridden for this sale only':''}">${unit!=null?`${overridden?'✏️ ':''}${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:${overridden?'#D97706':'var(--text-primary)'};">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
         }
         return `<div class="order-item-row">
           <span>${checked?'✅':'⬜'} ${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
@@ -5201,6 +5231,26 @@ function smPriceOf(p,username,dateStr){
   }
   return p.sale_price!=null?Number(p.sale_price):null;
 }
+// Per-order, per-product price override — lets the admin charge a different
+// amount for ONE product inside ONE specific already-placed order (e.g. "only
+// charge £25 for these eggs this time"), without touching that client's
+// standing Client Price or the product's Food Cost/default sale_price. Stored
+// directly on the order row (orders_history.item_price_overrides, jsonb keyed
+// by product id — a sibling column to item_notes, set from the same modal).
+// smEffectivePrice() is the one function every price display/total for an
+// EXISTING order should call instead of smPriceOf() directly, so the override
+// is picked up everywhere consistently. It must never be used for the
+// client-facing cart/catalogue (which has no order yet to override) or for
+// Client Prices / Food Cost, which intentionally keep reading the product's/
+// client's own numbers untouched.
+function itemPriceOverride(o,productId){
+  const v=o&&o.item_price_overrides?o.item_price_overrides[String(productId)]:null;
+  return v!=null&&!isNaN(Number(v))?Number(v):null;
+}
+function smEffectivePrice(o,p,productId){
+  const override=itemPriceOverride(o,productId);
+  return override!=null?override:smPriceOf(p,o.username,smOrderDate(o));
+}
 function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
@@ -5293,7 +5343,7 @@ async function loadSalesCompare(){
         perProduct[id]=(perProduct[id]||0)+qty;
         units+=qty;
         const prod=findProductAny(id);
-        const price=smPriceOf(prod,o.username,smOrderDate(o));
+        const price=smEffectivePrice(o,prod,id);
         if(price!=null)revenue+=smMoneyQty(prod,qty)*price;
       });
     });
@@ -5419,7 +5469,7 @@ async function loadSalesBreakdown(){
         const qty=Number(q)||0;
         rowTotal+=qty;
         const prod=findProductAny(id);
-        const price=smPriceOf(prod,o.username,smOrderDate(o));
+        const price=smEffectivePrice(o,prod,id);
         if(price!=null)rowRevenue+=smMoneyQty(prod,qty)*price;
       });
       if(rowTotal>0)perClient[o.username]=(perClient[o.username]||0)+rowTotal;
@@ -5430,7 +5480,7 @@ async function loadSalesBreakdown(){
       const raw=Number((o.items||{})[productId])||0;
       if(raw>0){
         perClient[o.username]=(perClient[o.username]||0)+raw;
-        const price=smPriceOf(p,o.username,smOrderDate(o));
+        const price=smEffectivePrice(o,p,productId);
         if(price!=null)perClientRevenue[o.username]=(perClientRevenue[o.username]||0)+smMoneyQty(p,raw)*price;
       }
     });
@@ -5698,11 +5748,12 @@ async function loadSalesMetrics(){
       const qty=Number(q)||0;
       perProduct[id]=(perProduct[id]||0)+qty;
       rowUnits+=qty;
-      // Uses THIS order's client custom price when set, else the product's default
-      // sale_price — see smPriceOf/clientCustomPricesCache above. smMoneyQty is
-      // currently a no-op passthrough (raw units) — see smIsTrayPriced above.
+      // Uses THIS order's per-item price override when the admin set one (see
+      // smEffectivePrice/itemPriceOverride above), else the client's custom price
+      // when set, else the product's default sale_price. smMoneyQty is currently a
+      // no-op passthrough (raw units) — see smIsTrayPriced above.
       const prod=findProductAny(id);
-      const price=smPriceOf(prod,o.username,smOrderDate(o));
+      const price=smEffectivePrice(o,prod,id);
       if(price!=null){
         const lineRevenue=smMoneyQty(prod,qty)*price;
         rowRevenue+=lineRevenue;
