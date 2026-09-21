@@ -1749,6 +1749,9 @@ function refreshOrderListContaining(o){
   if(typeof allOrdersCache!=='undefined'&&allOrdersCache.includes(o)&&typeof renderOrdersList==='function')renderOrdersList();
   if(typeof completedOrdersCache!=='undefined'&&completedOrdersCache.includes(o)&&typeof renderIPList==='function')renderIPList();
   if(typeof completeOrdersCache!=='undefined'&&completeOrdersCache.includes(o)&&typeof applyCompleteFilter==='function')applyCompleteFilter();
+  // Delivery tab's single-order editor isn't keyed off a rendered list like the
+  // others — it just redraws whichever order is currently open in the dropdown.
+  if(typeof deliveryOrderId!=='undefined'&&deliveryOrderId&&String(o.id)===String(deliveryOrderId)&&typeof renderDeliveryEditor==='function')renderDeliveryEditor(o);
 }
 // Compares an order's items before/after a save and returns a short, human-readable
 // list of what changed (added / removed / qty updated) for the activity log.
@@ -3757,6 +3760,12 @@ function deliveryAutoNote(id){
 function renderDeliveryEditor(order){
   const el=document.getElementById('delivery-editor');
   if(!el)return;
+  // The `order` param is often just `{}` (re-renders after a qty edit pass a
+  // throwaway object — see the oninput handlers below), so it can't be relied on
+  // for item_notes/item_price_overrides. deliveryOrdersCache always has the real,
+  // up-to-date row for whatever's selected in the dropdown — same lookup pattern
+  // already used by markDeliveryDone/backToProduction elsewhere in this tab.
+  const orderObj=(typeof deliveryOrdersCache!=='undefined'&&deliveryOrdersCache.find(x=>x.id===deliveryOrderId))||order||{id:deliveryOrderId};
 
   // Separate altered vs unchanged
   const sortedDeliveryEntries=sortItemEntries(Object.entries(deliveryItems));
@@ -3766,11 +3775,16 @@ function renderDeliveryEditor(order){
   function productRow(id,item,isAltered){
     const p=findProductAny(id)||{name:'Product #'+id,emoji:'📦',description:''};
     const img=p.image_url?`<img src="${p.image_url}" style="width:24px;height:24px;object-fit:cover;border-radius:4px;vertical-align:middle;"/>`:'';
+    // Same 📝 note/price-override editor used in New Orders / In Production /
+    // Complete / Invoiced — the admin asked for it here too.
+    const noteBtn=orderObj.id?itemNoteBtnHtml(orderObj,id):'';
+    const noteBox=orderObj.id?itemNoteDisplayHtml(orderObj,id):'';
     if(isAltered){
       return `<div style="border:1px solid #FECACA;border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;background:#FFF5F5;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <span style="font-size:18px;">${img}</span>
           <span style="font-weight:600;font-size:13px;flex:1;color:#991B1B;">${p.name.toUpperCase()}${p.description?` <span style="font-weight:400;color:#EF4444;font-size:11px;">${wrapDesc(p.description)}</span>`:''}</span>
+          ${noteBtn}
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:11px;color:#9CA3AF;text-decoration:line-through;">×${item.origQty}</span>
             <span style="font-size:13px;font-weight:700;color:#DC2626;">→ ×${item.qty}</span>
@@ -3782,17 +3796,22 @@ function renderDeliveryEditor(order){
         <input type="text" value="${item.note}" placeholder="⚠️ Reason for change (required)..."
           oninput="deliveryItems['${id}'].note=this.value;autoSaveDelivery()"
           style="width:100%;border:1px solid #FCA5A5;border-radius:4px;padding:7px 10px;font-size:12px;background:white;color:#1F2937;"/>
+        ${noteBox}
       </div>`;
     } else {
-      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border-light);">
-        <span style="font-size:16px;">${img}</span>
-        <span style="font-size:13px;flex:1;color:var(--text-secondary);">${p.name}${p.description?` ${wrapDesc(p.description)}`:''}</span>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <span style="font-size:13px;color:var(--text-secondary);">×${item.qty}</span>
-          <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
-            oninput="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
-            style="width:50px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);"/>
+      return `<div style="padding:8px 10px;border-bottom:1px solid var(--border-light);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:16px;">${img}</span>
+          <span style="font-size:13px;flex:1;color:var(--text-secondary);">${p.name}${p.description?` ${wrapDesc(p.description)}`:''}</span>
+          ${noteBtn}
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:13px;color:var(--text-secondary);">×${item.qty}</span>
+            <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
+              oninput="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+              style="width:50px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);"/>
+          </div>
         </div>
+        ${noteBox}
       </div>`;
     }
   }
