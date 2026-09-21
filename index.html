@@ -1536,6 +1536,37 @@ let currentUser=null,isAdmin=false,isKitchenAdmin=false,isInvoicer=false,current
 // gets only Complete + Invoiced, and can't edit order items anywhere.
 function isStaff(){return isAdmin||isKitchenAdmin||isInvoicer;}
 let allProducts=[],allOrdersCache=[],orderFilter='all',editingProductId=null,refusingOrderId=null,editingUserId=null,editingUsername=null;
+// allProducts only ever holds ACTIVE products (fetch below filters active/null) —
+// on purpose, since every "pick a product to add" UI (client ordering grid, admin
+// add-item pickers, product-selection checklists) should only ever offer active
+// products. But a HIDDEN product can still be sitting inside an already-placed
+// order's `items`, and every screen that displays or exports an existing order
+// (New Orders, In Production, Delivery, Complete, Invoiced, Trash, Sales Metrics,
+// PDFs/Excels) needs to resolve its real name/description/order_multiple too, not
+// just show "#123". allProductsArchive holds EVERY product (active + hidden),
+// fetched once at launch, purely for that lookup — findProductAny() below is what
+// every "display an existing order's item" call site should use instead of a bare
+// allProducts.find(...).
+let allProductsArchive=[];
+function findProductAny(id){
+  return allProducts.find(x=>String(x.id)===String(id))||allProductsArchive.find(x=>String(x.id)===String(id));
+}
+// Products list to send to server-side Excel export (generate-excel Netlify
+// Function) — must include hidden products too, or any hidden product that was
+// actually sold silently vanishes from the sheet AND from its grand total. Falls
+// back to allProducts if the archive somehow hasn't loaded yet.
+function productsForExport(){return allProductsArchive.length?allProductsArchive:allProducts;}
+// Same idea as findProductAny, but for the category-grouped loops used to build
+// Delivery Excel/PDF exports (they iterate CAT_ORDER, not an order's items
+// directly) — must include hidden products with real quantity in this order, or
+// they silently vanish from the export entirely.
+function productsByCatAny(cat){
+  const seen=new Set();
+  const out=[];
+  allProducts.forEach(p=>{if(p.cat===cat){out.push(p);seen.add(String(p.id));}});
+  allProductsArchive.forEach(p=>{if(p.cat===cat&&!seen.has(String(p.id))){out.push(p);seen.add(String(p.id));}});
+  return out;
+}
 
 // Order items are stored as a {productId: qty} object, and object keys that look
 // like integers are always iterated by JS in ascending NUMERIC order — regardless
@@ -1614,7 +1645,7 @@ function openItemNoteModal(orderId,productId){
   const o=findOrderAnyCache(orderId);
   if(!o)return;
   itemNoteContext={orderId,productId:String(productId)};
-  const p=allProducts.find(x=>String(x.id)===String(productId));
+  const p=findProductAny(productId);
   document.getElementById('item-note-title').textContent=`📝 Note — ${p?p.name:'#'+productId}`;
   document.getElementById('item-note-text').value=(o.item_notes&&o.item_notes[String(productId)])||'';
   openModal('item-note-modal');
@@ -1630,7 +1661,7 @@ async function saveItemNote(){
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{item_notes:notes});
     o.item_notes=notes;
-    const p=allProducts.find(x=>String(x.id)===productId);
+    const p=findProductAny(productId);
     logKitchenActivity(o,'item_note',(text?'Note set':'Note removed')+' on '+(p?p.name:'#'+productId));
     closeModal('item-note-modal');
     refreshOrderListContaining(o);
@@ -1660,7 +1691,7 @@ function summarizeItemsDiff(oldItems,newItems){
     const before=Number((oldItems||{})[id])||0;
     const after=Number((newItems||{})[id])||0;
     if(before===after)return;
-    const p=allProducts.find(x=>String(x.id)===String(id));
+    const p=findProductAny(id);
     const name=p?p.name+fmtDesc(p.description):('#'+id);
     if(before===0)changes.push(`+ Added ${name} x${after}`);
     else if(after===0)changes.push(`− Removed ${name} (was x${before})`);
@@ -2029,6 +2060,7 @@ async function doLogout(){
 }
 async function launch(){
   try{allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');}catch(e){allProducts=[];}
+  try{allProductsArchive=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');}catch(e){allProductsArchive=[];}
   await fetchGlobalCutoffSettings();
   await fetchCategoriesFromSupabase();
   document.getElementById('loading-screen').style.display='none';
@@ -2852,7 +2884,7 @@ async function loadClientHistory(){
       const original=(o.delivery_notes&&o.delivery_notes.__original__)||null;
       const deliveryNotes=o.delivery_notes||{};
       const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
-        const p=allProducts.find(x=>x.id==id);
+        const p=findProductAny(id);
         const name=`${p?p.name:'#'+id}`;
         const origQty=original?parseInt(original[id]||0):null;
         const changed=origQty!==null&&origQty!==parseInt(q);
@@ -2877,7 +2909,7 @@ async function loadClientHistory(){
       if(original){
         Object.entries(original).forEach(([id,origQ])=>{
           if(!o.items[id]&&parseInt(origQ)>0){
-            const p=allProducts.find(x=>x.id==id);
+            const p=findProductAny(id);
             const note=deliveryNotes[id]||'';
             removedRows+=`<div class="history-item" style="flex-direction:column;align-items:flex-start;gap:2px;">
               <div style="display:flex;align-items:center;width:100%;">
@@ -3041,7 +3073,7 @@ function renderOrdersList(){
     const count=Object.values(o.items).reduce((a,b)=>a+b,0);
     const statusHtml=`<span class="order-status status-${o.status==='accepted'?'warning':o.status}">${o.status==='pending'?'⏳ Pending':o.status==='accepted'?'✅ Accepted':'❌ Refused'}</span>`;
     const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
-      const p=allProducts.find(x=>x.id==id);
+      const p=findProductAny(id);
       return `<div class="order-item-row">
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
         <div style="display:flex;align-items:center;gap:6px">
@@ -3310,7 +3342,7 @@ function renderIPList(){
   el.innerHTML=rows.map(o=>{
     const count=Object.values(o.items).reduce((a,b)=>a+b,0);
     const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
-      const p=allProducts.find(x=>x.id==id);
+      const p=findProductAny(id);
       return `<div class="order-item-row">
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
         <div class="qty-controls">
@@ -3566,7 +3598,7 @@ async function refreshDeliveryData(){
       const notes=o.delivery_notes||{};
       const original=notes.__original__||null;
       Object.keys(deliveryItems).forEach(id=>{
-        const dp=allProducts.find(x=>String(x.id)===String(id));
+        const dp=findProductAny(id);
         deliveryItems[id]={
           qty:parseAdminQty(dp,(o.items||{})[id]),
           note:notes[id]||'',
@@ -3574,7 +3606,7 @@ async function refreshDeliveryData(){
         };
       });
       Object.entries(o.items||{}).forEach(([id,q])=>{
-        const dp=allProducts.find(x=>String(x.id)===String(id));
+        const dp=findProductAny(id);
         if(!deliveryItems[id]) deliveryItems[id]={qty:parseAdminQty(dp,q),note:notes[id]||'',origQty:original?parseAdminQty(dp,original[id]):parseAdminQty(dp,q)};
         else deliveryItems[id].qty=parseAdminQty(dp,q);
       });
@@ -3621,7 +3653,7 @@ async function loadDeliveryOrder(orderId){
     // Only save original if not already saved (may have been saved from New Orders edits)
     if(!originalItems){
       const orig={};
-      Object.entries(o.items).forEach(([id,q])=>{orig[id]=parseAdminQty(allProducts.find(x=>String(x.id)===String(id)),q);});
+      Object.entries(o.items).forEach(([id,q])=>{orig[id]=parseAdminQty(findProductAny(id),q);});
       notes.__original__=orig;
       await sbPatch('orders_history',`id=eq.${orderId}`,{delivery_notes:notes});
     }
@@ -3630,13 +3662,13 @@ async function loadDeliveryOrder(orderId){
     deliveryItems={};
     // Include all current items
     Object.entries(o.items).forEach(([id,q])=>{
-      const dp=allProducts.find(x=>String(x.id)===String(id));
+      const dp=findProductAny(id);
       deliveryItems[id]={qty:parseAdminQty(dp,q),note:notes[id]||'',origQty:parseAdminQty(dp,original[id])};
     });
     // Also include items that were in original but removed (qty=0 now)
     if(original){
       Object.entries(original).forEach(([id,q])=>{
-        const dp=allProducts.find(x=>String(x.id)===String(id));
+        const dp=findProductAny(id);
         if(!deliveryItems[id]&&parseAdminQty(dp,q)>0){
           deliveryItems[id]={qty:0,note:notes[id]||'',origQty:parseAdminQty(dp,q)};
         }
@@ -3664,7 +3696,7 @@ function renderDeliveryEditor(order){
   const unchanged=sortedDeliveryEntries.filter(([id,item])=>item.qty===item.origQty&&!item.note);
 
   function productRow(id,item,isAltered){
-    const p=allProducts.find(x=>x.id==id)||{name:'Product #'+id,emoji:'📦',description:''};
+    const p=findProductAny(id)||{name:'Product #'+id,emoji:'📦',description:''};
     const img=p.image_url?`<img src="${p.image_url}" style="width:24px;height:24px;object-fit:cover;border-radius:4px;vertical-align:middle;"/>`:'';
     if(isAltered){
       return `<div style="border:1px solid #FECACA;border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;background:#FFF5F5;">
@@ -3675,7 +3707,7 @@ function renderDeliveryEditor(order){
             <span style="font-size:11px;color:#9CA3AF;text-decoration:line-through;">×${item.origQty}</span>
             <span style="font-size:13px;font-weight:700;color:#DC2626;">→ ×${item.qty}</span>
             <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
-              oninput="deliveryItems['${id}'].qty=parseAdminQty(allProducts.find(x=>x.id=='${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+              oninput="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
               style="width:55px;border:1px solid #FCA5A5;border-radius:4px;padding:4px 6px;font-size:13px;text-align:center;background:white;"/>
           </div>
         </div>
@@ -3690,7 +3722,7 @@ function renderDeliveryEditor(order){
         <div style="display:flex;align-items:center;gap:6px;">
           <span style="font-size:13px;color:var(--text-secondary);">×${item.qty}</span>
           <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
-            oninput="deliveryItems['${id}'].qty=parseAdminQty(allProducts.find(x=>x.id=='${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+            oninput="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
             style="width:50px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);"/>
         </div>
       </div>`;
@@ -3851,7 +3883,7 @@ async function exportDeliveryExcel(){
   const CAT_ORDER=['sauces','oven','desserts','small-packs','cheeses','cured-meat','vegg','frozen','dry','pastas','drinks','oils','packaging','chemical','office','backup'];
 
   for(const cat of CAT_ORDER){
-    const prods=allProducts.filter(p=>p.cat===cat);
+    const prods=productsByCatAny(cat);
     // Include ALL items (altered and unchanged), skip qty=0
     const items=prods.filter(p=>{
       const item=deliveryItems[String(p.id)];
@@ -3875,7 +3907,7 @@ async function exportDeliveryExcel(){
   if(removed.length){
     rows.push(['ITEMS NOT SENT','','','']);
     for(const [id,item] of removed){
-      const p=allProducts.find(x=>x.id==id)||{name:'Product #'+id,description:''};
+      const p=findProductAny(id)||{name:'Product #'+id,description:''};
       rows.push([p.name.toUpperCase(),p.description||'',0,item.note||'Not available']);
     }
     rows.push(['','','','']);
@@ -3900,7 +3932,7 @@ async function exportDeliveryExcelMulti(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,display_name:displayNameFor(o.username),order_number:o.order_number||null,ordered_by:o.ordered_by||'',items:o.items})),
-      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0})),
+      products:productsForExport().map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0})),
       categories:CATEGORIES.filter(c=>c.id!=='all').map(c=>({id:c.id,label:c.label}))
     };
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -3937,7 +3969,7 @@ async function printDeliveryPDFMulti(orders){
     // Build flat list of item rows per category
     const allRows=[];
     for(const cat of CAT_ORDER){
-      const prods=allProducts.filter(p=>p.cat===cat);
+      const prods=productsByCatAny(cat);
       // Include items with qty>0 OR qty=0 with an admin note
       const catItems=prods.filter(p=>{
         const qty=parseInt(items[String(p.id)])||0;
@@ -3962,7 +3994,7 @@ async function printDeliveryPDFMulti(orders){
       if(removed.length){
         allRows.push({type:'cat',label:'NOT SENT',removed:true});
         for(const [id] of removed){
-          const p=allProducts.find(x=>x.id==id)||{name:'Product #'+id,emoji:'',description:''};
+          const p=findProductAny(id)||{name:'Product #'+id,emoji:'',description:''};
           allRows.push({type:'item',p,qty:0,removed:true,note:deliveryNotes[id]||''});
         }
       }
@@ -4110,7 +4142,7 @@ async function printDeliveryPDF(){
 
   let itemSections='';
   for(const cat of CAT_ORDER){
-    const prods=allProducts.filter(p=>p.cat===cat);
+    const prods=productsByCatAny(cat);
     const items=prods.filter(p=>{const item=deliveryItems[String(p.id)];return item&&item.qty>0;});
     if(!items.length)continue;
     const catLabel=(CATEGORIES.find(c=>c.id===cat)?.label||cat).toUpperCase();
@@ -4132,7 +4164,7 @@ async function printDeliveryPDF(){
   if(removed.length){
     itemSections+=`<tr><td colspan="3" style="padding:8px 10px;background:#FEF2F2;font-size:11px;font-weight:700;letter-spacing:.5px;color:#DC2626;">ITEMS NOT SENT</td></tr>`;
     for(const [id,item] of removed){
-      const p=allProducts.find(x=>x.id==id)||{name:'Product #'+id,emoji:'',description:''};
+      const p=findProductAny(id)||{name:'Product #'+id,emoji:'',description:''};
       itemSections+=`<tr>
         <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;text-decoration:line-through;color:#aaa;">${p.name}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:700;color:#DC2626;">×0</td>
@@ -4445,7 +4477,7 @@ function renderCompleteList(rows){
       const showPrices=isAdmin||isInvoicer;
       let orderTotal=0;
       const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
-        const p=allProducts.find(x=>x.id==id);
+        const p=findProductAny(id);
         let priceHtml='';
         if(showPrices){
           const unit=smPriceOf(p,o.username,smOrderDate(o));
@@ -4539,7 +4571,7 @@ function renderInvoiceChecklistModalBody(o){
   let unlocked=true;
   let orderTotal=0;
   const rowsHtml=sortedIds.map(id=>{
-    const p=allProducts.find(x=>String(x.id)===id);
+    const p=findProductAny(id);
     const q=o.items[id];
     const checked=invoicedItems[id]===true;
     const clickable=checked||unlocked;
@@ -4585,7 +4617,7 @@ async function toggleInvoiceItem(orderId,productId,checked){
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced_items:items});
     o.invoiced_items=items;
-    const p=allProducts.find(x=>String(x.id)===String(productId));
+    const p=findProductAny(productId);
     logKitchenActivity(o,checked?'invoice_item_checked':'invoice_item_unchecked',(p?p.name:'#'+productId));
     renderInvoiceChecklistModalBody(o);
   }catch(e){alert('Error saving: '+e.message);}
@@ -4639,7 +4671,7 @@ function renderInvoicedList(rows){
       const showPrices=isAdmin||isInvoicer;
       let orderTotal=0;
       const itemRows=sortItemEntries(Object.entries(o.items||{})).map(([id,q])=>{
-        const p=allProducts.find(x=>x.id==id);
+        const p=findProductAny(id);
         const checked=(o.invoiced_items||{})[id]===true;
         let priceHtml='';
         if(showPrices){
@@ -4683,7 +4715,7 @@ function renderInvoicedList(rows){
 }
 
 async function updateCompleteItem(orderId, productId, newQty){
-  const prodForQty=allProducts.find(x=>String(x.id)===String(productId));
+  const prodForQty=findProductAny(productId);
   const qty=parseAdminQty(prodForQty,newQty);
   const o=completeOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
@@ -4784,7 +4816,7 @@ async function exportCompleteSelectedExcel(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,display_name:displayNameFor(o.username),order_number:o.order_number||null,ordered_by:o.ordered_by||'',items:o.items})),
-      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0,production_tracked:!!p.production_tracked})),
+      products:productsForExport().map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0,production_tracked:!!p.production_tracked})),
       categories:CATEGORIES.filter(c=>c.id!=='all').map(c=>({id:c.id,label:c.label}))
     };
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -4833,7 +4865,7 @@ async function exportClientHistoryExcel(){
         timestamp:o.timestamp,
         ordered_by:o.ordered_by||''
       })),
-      products:allProducts.map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat,sort_order:p.sort_order||0}))
+      products:productsForExport().map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat,sort_order:p.sort_order||0}))
     };
 
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -4906,7 +4938,7 @@ async function exportCompletedExcel(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,display_name:displayNameFor(o.username),order_number:o.order_number||null,ordered_by:o.ordered_by||'',items:o.items})),
-      products:allProducts.map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0,production_tracked:!!p.production_tracked})),
+      products:productsForExport().map(p=>({id:String(p.id),name:p.name,description:p.description||'',cat:p.cat,emoji:p.emoji||'',sort_order:p.sort_order||0,production_tracked:!!p.production_tracked})),
       categories:CATEGORIES.filter(c=>c.id!=='all').map(c=>({id:c.id,label:c.label}))
     };
     const res=await fetch('/.netlify/functions/generate-excel',{
@@ -5233,7 +5265,7 @@ async function loadSalesCompare(){
         const qty=Number(q)||0;
         perProduct[id]=(perProduct[id]||0)+qty;
         units+=qty;
-        const prod=allProducts.find(x=>String(x.id)===String(id));
+        const prod=findProductAny(id);
         const price=smPriceOf(prod,o.username,smOrderDate(o));
         if(price!=null)revenue+=smMoneyQty(prod,qty)*price;
       });
@@ -5269,7 +5301,7 @@ async function loadSalesCompare(){
   chartWrap.style.display='block';
 
   const labels=productIds.map(id=>{
-    const p=allProducts.find(x=>String(x.id)===String(id));
+    const p=findProductAny(id);
     if(!p)return '#'+id;
     const isPack=SM_PACK_PRODUCTS.some(k=>(p.name||'').toLowerCase().includes(k));
     const mult=(isPack&&p.order_multiple&&p.order_multiple>1)?p.order_multiple:1;
@@ -5280,7 +5312,7 @@ async function loadSalesCompare(){
     backgroundColor:r.color,
     borderRadius:4,
     data:productIds.map(id=>{
-      const p=allProducts.find(x=>String(x.id)===String(id));
+      const p=findProductAny(id);
       return smPackAdjustedQty(p,r.perProduct[id]||0);
     })
   }));
@@ -5333,7 +5365,7 @@ async function loadSalesBreakdown(){
   }
   const productId=sel.value;
   const isAllProducts=productId==='__all__';
-  const p=isAllProducts?null:allProducts.find(x=>String(x.id)===String(productId));
+  const p=isAllProducts?null:findProductAny(productId);
   const fromEl=document.getElementById('sm-date-from');
   const toEl=document.getElementById('sm-date-to');
   const fromVal=fromEl?fromEl.value:'';
@@ -5359,7 +5391,7 @@ async function loadSalesBreakdown(){
       Object.entries(o.items||{}).forEach(([id,q])=>{
         const qty=Number(q)||0;
         rowTotal+=qty;
-        const prod=allProducts.find(x=>String(x.id)===String(id));
+        const prod=findProductAny(id);
         const price=smPriceOf(prod,o.username,smOrderDate(o));
         if(price!=null)rowRevenue+=smMoneyQty(prod,qty)*price;
       });
@@ -5641,7 +5673,7 @@ async function loadSalesMetrics(){
       // Uses THIS order's client custom price when set, else the product's default
       // sale_price — see smPriceOf/clientCustomPricesCache above. smMoneyQty adjusts
       // for Lasagna, which is priced per tray, not per slice — see smIsTrayPriced above.
-      const prod=allProducts.find(x=>String(x.id)===String(id));
+      const prod=findProductAny(id);
       const price=smPriceOf(prod,o.username,smOrderDate(o));
       if(price!=null){
         const lineRevenue=smMoneyQty(prod,qty)*price;
@@ -5947,7 +5979,7 @@ async function loadTrash(){
       const count=Object.values(o.items).reduce((a,b)=>a+b,0);
       const deletedDate=new Date(o.deleted_at).toLocaleDateString('en-GB')+' '+new Date(o.deleted_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
       const itemRows=sortItemEntries(Object.entries(o.items)).map(([id,q])=>{
-        const p=allProducts.find(x=>x.id==id);
+        const p=findProductAny(id);
         return `<div class="history-item"><span>${p?p.name:'#'+id}</span><span>×${q}</span></div>`;
       }).join('');
       return `<div class="order-card refused" style="opacity:.85;">
@@ -7420,7 +7452,7 @@ function renderOrdersPDF(orders,sectionLabel){
     const notes=o.delivery_notes||{};
 
     const itemRows=items.map(([id,q])=>{
-      const p=allProducts.find(x=>String(x.id)===String(id));
+      const p=findProductAny(id);
       const name=p?p.name+(fmtDesc(p.description)):'Product #'+id;
       const note=notes[id]&&notes[id].note?notes[id].note:'';
       return `<tr>
@@ -7513,7 +7545,7 @@ function generateOrderPDF(order,opts={}){
   const deliveryNotes=order.delivery_notes||{};
 
   const itemRows=items.map(([id,q])=>{
-    const p=allProducts.find(x=>String(x.id)===String(id));
+    const p=findProductAny(id);
     const name=p?p.name+(fmtDesc(p.description)):'Product #'+id;
     const origQty=original?parseInt(original[id]||0):null;
     const changed=origQty!==null&&origQty!==parseInt(q);
@@ -7535,7 +7567,7 @@ function generateOrderPDF(order,opts={}){
   if(original){
     Object.entries(original).forEach(([id,origQ])=>{
       if(!order.items[id]&&parseInt(origQ)>0){
-        const p=allProducts.find(x=>String(x.id)===String(id));
+        const p=findProductAny(id);
         const name=p?p.name+(fmtDesc(p.description)):'Product #'+id;
         const note=deliveryNotes[id]||'';
         removedRows+=`<tr>
@@ -8721,7 +8753,7 @@ async function exportExcel(){
   try{
     const payload={
       orders:orders.map(o=>({username:o.username,display_name:displayNameFor(o.username),items:o.items,order_number:o.order_number,status:o.status,timestamp:o.timestamp,ordered_by:o.ordered_by||''})),
-      products:allProducts.map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat,sort_order:p.sort_order||0}))
+      products:productsForExport().map(p=>({id:p.id,name:p.name,description:p.description||'',cat:p.cat,sort_order:p.sort_order||0}))
     };
 
     const res=await fetch('/.netlify/functions/generate-excel',{
