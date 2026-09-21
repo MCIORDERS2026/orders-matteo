@@ -163,6 +163,17 @@
   .order-card-body.open{display:block;}
   .order-item-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px solid var(--border-light);}
   .order-item-row:last-child{border-bottom:none;}
+  /* Invoicer's read-only Complete-tab row — fixed-width numeric columns so the
+     unit price / × / qty / = / total line up vertically across every item,
+     regardless of how many digits each one has (a plain flex row lets each
+     item's total width vary, so the numbers drift left/right per row). Only
+     used for the Invoicer, who never edits quantities here — admin/Kitchen keep
+     the original editable flex row (qty input, remove button, etc). */
+  .ci-row-ro{display:grid;grid-template-columns:1fr 62px 14px 44px 14px 84px;align-items:center;column-gap:4px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--border-light);}
+  .ci-row-ro:last-child{border-bottom:none;}
+  .ci-row-ro .ci-num{text-align:right;color:var(--text-secondary);white-space:nowrap;}
+  .ci-row-ro .ci-op{text-align:center;color:var(--text-tertiary);}
+  .ci-row-ro .ci-total{text-align:right;white-space:nowrap;}
   .order-actions{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);}
   .admin-qty-input{width:45px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);}
   .add-item-row{display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);}
@@ -1705,6 +1716,16 @@ function itemNoteBtnHtml(o,id){
   const active=hasNote||hasPriceOverride;
   const title=hasPriceOverride?(hasNote?'Edit note & price override':'Edit price override for this sale'):(hasNote?'Edit note for Invoicer':'Add note or override price for this sale');
   return `<button onclick="event.stopPropagation();openItemNoteModal('${o.id}','${id}')" title="${title}" style="border:none;background:none;cursor:pointer;font-size:14px;padding:0 3px;line-height:1;color:${active?'#D97706':'#9CA3AF'};">📝</button>`;
+}
+// Inline note text (yellow box) — shown right under the item row itself in every
+// list (New Orders / In Production / Complete), not just inside the Invoicer's
+// Check-items modal, so the admin sees "what was written" without having to open
+// the 📝 editor for every item. Mirrors the noteHtml block already used in
+// renderInvoiceChecklistModalBody — kept as its own helper so both stay in sync.
+function itemNoteDisplayHtml(o,id){
+  const note=(o.item_notes&&o.item_notes[String(id)])||'';
+  if(!note)return'';
+  return `<div style="margin:2px 0 6px;font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:5px 8px;white-space:pre-wrap;">📝 ${fcEsc(note)}</div>`;
 }
 // Targeted refresh — only re-renders whichever tab list currently holds this
 // order, instead of reloading everything.
@@ -4518,19 +4539,37 @@ function renderCompleteList(rows){
           if(lineTotal!=null)orderTotal+=lineTotal;
           priceHtml=`<span style="font-size:12px;color:var(--text-secondary);min-width:110px;text-align:right;" title="${overridden?'Price overridden for this sale only':''}">${unit!=null?`${overridden?'✏️ ':''}${smFmtMoney(unit)} × ${moneyQty} = <strong style="color:${overridden?'#D97706':'var(--text-primary)'};">${smFmtMoney(lineTotal)}</strong>`:'—'}</span>`;
         }
+        const noteHtml=itemNoteDisplayHtml(o,id);
+        // Invoicer never edits quantities here, so their row uses a fixed-column
+        // grid (see .ci-row-ro) instead of the admin/Kitchen flex row above — that
+        // keeps unit price / × / qty / = / total lined up vertically down the
+        // whole list. Admin/Kitchen keep the original editable row unchanged.
+        if(!canEditItems){
+          const overridden=itemPriceOverride(o,id)!=null;
+          const unit=showPrices?smEffectivePrice(o,p,id):null;
+          const moneyQty=smMoneyQty(p,Number(q));
+          const lineTotal=unit!=null?unit*moneyQty:null;
+          return `<div class="ci-row-ro">
+            <span style="overflow:hidden;text-overflow:ellipsis;">${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
+            <span class="ci-num" title="${overridden?'Price overridden for this sale only':''}">${showPrices?(unit!=null?`${overridden?'✏️':''}${smFmtMoney(unit)}`:'—'):''}</span>
+            <span class="ci-op">${showPrices&&unit!=null?'×':''}</span>
+            <span class="ci-num">${showPrices&&unit!=null?moneyQty:q}</span>
+            <span class="ci-op">${showPrices&&unit!=null?'=':''}</span>
+            <span class="ci-total">${showPrices&&lineTotal!=null?`<strong style="color:${overridden?'#D97706':'var(--text-primary)'};">${smFmtMoney(lineTotal)}</strong>`:''}</span>
+          </div>${noteHtml}`;
+        }
         return `<div class="order-item-row">
           <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
           <div class="qty-controls">
             ${itemNoteBtnHtml(o,id)}
             ${priceHtml}
-            ${canEditItems?`<input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
+            <input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
               onchange="updateCompleteItem('${o.id}',${id},this.value)"
               style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:13px;"/>
             <span class="qty-label">qty</span>
-            <button onclick="removeCompleteItem('${o.id}',${id})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px;" title="Remove">✕</button>`
-            :`<span style="font-size:13px;font-weight:600;">${q}</span>`}
+            <button onclick="removeCompleteItem('${o.id}',${id})" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px;" title="Remove">✕</button>
           </div>
-        </div>`;
+        </div>${noteHtml}`;
       }).join('');
       const orderTotalHtml=showPrices?`<span style="font-size:12px;color:var(--text-secondary);font-weight:600;">${smFmtMoney(orderTotal)}</span>`:'';
       const addItemHtml=canEditItems?`<div class="add-item-row">
