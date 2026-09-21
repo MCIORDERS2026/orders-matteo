@@ -836,6 +836,14 @@
         <button class="btn-sm amber" onclick="exportCompleteSelectedExcel()">⬇ Excel (selected)</button>
         <button class="btn-sm" onclick="printCompleteSelectedPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF (selected)</button>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;">
+        <div style="position:relative;flex:1;max-width:320px;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text-tertiary);pointer-events:none;">🔍</span>
+          <input type="text" id="complete-search" placeholder="Search order # or client…" oninput="applyCompleteFilter()"
+            style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px 7px 28px;font-size:13px;background:var(--bg);box-sizing:border-box;"/>
+        </div>
+        <button id="complete-search-clear" onclick="document.getElementById('complete-search').value='';applyCompleteFilter();" style="display:none;border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:13px;">✕ Clear</button>
+      </div>
       <div style="display:flex;align-items:flex-start;gap:10px;padding:0 0 10px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);padding-top:7px;">Clients:</span>
         <div id="complete-client-checklist" style="display:flex;flex-wrap:wrap;gap:6px;max-width:600px;"></div>
@@ -873,6 +881,14 @@
       <div class="section-toolbar">
         <h2>🧾 Invoiced</h2>
         <button class="btn-sm" onclick="loadInvoicedOrders()">↻ Refresh</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;">
+        <div style="position:relative;flex:1;max-width:320px;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text-tertiary);pointer-events:none;">🔍</span>
+          <input type="text" id="invoiced-search" placeholder="Search order # or client…" oninput="applyInvoicedFilter()"
+            style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px 7px 28px;font-size:13px;background:var(--bg);box-sizing:border-box;"/>
+        </div>
+        <button id="invoiced-search-clear" onclick="document.getElementById('invoiced-search').value='';applyInvoicedFilter();" style="display:none;border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:13px;">✕ Clear</button>
       </div>
       <div id="invoiced-list"><div class="empty-state">Loading...</div></div>
     </div>
@@ -4486,22 +4502,39 @@ function setCompleteInvoicedFilter(v){
 // and the From/To date range against delivered_at. Uses the exact same matching
 // logic as the "Excel (client history)" export just below it, so what you see is
 // what you'd download.
+// Free-text search box above the client checklist — matches order number
+// (exact use case the admin asked for, e.g. typing "135" to jump straight to
+// order #135) as well as client username/display name and who placed the
+// order, so it doubles as a quick way to find one order without scrolling.
 function applyCompleteFilter(){
   const checked=[...document.querySelectorAll('#complete-client-checklist input[type=checkbox]:checked')].map(c=>c.value);
   const fromVal=document.getElementById('complete-hist-date-from')?.value||'';
   const toVal=document.getElementById('complete-hist-date-to')?.value||'';
+  const searchVal=(document.getElementById('complete-search')?.value||'').trim().toLowerCase();
+  const clearBtn=document.getElementById('complete-search-clear');
+  if(clearBtn)clearBtn.style.display=searchVal?'inline-block':'none';
   let list=completeOrdersCache||[];
   if(checked.length)list=list.filter(o=>checked.includes(o.username));
   if(completeInvoicedFilter==='invoiced')list=list.filter(o=>o.invoiced);
   else if(completeInvoicedFilter==='not_invoiced')list=list.filter(o=>!o.invoiced);
   if(fromVal)list=list.filter(o=>o.delivered_at&&o.delivered_at>=fromVal+'T00:00:00');
   if(toVal)list=list.filter(o=>o.delivered_at&&o.delivered_at<=toVal+'T23:59:59.999');
+  if(searchVal){
+    list=list.filter(o=>{
+      const orderNum=String(o.order_number||'').toLowerCase();
+      const uname=String(o.username||'').toLowerCase();
+      const disp=String((typeof displayNameFor==='function'?displayNameFor(o.username):o.username)||'').toLowerCase();
+      const orderedBy=String(o.ordered_by||'').toLowerCase();
+      return orderNum.includes(searchVal)||uname.includes(searchVal)||disp.includes(searchVal)||orderedBy.includes(searchVal);
+    });
+  }
 
   const noteEl=document.getElementById('complete-filter-note');
   if(noteEl){
-    const active=checked.length||fromVal||toVal||completeInvoicedFilter!=='all';
+    const active=checked.length||fromVal||toVal||completeInvoicedFilter!=='all'||searchVal;
     if(active){
       const bits=[];
+      if(searchVal)bits.push(`search "${searchVal}"`);
       if(checked.length)bits.push(`${checked.length} client${checked.length===1?'':'s'}`);
       if(completeInvoicedFilter!=='all')bits.push(completeInvoicedFilter==='invoiced'?'invoiced only':'not invoiced only');
       if(fromVal||toVal)bits.push(`${fromVal||'…'} → ${toVal||'…'}`);
@@ -4756,8 +4789,26 @@ async function loadInvoicedOrders(){
     const rows=await sbGet('orders_history','invoiced=eq.true&deleted_at=is.null&order=invoiced_at.desc.nullslast');
     invoicedOrdersCache=rows;
     if(isAdmin||isInvoicer)await ensureClientPricesCache();
-    renderInvoicedList(rows);
+    applyInvoicedFilter();
   }catch(e){el.innerHTML=`<div class="empty-state">Error: ${e.message}</div>`;}
+}
+// Same order-#/client search box as the Complete tab (see applyCompleteFilter)
+// — no other filters here yet, just the free-text search the admin asked for.
+function applyInvoicedFilter(){
+  const searchVal=(document.getElementById('invoiced-search')?.value||'').trim().toLowerCase();
+  const clearBtn=document.getElementById('invoiced-search-clear');
+  if(clearBtn)clearBtn.style.display=searchVal?'inline-block':'none';
+  let list=invoicedOrdersCache||[];
+  if(searchVal){
+    list=list.filter(o=>{
+      const orderNum=String(o.order_number||'').toLowerCase();
+      const uname=String(o.username||'').toLowerCase();
+      const disp=String((typeof displayNameFor==='function'?displayNameFor(o.username):o.username)||'').toLowerCase();
+      const orderedBy=String(o.ordered_by||'').toLowerCase();
+      return orderNum.includes(searchVal)||uname.includes(searchVal)||disp.includes(searchVal)||orderedBy.includes(searchVal);
+    });
+  }
+  renderInvoicedList(list);
 }
 function renderInvoicedList(rows){
   const el=document.getElementById('invoiced-list');
