@@ -1947,6 +1947,12 @@ function closedDaysStr(){
 function updateBanner(){
   const cs=getActiveCutoff();
   const b=document.getElementById('banner'),m=document.getElementById('banner-msg');
+  // The order cut-off/closed-day banner is about the client ordering window —
+  // meaningless for the Invoicer, who never places or edits orders (they only
+  // work in Complete/Invoiced). Just hide it for that role entirely rather than
+  // showing a client-facing "orders closed" message that doesn't apply to them.
+  if(isInvoicer){if(b)b.style.display='none';return;}
+  if(b)b.style.display='';
   if(isClosedDay()){
     if(isAdmin){
       b.className='banner admin-mode';
