@@ -621,6 +621,10 @@
         <button class="btn-sm" onclick="loadActivityLog()">↻ Refresh</button>
       </div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Every order move and item change made by a Kitchen staff account, most recent first.</p>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 12px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--text-secondary);">Show:</span>
+        <div id="activity-performer-filter" style="display:flex;gap:6px;"></div>
+      </div>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);">From:</span>
         <input type="date" id="activity-date-from" onchange="loadActivityLog()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);"/>
@@ -6149,9 +6153,42 @@ function generateSalesMetricsPDF(){
 
 // ── ADMIN: KITCHEN ACTIVITY LOG (admin-only — see logKitchenActivity) ──
 const ACTIVITY_ACTION_ICON={status_change:'🔀',items_changed:'📝'};
+// "Show: All / 🍳 Central Kitchen / 🧾 Invoicer" pill filter — logKitchenActivity
+// stores performed_by as the raw username, not a role, so filtering by role means
+// first resolving which usernames currently hold role='kitchen' vs 'invoicer'
+// (cached after the first fetch; there's normally just one of each, but this
+// still works correctly if the admin ever renames or adds another such account).
+let activityPerformerFilter='all';
+let activityRoleUsernames=null;
+async function ensureActivityRoleUsernames(){
+  if(activityRoleUsernames)return activityRoleUsernames;
+  try{
+    const rows=await sbGet('users','role=in.(kitchen,invoicer)&select=username,role');
+    activityRoleUsernames={
+      kitchen:new Set(rows.filter(u=>u.role==='kitchen').map(u=>u.username)),
+      invoicer:new Set(rows.filter(u=>u.role==='invoicer').map(u=>u.username))
+    };
+  }catch(e){activityRoleUsernames={kitchen:new Set(),invoicer:new Set()};}
+  return activityRoleUsernames;
+}
+function renderActivityPerformerFilter(){
+  const el=document.getElementById('activity-performer-filter');
+  if(!el)return;
+  const opts=[['all','All'],['kitchen','🍳 Central Kitchen'],['invoicer','🧾 Invoicer']];
+  el.innerHTML=opts.map(([v,label])=>{
+    const active=activityPerformerFilter===v;
+    return `<button class="btn-sm" onclick="setActivityPerformerFilter('${v}')" style="${active?'border-color:#6D28D9;color:#6D28D9;font-weight:600;background:#F5F3FF;':''}">${label}</button>`;
+  }).join('');
+}
+function setActivityPerformerFilter(v){
+  activityPerformerFilter=v;
+  renderActivityPerformerFilter();
+  loadActivityLog();
+}
 async function loadActivityLog(){
   const el=document.getElementById('activity-log-list');
   if(!el)return;
+  renderActivityPerformerFilter();
   el.innerHTML='<div class="empty-state">Loading...</div>';
   const fromVal=document.getElementById('activity-date-from')?.value;
   const toVal=document.getElementById('activity-date-to')?.value;
@@ -6161,7 +6198,12 @@ async function loadActivityLog(){
   let rows=[];
   try{rows=await sbGet('order_activity_log',query);}
   catch(e){el.innerHTML='<div class="empty-state">Error loading activity log.</div>';return;}
-  if(!rows.length){el.innerHTML='<div class="empty-state">No Kitchen activity recorded yet.</div>';return;}
+  if(activityPerformerFilter!=='all'){
+    const roles=await ensureActivityRoleUsernames();
+    const allowed=roles[activityPerformerFilter]||new Set();
+    rows=rows.filter(r=>allowed.has(r.performed_by));
+  }
+  if(!rows.length){el.innerHTML=`<div class="empty-state">No ${activityPerformerFilter==='all'?'Kitchen':activityPerformerFilter==='kitchen'?'Central Kitchen':'Invoicer'} activity recorded yet.</div>`;return;}
   el.innerHTML=rows.map(r=>{
     const dt=r.created_at?new Date(r.created_at):null;
     const dateStr=dt?(dt.toLocaleDateString('en-GB')+' '+dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):'';
