@@ -969,6 +969,7 @@
     <div id="invoice-checklist-total" style="text-align:right;font-size:14px;font-weight:700;padding:10px 4px 0;color:var(--red);"></div>
     <div class="modal-btns">
       <button onclick="closeModal('invoice-checklist-modal')">Close</button>
+      <button id="invoice-checklist-checkall-btn" style="display:none;background:#EEF2FF;border-color:#C7D2FE;color:#4338CA;" onclick="checkAllInvoiceItems(currentInvoiceChecklistOrderId)">☑️ Check all</button>
       <button class="primary" id="invoice-checklist-mark-btn" style="background:#6D28D9;border-color:#6D28D9;" disabled onclick="markOrderInvoiced(currentInvoiceChecklistOrderId)">🧾 Mark invoiced</button>
     </div>
   </div>
@@ -4589,8 +4590,35 @@ function openInvoiceChecklistModal(orderId){
   if(!o)return;
   currentInvoiceChecklistOrderId=orderId;
   document.getElementById('invoice-checklist-title').textContent=`☑️ ${o.username}${o.order_number?' — #'+o.order_number:''}`;
+  // "Check all" is admin-only — it exists purely to clear a backlog of old orders
+  // fast, skipping the one-by-one physical verification the Invoicer normally
+  // does. Never shown to the Invoicer, who must still tick items individually.
+  const checkAllBtn=document.getElementById('invoice-checklist-checkall-btn');
+  if(checkAllBtn)checkAllBtn.style.display=isAdmin?'inline-block':'none';
   renderInvoiceChecklistModalBody(o);
   openModal('invoice-checklist-modal');
+}
+// Admin-only bulk action — marks every item on this order's invoicing checklist
+// as checked in one go (single sbPatch), instead of clicking each checkbox in
+// order. Meant for clearing a backlog of already-confirmed past orders quickly.
+// Still respects the same invoiced_items shape toggleInvoiceItem writes, so
+// everything downstream (the sequential-unlock display, "Mark invoiced" gating,
+// the Invoiced tab) behaves exactly as if each item had been ticked by hand.
+async function checkAllInvoiceItems(orderId){
+  if(!isAdmin)return;
+  const o=findInvoicingOrder(orderId);
+  if(!o)return;
+  const sortedIds=sortItemEntries(Object.entries(o.items||{})).map(([id])=>String(id));
+  if(!sortedIds.length)return;
+  if(!confirm(`Check all ${sortedIds.length} items for this order as invoiced-verified? This skips the one-by-one check.`))return;
+  const items={...(o.invoiced_items||{})};
+  sortedIds.forEach(id=>{items[id]=true;});
+  try{
+    await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced_items:items});
+    o.invoiced_items=items;
+    logKitchenActivity(o,'invoice_item_checked','All items bulk-checked (admin)');
+    renderInvoiceChecklistModalBody(o);
+  }catch(e){alert('Error saving: '+e.message);}
 }
 function renderInvoiceChecklistModalBody(o){
   const body=document.getElementById('invoice-checklist-body');
