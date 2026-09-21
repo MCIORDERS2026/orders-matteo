@@ -7754,8 +7754,8 @@ function generateOrderPDF(order,opts={}){
           ${order.ordered_by?`<div style="font-size:12px;color:#444;margin-top:2px;">👤 Placed by: <b>${order.ordered_by}</b></div>`:''}
         </div>
         <div style="background:#f4f4f4;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Date</div>
-          <div style="font-size:14px;font-weight:600;">${order.timestamp}</div>
+          <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">${order.delivered_at?'Completed':'Date'}</div>
+          <div style="font-size:14px;font-weight:600;">${order.delivered_at?(new Date(order.delivered_at).toLocaleDateString('en-GB')+' '+new Date(order.delivered_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})):order.timestamp}</div>
         </div>
       </div>
 
