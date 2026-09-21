@@ -631,6 +631,9 @@
         <button class="btn-sm" onclick="openPriceHistoryModal()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">📊 Price History</button>
       </div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Set a custom price per product for a specific client — used only for admin reports (never shown to the client). Leave a field blank to fall back to the product's default sale price. Prices save automatically as you type.</p>
+      <div id="prices-history-paused-banner" style="display:none;background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;margin-bottom:14px;">
+        ⏸ <strong>Price History is paused.</strong> Any price you save now overwrites the price for that product/client at every date — it will recalculate every past order too, not just future ones. Use this only while correcting mistakes. Ask to turn Price History back on when you're done.
+      </div>
       <div style="display:flex;align-items:center;gap:8px;padding:0 0 14px;flex-wrap:wrap;">
         <span style="font-size:12px;color:var(--text-secondary);">Client:</span>
         <select id="prices-client-select" onchange="changeClientPricesClient(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;background:var(--bg);min-width:180px;"></select>
@@ -5143,6 +5146,19 @@ function cpCurrentPriceValue(value){
 // preserved as a dated history entry (so past orders keep showing it) and the new
 // price is recorded as effective from today. If nothing changed, returns the
 // input untouched so we never rewrite history needlessly.
+//
+// PRICE_HISTORY_PAUSED — set true 2026-09-21 at the admin's request: they need to
+// bulk-correct a batch of client prices and want each correction to apply to
+// EVERY order for that product/client, past and future, not just from today
+// forward. While this is true, saveClientPrices() below skips cpApplyPriceEdit
+// entirely and just writes the plain corrected number, which cpResolvePriceForDate
+// already treats as "always applies, regardless of date" (see its `typeof
+// value==='number'` branch) — so no other function needed to change. Any product
+// that already had dated history gets that history collapsed into the one
+// corrected number the moment it's saved again. Set back to false once the admin
+// says the correction pass is done, to resume normal date-aware behavior (from
+// that point on, edits will only affect orders from that day forward again).
+let PRICE_HISTORY_PAUSED=true;
 function cpApplyPriceEdit(oldRawValue,newValue,todayStr){
   const todayVal=todayStr||new Date().toISOString().slice(0,10);
   const oldCurrent=cpCurrentPriceValue(oldRawValue);
@@ -6611,6 +6627,8 @@ function manualSaveClientPrices(){
 async function loadClientPricesTab(){
   const sel=document.getElementById('prices-client-select');
   if(!sel)return;
+  const pauseBanner=document.getElementById('prices-history-paused-banner');
+  if(pauseBanner)pauseBanner.style.display=PRICE_HISTORY_PAUSED?'block':'none';
   try{
     if(!allProducts.length){
       allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
@@ -6921,7 +6939,9 @@ async function saveClientPrices(){
     const num=val!==''?parseFloat(val):NaN;
     const newValue=(!isNaN(num)&&num>=0)?num:null;
     const oldRaw=clientPricesOriginal[productId]!=null?clientPricesOriginal[productId]:null;
-    const newRaw=cpApplyPriceEdit(oldRaw,newValue,today);
+    // While paused, save the plain corrected number directly (no history entry) —
+    // it applies to every order at every date. See PRICE_HISTORY_PAUSED above.
+    const newRaw=PRICE_HISTORY_PAUSED?newValue:cpApplyPriceEdit(oldRaw,newValue,today);
     if(newRaw!=null)updated[productId]=newRaw;
   });
   try{
