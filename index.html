@@ -388,6 +388,10 @@
             <div class="notif-item-title">🧮 Food Cost</div>
             <div class="notif-item-text">Calculate a recipe's cost from its ingredients</div>
           </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('suppliers')">
+            <div class="notif-item-title">🏷️ Supplier List</div>
+            <div class="notif-item-text">Set each product's supplier & code</div>
+          </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();goAdminMenu('prices')">
             <div class="notif-item-title">💷 Client Prices</div>
             <div class="notif-item-text">Set per-client prices (admin reports only)</div>
@@ -695,6 +699,32 @@
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Editing an ingredient's package size/unit/price here updates every saved recipe that uses it (by name) and recalculates that product's Cost automatically. Removing one only stops it being suggested for new entries — it doesn't touch recipes that already used it. Tick "Per pack" for packaging-type ingredients (e.g. a pouch or box used once per sold pack) so their cost is charged straight to Cost per pack instead of being diluted across the whole batch — this applies to every recipe using that ingredient.</p>
         <div id="fc-ingredients-list"><div class="empty-state">Loading...</div></div>
       </div>
+    </div>
+
+    <!-- ADMIN: SUPPLIER LIST (admin-only) — set each product's supplier + supplier/SKU code,
+         same tool as VRC Orders' "Supplier List", adapted to MCI's cost_price/food_cost_tracked. -->
+    <div id="tab-suppliers" style="display:none;">
+      <div class="section-toolbar">
+        <h2>🏷️ Supplier List</h2>
+        <button class="btn-sm" onclick="openManageSuppliers()">⚙️ Suppliers</button>
+        <button class="btn-sm" onclick="loadSupplierInfoTab()">↻ Refresh</button>
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">Set which supplier each product is bought from, and that supplier's product/SKU code. Saves as soon as you leave a field. Admin only.</p>
+      <div class="cat-row" id="sif-cat-row"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 0 10px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
+          <span style="font-size:13px;">🔍</span>
+          <input type="text" id="sif-search" placeholder="Search products..." oninput="searchSupplierInfo(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
+        </div>
+        <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
+        <select id="sif-supplier-filter" onchange="filterSupplierInfoBySupplier(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:13px;background:var(--bg);">
+          <option value="">All suppliers</option>
+        </select>
+        <button class="btn-sm" id="sif-missing" onclick="filterSupplierInfoTab(supplierInfoFilter==='missing'?'all':'missing')">⚠️ Missing only</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);padding:0 0 10px;" id="supplier-info-count"></div>
+      <datalist id="prod-suppliers-list"></datalist>
+      <div id="supplier-info-list"></div>
     </div>
 
     <!-- ADMIN: SALES METRICS -->
@@ -1067,6 +1097,21 @@
     <div class="modal-btns">
       <button onclick="closeComprasCkModal()">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- 🏷️ Manage Suppliers — the list of names offered as autocomplete/filter options on the
+     Supplier List tab. Stored in app_settings (key='suppliers'), same pattern as CATEGORIES. -->
+<div class="modal-overlay" id="manage-suppliers-modal">
+  <div class="modal" style="max-width:420px;width:95vw;max-height:85vh;overflow-y:auto;">
+    <h3>🏷️ Manage Suppliers</h3>
+    <div id="suppliers-list" style="max-height:280px;overflow-y:auto;margin-bottom:12px;"></div>
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="new-supplier-name" placeholder="Supplier name (e.g. Brakes)" style="flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:13px;background:var(--bg);"/>
+      <button class="btn-sm green" onclick="addSupplier()">+ Add</button>
+    </div>
+    <div class="modal-error" id="suppliers-error" style="display:none;"></div>
+    <div class="modal-btns"><button onclick="closeModal('manage-suppliers-modal')">Close</button></div>
   </div>
 </div>
 
@@ -1501,7 +1546,7 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     <div class="field"><label>Name</label><input type="text" id="prod-name" placeholder="Product name"/></div>
     <div class="field"><label>Description / Unit</label><input type="text" id="prod-description" placeholder="e.g. 1 kg, Unit, Box..."/></div>
     <div class="field"><label>Order in multiples of <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(e.g. 12 = clients can only order 12, 24, 36...)</span></label><input type="number" id="prod-order-multiple" min="1" max="999" value="1" placeholder="1"/></div>
-    <div class="field"><label>Supplier <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(groups the Shopping List)</span></label><input type="text" id="prod-supplier-name" placeholder="e.g. Sysco, Brakes..."/></div>
+    <div class="field"><label>Supplier <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(groups the Shopping List)</span></label><input type="text" id="prod-supplier-name" list="prod-suppliers-list" placeholder="e.g. Sysco, Brakes..."/></div>
     <div class="field"><label>Supplier / SKU code</label><input type="text" id="prod-supplier-code" placeholder="e.g. CPU003"/></div>
     <div class="field"><label>Category</label>
       <select id="prod-cat">
@@ -3149,7 +3194,7 @@ function showAdminTab(t,el){
   // Flush any pending Client Prices autosave before navigating away, so leaving the
   // tab right after typing never loses the last edit.
   if(clientPricesAutoSaveTimer){clearTimeout(clientPricesAutoSaveTimer);clientPricesAutoSaveTimer=null;saveClientPrices();}
-  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost','invoiced'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost','invoiced','suppliers'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -3171,6 +3216,7 @@ function showAdminTab(t,el){
   if(t==='prices'){loadClientPricesTab();}
   if(t==='foodcost'){loadFoodCostTab();}
   if(t==='invoiced'){loadInvoicedOrders();}
+  if(t==='suppliers'){loadSupplierInfoTab();}
   // Keep "online now" dots fresh while the Users tab is open; stop polling elsewhere.
   if(_usersPollInterval){clearInterval(_usersPollInterval);_usersPollInterval=null;}
   if(t==='users'){_usersPollInterval=setInterval(loadUsers,10000);}
@@ -3929,6 +3975,297 @@ async function addComprasCkEntry(){
     codeEl.value='';nameEl.value='';packEl.value='';priceEl.value='';
     renderComprasCkList();
   }catch(e){errEl.textContent='Error adding: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+}
+
+// ── 🏷️ Supplier List — set which supplier each product is bought from, and that
+// supplier's product/SKU code, from one filterable/searchable screen instead of opening
+// every product's Edit modal one at a time. Also doubles as a quick way to edit Cost for
+// any product that ISN'T recipe-tracked (Central Kitchen items keep their Cost locked here,
+// coming from Menu → Food Cost instead). Ported from VRC Orders' Supplier List. ──
+const DEFAULT_SUPPLIERS=[]; // starts empty — Matteo's own supplier names are added from Menu -> Supplier List -> ⚙️ Suppliers
+function loadSuppliers(){
+  try{
+    const saved=localStorage.getItem('matteo-suppliers');
+    return saved?JSON.parse(saved):DEFAULT_SUPPLIERS.slice();
+  }catch(e){return DEFAULT_SUPPLIERS.slice();}
+}
+function saveSuppliersLocal(sups){
+  try{localStorage.setItem('matteo-suppliers',JSON.stringify(sups));}catch(e){}
+}
+let SUPPLIERS=loadSuppliers();
+async function fetchSuppliersFromSupabase(){
+  try{
+    const rows=await sbGet('app_settings','key=eq.suppliers');
+    if(rows&&rows[0]&&rows[0].value&&rows[0].value.length){
+      SUPPLIERS=rows[0].value;
+      saveSuppliersLocal(SUPPLIERS);
+    }
+  }catch(e){/* app_settings table might not exist yet - keep local/default value */}
+  renderSuppliersDatalist();
+}
+async function saveSuppliersToSupabase(sups){
+  try{
+    const res=await sbPatch('app_settings','key=eq.suppliers',{value:sups});
+    if(!res||!res.length){
+      await sbPost('app_settings',{key:'suppliers',value:sups});
+    }
+  }catch(e){console.error('Error saving suppliers to Supabase:',e);}
+}
+function renderSuppliersDatalist(){
+  const dl=document.getElementById('prod-suppliers-list');
+  if(!dl)return;
+  dl.innerHTML=SUPPLIERS.map(s=>`<option value="${s.replace(/"/g,'&quot;')}"></option>`).join('');
+}
+
+let supplierInfoCache=[],supplierInfoFilter='all',supplierInfoSearch='',supplierInfoSupplierFilter='',supplierInfoCat='all';
+async function loadSupplierInfoTab(){
+  const el=document.getElementById('supplier-info-list');
+  if(!el)return;
+  el.innerHTML='<div class="empty-state">Loading...</div>';
+  try{
+    await fetchSuppliersFromSupabase();
+    const rows=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');
+    supplierInfoCache=rows;
+    const catRow=document.getElementById('sif-cat-row');
+    if(catRow)catRow.innerHTML=`<button class="cat-btn${supplierInfoCat==='all'?' active':''}" onclick="filterSupplierInfoCat('all',this)">All</button>`+CATEGORIES.filter(c=>c.id!=='all').map(c=>
+      `<button class="cat-btn${supplierInfoCat===c.id?' active':''}" onclick="filterSupplierInfoCat('${c.id}',this)">${c.label}</button>`
+    ).join('');
+    updateSupplierFilterDropdown();
+    renderSupplierInfoList();
+  }catch(e){el.innerHTML='<div class="empty-state">Error loading products.</div>';}
+}
+function filterSupplierInfoCat(cat,btn){
+  supplierInfoCat=cat;
+  document.querySelectorAll('#sif-cat-row .cat-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  renderSupplierInfoList();
+}
+function filterSupplierInfoTab(mode){
+  supplierInfoFilter=mode;
+  const b=document.getElementById('sif-missing');
+  if(b){
+    const active=mode==='missing';
+    b.style.fontWeight=active?'600':'400';
+    b.style.borderColor=active?'#D97706':'var(--border)';
+    b.style.background=active?'#FFFBEB':'var(--bg)';
+  }
+  renderSupplierInfoList();
+}
+function searchSupplierInfo(val){
+  supplierInfoSearch=val;
+  renderSupplierInfoList();
+}
+function filterSupplierInfoBySupplier(val){
+  supplierInfoSupplierFilter=val;
+  renderSupplierInfoList();
+}
+function updateSupplierFilterDropdown(){
+  const sel=document.getElementById('sif-supplier-filter');
+  if(!sel)return;
+  const current=sel.value;
+  sel.innerHTML='<option value="">All suppliers</option>'+SUPPLIERS.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('');
+  sel.value=SUPPLIERS.includes(current)?current:'';
+}
+// Central Kitchen (recipe-tracked) items get their Cost from Menu -> Food Cost instead of
+// being typed in directly here — shown locked with a message pointing there.
+function siCostIsLocked(p){return !!(p&&p.food_cost_tracked);}
+function siShowCostLockedMessage(){alert('This item\'s Cost comes from its recipe.\n\nGo to Menu → Food Cost to add/edit the recipe; saving it there updates the Cost automatically.');}
+function renderSupplierInfoList(){
+  const el=document.getElementById('supplier-info-list');
+  const countEl=document.getElementById('supplier-info-count');
+  if(!el)return;
+  const missingCount=supplierInfoCache.filter(p=>!p.supplier_name||!p.supplier_code).length;
+  let rows=supplierInfoCache.slice();
+  if(supplierInfoCat!=='all')rows=rows.filter(p=>p.cat===supplierInfoCat);
+  if(supplierInfoFilter==='missing')rows=rows.filter(p=>!p.supplier_name||!p.supplier_code);
+  if(supplierInfoSupplierFilter)rows=rows.filter(p=>p.supplier_name===supplierInfoSupplierFilter);
+  if(supplierInfoSearch.trim()){
+    const q=supplierInfoSearch.trim().toLowerCase();
+    rows=rows.filter(p=>p.name.toLowerCase().includes(q));
+  }
+  if(countEl)countEl.textContent=`Showing ${rows.length} of ${supplierInfoCache.length} products • ${missingCount} missing supplier or code`;
+  if(!rows.length){el.innerHTML='<div class="empty-state">No products match.</div>';return;}
+  // Group by category in the admin's own configured CATEGORIES order (same convention
+  // used by the Products tab and the Food Cost recipes list), not raw DB cat.asc order.
+  const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
+  const groups={};
+  rows.forEach(p=>{
+    const key=p.cat;
+    if(!groups[key])groups[key]=[];
+    groups[key].push(p);
+  });
+  const groupKeys=[...new Set([...catOrder,...Object.keys(groups)])].filter(c=>groups[c]&&groups[c].length);
+  el.innerHTML=groupKeys.map(key=>{
+    const items=groups[key];
+    const catLabel=(CATEGORIES.find(c=>c.id===key)||{}).label||key;
+    const header=`<div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 6px;">${catLabel} <span style="font-weight:400;text-transform:none;">(${items.length})</span></div>`;
+    const rowsHtml=items.map(p=>{
+      const isMissing=!p.supplier_name||!p.supplier_code;
+      const costCellHtml=siCostIsLocked(p)
+        ? `<span style="display:flex;align-items:center;gap:3px;cursor:pointer;" onclick="siShowCostLockedMessage()" title="Cost for Central Kitchen items is set in Menu → Food Cost">
+            <span style="width:70px;border:1px solid var(--border-light);border-radius:6px;padding:6px 7px;font-size:12px;background:var(--bg);color:var(--text-secondary);">${p.cost_price!=null?smFmtMoney(p.cost_price):'—'}</span>
+          </span>`
+        : `<span style="display:flex;align-items:center;gap:3px;">
+            <span style="font-size:12px;color:var(--text-secondary);">£</span>
+            <input type="number" step="0.01" min="0" value="${p.cost_price!=null?p.cost_price:''}" placeholder="0.00"
+              style="width:80px;border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;"
+              onchange="saveCostInline(${p.id},this)"/>
+          </span>`;
+      return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 14px;border:1px solid ${isMissing?'#FDE68A':'var(--border)'};background:${isMissing?'#FFFBEB':'var(--surface)'};border-radius:var(--radius);margin-bottom:8px;">
+        <div style="flex:1;min-width:140px;">
+          <div style="font-size:13px;font-weight:600;">${p.name}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);">${p.supplier_name||'No supplier yet'}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;">Cost</span>
+          ${costCellHtml}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;">Supplier</span>
+          <input type="text" value="${p.supplier_name?p.supplier_name.replace(/"/g,'&quot;'):''}" placeholder="e.g. Brakes" list="prod-suppliers-list"
+            style="width:150px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;"
+            onchange="saveSupplierField(${p.id},'supplier_name',this)"/>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;">Code</span>
+          <input type="text" value="${p.supplier_code?p.supplier_code.replace(/"/g,'&quot;'):''}" placeholder="e.g. 434551"
+            style="width:110px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;"
+            onchange="saveSupplierField(${p.id},'supplier_code',this)"/>
+        </div>
+      </div>`;
+    }).join('');
+    return header+rowsHtml;
+  }).join('');
+}
+async function saveCostInline(id,inputEl){
+  const prod=supplierInfoCache.find(x=>x.id===id);
+  if(siCostIsLocked(prod)){siShowCostLockedMessage();renderSupplierInfoList();return;}
+  const raw=inputEl.value.trim();
+  const value=raw?Math.max(0,parseFloat(raw)||0):null;
+  inputEl.disabled=true;
+  try{
+    await sbPatch('products',`id=eq.${id}`,{cost_price:value});
+    const p=supplierInfoCache.find(x=>x.id===id);
+    if(p)p.cost_price=value;
+    const ap=adminProductsCache.find(x=>x.id===id);
+    if(ap)ap.cost_price=value;
+    const gp=findProductAny(id);
+    if(gp)gp.cost_price=value;
+  }catch(e){alert('Error saving cost: '+e.message);}
+  inputEl.disabled=false;
+}
+async function saveSupplierField(id,field,inputEl){
+  const value=inputEl.value.trim()||null;
+  inputEl.disabled=true;
+  try{
+    await sbPatch('products',`id=eq.${id}`,{[field]:value});
+    const p=supplierInfoCache.find(x=>x.id===id);
+    if(p)p[field]=value;
+    const ap=adminProductsCache.find(x=>x.id===id);
+    if(ap)ap[field]=value;
+    const gp=findProductAny(id);
+    if(gp)gp[field]=value;
+    renderSupplierInfoList();
+  }catch(e){alert('Error saving: '+e.message);inputEl.disabled=false;}
+}
+
+// ── 🏷️ Manage Suppliers — the small editable list of supplier names offered as
+// autocomplete/filter options above. ──
+let supplierEditingIndex=null;
+async function openManageSuppliers(){
+  supplierEditingIndex=null;
+  await fetchSuppliersFromSupabase(); // pick up suppliers added from another device/session
+  renderSuppliersList();
+  openModal('manage-suppliers-modal');
+}
+function renderSuppliersList(){
+  const el=document.getElementById('suppliers-list');
+  if(!el)return;
+  if(!SUPPLIERS.length){el.innerHTML='<div style="font-size:12px;color:var(--text-tertiary);">No suppliers yet.</div>';return;}
+  el.innerHTML=SUPPLIERS.map((s,i)=>{
+    if(i===supplierEditingIndex){
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-light);">
+        <input type="text" id="edit-supplier-input" value="${s.replace(/"/g,'&quot;')}" style="flex:1;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;"
+          onkeydown="if(event.key==='Enter')saveSupplierRename(${i});if(event.key==='Escape')cancelSupplierEdit();"/>
+        <button class="btn-sm green" onclick="saveSupplierRename(${i})" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✓ Save</button>
+        <button class="btn-sm" onclick="cancelSupplierEdit()" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✕ Cancel</button>
+      </div>`;
+    }
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-light);">
+    <span style="font-size:13px;flex:1;">${s}</span>
+    <button class="btn-sm" onclick="startSupplierEdit(${i})" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✏️ Edit</button>
+    <button class="btn-sm red" onclick="removeSupplier('${s.replace(/'/g,"\\'")}')" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✕ Remove</button>
+  </div>`;
+  }).join('');
+  if(supplierEditingIndex!=null){
+    const input=document.getElementById('edit-supplier-input');
+    if(input){input.focus();input.select();}
+  }
+}
+function startSupplierEdit(i){
+  supplierEditingIndex=i;
+  document.getElementById('suppliers-error').style.display='none';
+  renderSuppliersList();
+}
+function cancelSupplierEdit(){
+  supplierEditingIndex=null;
+  renderSuppliersList();
+}
+async function saveSupplierRename(i){
+  const input=document.getElementById('edit-supplier-input');
+  const oldName=SUPPLIERS[i];
+  const newName=input.value.trim();
+  const err=document.getElementById('suppliers-error');
+  if(!newName){err.textContent='Supplier name can\'t be empty.';err.style.display='block';return;}
+  if(newName!==oldName&&SUPPLIERS.some((s,idx)=>idx!==i&&s.toLowerCase()===newName.toLowerCase())){
+    err.textContent='Another supplier already has that name.';err.style.display='block';return;
+  }
+  err.style.display='none';
+  if(newName===oldName){supplierEditingIndex=null;renderSuppliersList();return;}
+  input.disabled=true;
+  try{
+    // Rename in the supplier list itself
+    SUPPLIERS[i]=newName;
+    SUPPLIERS.sort((a,b)=>a.localeCompare(b));
+    saveSuppliersLocal(SUPPLIERS);
+    await saveSuppliersToSupabase(SUPPLIERS);
+    // Cascade the rename to every product currently tagged with the old name, so the
+    // Supplier List doesn't end up with a stray, unlisted supplier name.
+    await sbPatch('products',`supplier_name=eq.${encodeURIComponent(oldName)}`,{supplier_name:newName});
+    [supplierInfoCache,adminProductsCache,allProducts,allProductsArchive].forEach(cache=>{
+      (cache||[]).forEach(p=>{if(p.supplier_name===oldName)p.supplier_name=newName;});
+    });
+    supplierEditingIndex=null;
+    renderSuppliersList();
+    renderSuppliersDatalist();
+    updateSupplierFilterDropdown();
+    renderSupplierInfoList();
+  }catch(e){err.textContent='Error renaming supplier: '+e.message;err.style.display='block';input.disabled=false;}
+}
+async function addSupplier(){
+  const nameEl=document.getElementById('new-supplier-name');
+  const name=nameEl.value.trim();
+  const err=document.getElementById('suppliers-error');
+  if(!name){err.textContent='Enter a supplier name.';err.style.display='block';return;}
+  if(SUPPLIERS.some(s=>s.toLowerCase()===name.toLowerCase())){err.textContent='That supplier already exists.';err.style.display='block';return;}
+  err.style.display='none';
+  SUPPLIERS.push(name);
+  SUPPLIERS.sort((a,b)=>a.localeCompare(b));
+  saveSuppliersLocal(SUPPLIERS);
+  await saveSuppliersToSupabase(SUPPLIERS);
+  nameEl.value='';
+  renderSuppliersList();
+  renderSuppliersDatalist();
+  updateSupplierFilterDropdown();
+}
+async function removeSupplier(name){
+  if(!confirm(`Remove "${name}" from the supplier list? Products already tagged with this supplier keep their value — this only removes it from the autocomplete/filter list.`))return;
+  SUPPLIERS=SUPPLIERS.filter(s=>s!==name);
+  saveSuppliersLocal(SUPPLIERS);
+  await saveSuppliersToSupabase(SUPPLIERS);
+  renderSuppliersList();
+  renderSuppliersDatalist();
+  updateSupplierFilterDropdown();
 }
 
 async function completeOrder(id){
