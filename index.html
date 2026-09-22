@@ -1951,7 +1951,7 @@ function updateBanner(){
   // meaningless for the Invoicer, who never places or edits orders (they only
   // work in Complete/Invoiced). Just hide it for that role entirely rather than
   // showing a client-facing "orders closed" message that doesn't apply to them.
-  if(isInvoicer){if(b)b.style.display='none';return;}
+  if(isInvoicer){if(b)b.style.display='none';recalcStickyOffsets();return;}
   if(b)b.style.display='';
   if(isClosedDay()){
     if(isAdmin){
