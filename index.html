@@ -4784,8 +4784,9 @@ async function toggleInvoiceItem(orderId,productId,checked){
   try{
     await sbPatch('orders_history',`id=eq.${orderId}`,{invoiced_items:items});
     o.invoiced_items=items;
-    const p=findProductAny(productId);
-    logKitchenActivity(o,checked?'invoice_item_checked':'invoice_item_unchecked',(p?p.name:'#'+productId));
+    // Per-item check/uncheck is intentionally NOT logged to Kitchen Activity — with
+    // dozens of items per order this would flood the log. Only the "marked invoiced"
+    // / "un-invoiced" / bulk-check actions below are logged.
     renderInvoiceChecklistModalBody(o);
   }catch(e){alert('Error saving: '+e.message);}
 }
