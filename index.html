@@ -2202,12 +2202,23 @@ async function launch(){
     sbGet('orders_history','status=eq.completed&deleted_at=is.null').then(r=>{const b=document.getElementById('delivery-badge');if(b&&r.length){b.style.display='inline';b.textContent=r.length;}}).catch(()=>{});
     checkOnlineClients();
     setInterval(checkOnlineClients,15000);
+    // Also send the heartbeat so Kitchen itself shows up in the admin's own 👁
+    // dropdown while logged in and active — same fix as the Invoicer one below.
+    sendOnlineHeartbeat();
+    setInterval(sendOnlineHeartbeat, 20000);
   } else if(isInvoicer){
     // Complete + Invoiced only, no notification bell, no cut-off/category logic
     // (Invoicer never places orders). Sees full prices, can't edit order items.
+    // No 👁 online-clients button either — that's about who's browsing the client
+    // ordering menu, which is meaningless for an Invoicer who never sees that menu.
     showAdminTab('complete');
-    checkOnlineClients();
-    setInterval(checkOnlineClients,15000);
+    const obw=document.getElementById('online-bell-wrap');
+    if(obw)obw.style.display='none';
+    // Invoicer doesn't see the 👁 button themselves (hidden above), but the admin's
+    // own 👁 dropdown should still show when the Invoicer is logged in and active —
+    // so keep sending the heartbeat in the background even though the UI is hidden.
+    sendOnlineHeartbeat();
+    setInterval(sendOnlineHeartbeat, 20000);
   } else {
     // Load user's visible categories, products restriction AND cut-off override
     try{
