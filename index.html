@@ -1083,7 +1083,10 @@
         <input type="text" id="cck-search" placeholder="Search code or name..." oninput="searchComprasCk(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
       </span>
       <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
-      <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
+      <span style="display:flex;gap:8px;">
+        <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Add every product with a supplier set (except CPU — those are already on the Shopping List)">⬇️ Import from Supplier List</button>
+        <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
+      </span>
     </div>
     <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:55vh;overflow-y:auto;margin-top:10px;"></div>
     <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
@@ -3975,6 +3978,27 @@ async function addComprasCkEntry(){
     codeEl.value='';nameEl.value='';packEl.value='';priceEl.value='';
     renderComprasCkList();
   }catch(e){errEl.textContent='Error adding: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+}
+// Pulls every product that already has a Supplier set on Menu -> Supplier List straight into
+// Compras CK, linked (so its price always mirrors that product's Cost — see
+// comprasCkEffectivePrice). CPU is skipped: those are Central Kitchen items, already covered
+// by the 🛒 Shopping List, so they'd just be noise here. Products already linked to an
+// existing row are skipped too, so this is safe to run again after adding new suppliers.
+async function importComprasCkFromSupplierList(){
+  const errEl=document.getElementById('compras-ck-error');
+  errEl.style.display='none';
+  try{
+    const products=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');
+    const alreadyLinked=new Set(comprasCkCache.filter(r=>r.linked_product_id!=null).map(r=>String(r.linked_product_id)));
+    const toImport=products.filter(p=>p.supplier_name&&String(p.supplier_name).trim().toLowerCase()!=='cpu'&&!alreadyLinked.has(String(p.id)));
+    if(!toImport.length){alert('Nothing new to import — every product with a supplier (other than CPU) is already in Compras CK.');return;}
+    if(!confirm(`Import ${toImport.length} product(s) from the Supplier List into Compras CK?\n\nCentral Kitchen items (supplier "CPU") are skipped — they're already on the 🛒 Shopping List.`))return;
+    let nextOrder=comprasCkCache.length?Math.max(...comprasCkCache.map(r=>r.sort_order||0))+1:1;
+    const payload=toImport.map(p=>({code:p.supplier_code||null,name:p.name,pack_size:null,linked_product_id:p.id,sort_order:nextOrder++}));
+    const rows=await sbPost('compras_ck',payload);
+    if(Array.isArray(rows))comprasCkCache.push(...rows);
+    renderComprasCkList();
+  }catch(e){errEl.textContent='Error importing: '+e.message;errEl.style.display='block';}
 }
 
 // ── 🏷️ Supplier List — set which supplier each product is bought from, and that
