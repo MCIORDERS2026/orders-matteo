@@ -535,6 +535,8 @@
           <button class="btn-sm" onclick="loadCompletedOrders()">↻ Refresh</button>
           <button class="btn-sm amber" onclick="exportCompletedExcel()">⬇ Excel</button>
           <button class="btn-sm" onclick="printCompletedPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF</button>
+          <button class="btn-sm kitchen-hide-delete" style="background:#DBEAFE;border-color:#93C5FD;color:#1E40AF;" onclick="openShoppingListModal()">Shopping List</button>
+          <button class="btn-sm kitchen-hide-delete" style="background:#EDE9FE;border-color:#C4B5FD;color:#5B21B6;" onclick="openComprasCkModal()">Compras CK</button>
           <button class="btn-sm red kitchen-hide-delete" onclick="promptDeleteCompleted()">🗑 Delete selected</button>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
@@ -1013,6 +1015,61 @@
   </div>
 </div>
 
+<!-- 🛒 Shopping List — aggregates every ordered item across whatever orders are currently
+     In Production (or just the checked ones), grouped by Supplier. "Purchased" is stored per
+     ORDER (purchased_items column on orders_history, same idea as invoiced_items) so it
+     travels with the order itself — if an order leaves In Production and comes back later,
+     its purchase history is exactly as you left it, nothing is lost. Ported from VRC Orders. -->
+<div class="modal-overlay" id="shopping-list-modal">
+  <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;">
+    <h3>Shopping List</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">Everything ordered across the orders currently In Production. Check off items as you buy them, in any order — your progress is saved per order, so moving an order out and back doesn't lose it.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
+        <select id="shopping-list-supplier-filter" onchange="renderShoppingListModal()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"></select>
+      </span>
+      <span id="shopping-list-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
+      <button class="btn-sm red" onclick="resetShoppingChecklist()">↺ Reset checklist</button>
+    </div>
+    <div id="shopping-list-body" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:56vh;overflow-y:auto;"></div>
+    <div class="modal-error" id="shopping-list-error" style="display:none;"></div>
+    <div class="modal-btns">
+      <button onclick="closeShoppingListModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🧾 Compras CK — a separate, freely editable purchase reference list, not linked to
+     orders or products (unless a row is deliberately linked to one for live pricing).
+     Ported from VRC Orders. -->
+<div class="modal-overlay" id="compras-ck-modal">
+  <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;">
+    <h3>Compras CK</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">A separate, freely editable purchase list — not linked to orders or products. Check items off as you buy them; add, edit or remove rows any time.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <span style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
+        <span style="font-size:13px;">🔍</span>
+        <input type="text" id="cck-search" placeholder="Search code or name..." oninput="searchComprasCk(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
+      </span>
+      <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
+      <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
+    </div>
+    <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:55vh;overflow-y:auto;margin-top:10px;"></div>
+    <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
+      <input type="text" id="new-cck-code" placeholder="Code" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+      <input type="text" id="new-cck-name" placeholder="Product name" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+      <input type="text" id="new-cck-packsize" placeholder="Pack size" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+      <input type="number" step="0.01" min="0" id="new-cck-price" placeholder="Price £" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+      <button class="btn-sm green" onclick="addComprasCkEntry()">+ Add</button>
+    </div>
+    <div class="modal-error" id="compras-ck-error" style="display:none;margin-top:10px;"></div>
+    <div class="modal-btns">
+      <button onclick="closeComprasCkModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="item-note-modal">
   <div class="modal" style="max-width:420px;width:92vw;">
     <h3 id="item-note-title">📝 Note</h3>
@@ -1444,6 +1501,8 @@ union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
     <div class="field"><label>Name</label><input type="text" id="prod-name" placeholder="Product name"/></div>
     <div class="field"><label>Description / Unit</label><input type="text" id="prod-description" placeholder="e.g. 1 kg, Unit, Box..."/></div>
     <div class="field"><label>Order in multiples of <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(e.g. 12 = clients can only order 12, 24, 36...)</span></label><input type="number" id="prod-order-multiple" min="1" max="999" value="1" placeholder="1"/></div>
+    <div class="field"><label>Supplier <span style="font-weight:400;color:var(--text-tertiary);font-size:11px;">(groups the Shopping List)</span></label><input type="text" id="prod-supplier-name" placeholder="e.g. Sysco, Brakes..."/></div>
+    <div class="field"><label>Supplier / SKU code</label><input type="text" id="prod-supplier-code" placeholder="e.g. CPU003"/></div>
     <div class="field"><label>Category</label>
       <select id="prod-cat">
         <!-- populated dynamically by updateProdCatDropdown() -->
@@ -3483,6 +3542,395 @@ function renderIPList(){
     </div>`;
   }).join('');
 }
+
+// ── 🛒 Shopping List — aggregates every ordered item across whichever orders are currently
+// In Production (or just the checked ones, same "selection" checkboxes used by ⬇ Excel/🗑
+// Delete selected), with Supplier/Code/Qty. "Purchased" state is stored PER ORDER, directly on
+// each order's own purchased_items column (same idea as invoiced_items on the Complete tab) —
+// NOT in a shared global list. That way, if an order is moved out of In Production and later
+// moved back, its purchase history travels WITH the order and is exactly as you left it. A
+// combined row only shows as bought once EVERY order currently contributing to that row's
+// quantity has confirmed it — so if a new order adds more demand for something already
+// checked, it correctly flips back to "needs buying" for the extra amount. Ported from VRC
+// Orders, adapted to Matteo's own smFmtMoney/cost_price/CATEGORIES/copy-value-box pieces. ──
+let shoppingListItems=[]; // flat, in display order — built fresh each time the modal opens; each row carries orderIds[]
+
+function computeShoppingListItems(orders){
+  const byProduct={}; // pid -> {qty, orderIds:[]}
+  orders.forEach(o=>{
+    Object.entries(o.items||{}).forEach(([pid,qtyRaw])=>{
+      const qty=parseFloat(qtyRaw)||0; // parseFloat (not parseInt) — some products (e.g. Nduja) allow decimal qty
+      if(!qty)return;
+      if(!byProduct[pid])byProduct[pid]={qty:0,orderIds:[]};
+      byProduct[pid].qty+=qty;
+      byProduct[pid].orderIds.push(o.id);
+    });
+  });
+  const rows=Object.entries(byProduct).map(([pid,v])=>{
+    const p=findProductAny(pid);
+    if(!p)return null;
+    return {id:p.id,name:p.name,description:p.description||'',cat:p.cat,supplier_name:p.supplier_name||'',supplier_code:p.supplier_code||'',price:smCostOf(p),qty:v.qty,orderIds:v.orderIds};
+  }).filter(Boolean);
+  // Always grouped/sorted by supplier (blank supplier sorts last), then by product name within
+  // each supplier — matches how the list is actually shopped, one supplier at a time.
+  rows.sort((a,b)=>{
+    const sa=a.supplier_name||'￿', sb=b.supplier_name||'￿';
+    const sc=sa.localeCompare(sb);
+    if(sc!==0)return sc;
+    return a.name.localeCompare(b.name);
+  });
+  return rows;
+}
+
+// A row counts as bought only once every order feeding into it has confirmed purchase on its
+// OWN purchased_items — so it stays accurate even as orders enter/leave In Production.
+function isShoppingRowChecked(r){
+  return r.orderIds.every(oid=>{
+    const o=completedOrdersCache.find(x=>x.id===oid);
+    return !!(o&&o.purchased_items&&o.purchased_items[String(r.id)]===true);
+  });
+}
+
+async function openShoppingListModal(){
+  const errEl=document.getElementById('shopping-list-error');
+  if(errEl)errEl.style.display='none';
+  if(!completedOrdersCache.length){alert('No orders in production right now.');return;}
+  const checked=completedOrdersCache.filter(o=>{const c=document.getElementById('cchk-'+o.id);return c&&c.checked;});
+  const orders=checked.length>0?checked:completedOrdersCache;
+  shoppingListItems=computeShoppingListItems(orders);
+  if(!shoppingListItems.length){alert('Nothing to buy — no items on the selected orders.');return;}
+  shoppingListSupplierFilter='';
+  const filterEl=document.getElementById('shopping-list-supplier-filter');
+  if(filterEl){delete filterEl.dataset.built;filterEl.value='';}
+  openModal('shopping-list-modal');
+  renderShoppingListModal();
+}
+
+let shoppingListSupplierFilter=''; // '' = all suppliers
+function renderShoppingListModal(){
+  const el=document.getElementById('shopping-list-body');
+  const progressEl=document.getElementById('shopping-list-progress');
+  const filterEl=document.getElementById('shopping-list-supplier-filter');
+  if(!el)return;
+
+  // Populate the supplier dropdown once per open (rebuilding it every render would reset the
+  // browser's selection mid-interaction), preserving whichever supplier is currently chosen.
+  if(filterEl&&!filterEl.dataset.built){
+    const suppliers=[...new Set(shoppingListItems.map(r=>r.supplier_name||'—'))].sort((a,b)=>a.localeCompare(b));
+    filterEl.innerHTML='<option value="">All suppliers</option>'+suppliers.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('');
+    filterEl.dataset.built='1';
+  }
+  if(filterEl)shoppingListSupplierFilter=filterEl.value;
+
+  const visibleItems=shoppingListSupplierFilter
+    ? shoppingListItems.filter(r=>(r.supplier_name||'—')===shoppingListSupplierFilter)
+    : shoppingListItems;
+
+  let html='';
+  let lastSupplier=undefined;
+  if(!visibleItems.length){
+    html='<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">No items for this supplier.</div>';
+  }
+  visibleItems.forEach((r)=>{
+    const supplierLabel=r.supplier_name||'No supplier set';
+    if(supplierLabel!==lastSupplier){
+      lastSupplier=supplierLabel;
+      html+=`<div style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;background:var(--bg);border-bottom:1px solid var(--border);">${supplierLabel}</div>`;
+    }
+    const isChecked=isShoppingRowChecked(r);
+    const name=r.description?`${r.name} (${r.description})`:r.name;
+    const catLabel=CATEGORIES.find(c=>c.id===r.cat)?.label||r.cat;
+    const lineTotal=r.price!=null?r.price*r.qty:null;
+    html+=`<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-light);cursor:pointer;background:${isChecked?'var(--green-light)':'transparent'};">
+      <input type="checkbox" ${isChecked?'checked':''} onchange="toggleShoppingListItem('${r.id}',this.checked)" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
+      <span style="flex:1;font-size:13px;${isChecked?'text-decoration:line-through;color:var(--text-secondary);':''}">${name}</span>
+      <span style="font-size:11px;color:var(--text-tertiary);white-space:nowrap;">${catLabel}</span>
+      ${r.supplier_code?`<span class="copy-value-box" title="Click to copy" onclick="event.preventDefault();event.stopPropagation();copyValueToClipboard(this,'${String(r.supplier_code).replace(/'/g,"\\'")}')" style="min-width:50px;justify-content:flex-end;"><strong>${r.supplier_code}</strong> <span class="copy-value-icon">📋</span></span>`:`<span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;min-width:50px;text-align:right;">—</span>`}
+      <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;min-width:55px;text-align:right;">${r.price!=null?smFmtMoney(r.price):'—'}</span>
+      <span style="font-size:13px;font-weight:600;min-width:36px;text-align:right;">${r.qty}</span>
+      <span style="font-size:13px;font-weight:600;min-width:60px;text-align:right;">${lineTotal!=null?smFmtMoney(lineTotal):'—'}</span>
+    </label>`;
+  });
+  el.innerHTML=html;
+  const checkedCount=shoppingListItems.filter(isShoppingRowChecked).length;
+  if(progressEl)progressEl.textContent=`${checkedCount} / ${shoppingListItems.length} checked`;
+}
+
+async function toggleShoppingListItem(itemId,checked){
+  const row=shoppingListItems.find(r=>String(r.id)===String(itemId));
+  if(!row)return;
+  try{
+    await Promise.all(row.orderIds.map(async oid=>{
+      const o=completedOrdersCache.find(x=>x.id===oid);
+      if(!o)return;
+      const newPurchased={...(o.purchased_items||{})};
+      if(checked)newPurchased[itemId]=true;else delete newPurchased[itemId];
+      await sbPatch('orders_history',`id=eq.${oid}`,{purchased_items:newPurchased});
+      o.purchased_items=newPurchased; // keep the shared cache in sync
+    }));
+    renderShoppingListModal();
+  }catch(e){
+    const errEl=document.getElementById('shopping-list-error');
+    if(errEl){errEl.textContent='Error saving: '+e.message+(/purchased_items/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+    renderShoppingListModal();
+  }
+}
+
+function closeShoppingListModal(){
+  closeModal('shopping-list-modal');
+  renderIPList(); // refresh in case anything visual depends on purchased_items later
+}
+
+async function resetShoppingChecklist(){
+  if(!confirm('Reset the shopping checklist? Every item currently shown will be unchecked again.'))return;
+  const affectedOrderIds=[...new Set(shoppingListItems.flatMap(r=>r.orderIds))];
+  const errEl=document.getElementById('shopping-list-error');
+  try{
+    await Promise.all(affectedOrderIds.map(async oid=>{
+      const o=completedOrdersCache.find(x=>x.id===oid);
+      if(!o)return;
+      const newPurchased={...(o.purchased_items||{})};
+      shoppingListItems.forEach(r=>{if(r.orderIds.includes(oid))delete newPurchased[String(r.id)];});
+      await sbPatch('orders_history',`id=eq.${oid}`,{purchased_items:newPurchased});
+      o.purchased_items=newPurchased;
+    }));
+    renderShoppingListModal();
+  }catch(e){
+    if(errEl){errEl.textContent='Error resetting: '+e.message+(/purchased_items/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+  }
+}
+
+// ── 🧾 Compras CK — a separate, freely editable purchase reference list, NOT linked to
+// orders or products (unless a row is deliberately linked to one for live pricing). Same
+// check-off pattern as the Shopping List above, but the checked state lives directly on
+// each row (`purchased` column) since these items aren't tied to any order. Ported from
+// VRC Orders, adapted to MCI's smFmtMoney/cost_price/copyValueToClipboard pieces. ──
+let comprasCkCache=[];
+let comprasCkEditingId=null;
+let comprasCkSearch='';
+// A linked row's price always comes live from that product's Cost (Menu -> Products)
+// instead of its own `price` column — one source of truth, no extra write-back logic.
+function comprasCkEffectivePrice(r){
+  if(r.linked_product_id){
+    const p=findProductAny(r.linked_product_id);
+    return p?smCostOf(p):null;
+  }
+  return r.price;
+}
+// Live-updates the price field while editing, as soon as a different product is picked
+// (or unpicked) from the link dropdown — locks/unlocks and fills it in immediately.
+function onComprasCkLinkChange(){
+  const sel=document.getElementById('edit-cck-linked-product');
+  const priceInput=document.getElementById('edit-cck-price');
+  if(!sel||!priceInput)return;
+  const pid=sel.value||null;
+  if(pid){
+    const p=findProductAny(pid);
+    const c=p?smCostOf(p):null;
+    priceInput.value=c!=null?c:'';
+    priceInput.disabled=true;
+    priceInput.style.background='var(--bg)';
+    priceInput.style.color='var(--text-tertiary)';
+  }else{
+    priceInput.disabled=false;
+    priceInput.style.background='';
+    priceInput.style.color='';
+  }
+}
+async function openComprasCkModal(){
+  openModal('compras-ck-modal');
+  comprasCkSearch='';
+  const se=document.getElementById('cck-search');if(se)se.value='';
+  await loadComprasCkTab();
+}
+function closeComprasCkModal(){
+  closeModal('compras-ck-modal');
+}
+async function loadComprasCkTab(){
+  comprasCkEditingId=null;
+  const errEl=document.getElementById('compras-ck-error');
+  if(errEl)errEl.style.display='none';
+  const listEl=document.getElementById('compras-ck-list');
+  if(listEl)listEl.innerHTML='<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0;">Loading...</div>';
+  try{
+    comprasCkCache=await sbGet('compras_ck','order=sort_order.asc,name.asc');
+  }catch(e){
+    comprasCkCache=[];
+    if(errEl){errEl.textContent='Error loading: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+  }
+  renderComprasCkList();
+}
+function searchComprasCk(v){
+  comprasCkSearch=(v||'').trim().toLowerCase();
+  renderComprasCkList();
+}
+function renderComprasCkList(){
+  const el=document.getElementById('compras-ck-list');
+  const progressEl=document.getElementById('compras-ck-progress');
+  if(!el)return;
+  const q=comprasCkSearch;
+  const rows=q?comprasCkCache.filter(r=>(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)):comprasCkCache;
+  if(progressEl){
+    const checkedCount=comprasCkCache.filter(r=>r.purchased).length;
+    progressEl.textContent=`${checkedCount} / ${comprasCkCache.length} checked`;
+  }
+  if(!rows.length){el.innerHTML=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${comprasCkCache.length?'No matches.':'No items yet — add one below.'}</div>`;return;}
+  el.innerHTML=rows.map(r=>{
+    if(r.id===comprasCkEditingId){
+      const effPriceEdit=comprasCkEffectivePrice(r);
+      const linkedOptions=[...allProducts].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${String(r.linked_product_id)===String(p.id)?'selected':''}>${String(p.name).replace(/</g,'&lt;')}</option>`).join('');
+      return `<div style="display:grid;grid-template-columns:90px 1.4fr 100px 1fr 90px 80px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border-light);">
+        <input type="text" id="edit-cck-code" value="${r.code?String(r.code).replace(/"/g,'&quot;'):''}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;"/>
+        <input type="text" id="edit-cck-name" value="${String(r.name).replace(/"/g,'&quot;')}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;"/>
+        <input type="text" id="edit-cck-packsize" value="${r.pack_size?String(r.pack_size).replace(/"/g,'&quot;'):''}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;"/>
+        <select id="edit-cck-linked-product" onchange="onComprasCkLinkChange()" title="Link to a product — locks the price to that product's Cost" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;">
+          <option value="">— Not linked —</option>
+          ${linkedOptions}
+        </select>
+        <input type="number" step="0.01" min="0" id="edit-cck-price" value="${effPriceEdit!=null?effPriceEdit:''}" placeholder="Price £" ${r.linked_product_id?'disabled':''} style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;${r.linked_product_id?'background:var(--bg);color:var(--text-tertiary);':''}"/>
+        <span style="display:flex;gap:4px;">
+          <button class="btn-sm green" onclick="saveComprasCkEdit(${r.id})" title="Save" style="font-size:11px;padding:5px 6px;">✓</button>
+          <button class="btn-sm" onclick="cancelComprasCkEdit()" title="Cancel" style="font-size:11px;padding:5px 6px;">✕</button>
+        </span>
+      </div>`;
+    }
+    const isChecked=!!r.purchased;
+    const nameLabel=r.pack_size?`${r.name} (${r.pack_size})`:r.name;
+    const effPrice=comprasCkEffectivePrice(r);
+    // Move up/down only makes sense against the full, unfiltered order — hide it while
+    // a search is active so "adjacent" always means adjacent in the real saved order.
+    const idx=comprasCkCache.findIndex(x=>x.id===r.id);
+    const canReorder=!q;
+    const atTop=idx<=0, atBottom=idx>=comprasCkCache.length-1;
+    const moveBtns=canReorder?`<span style="display:flex;flex-direction:column;flex-shrink:0;" onclick="event.preventDefault();">
+        <button onclick="moveComprasCkItem(${r.id},-1)" title="Move up" ${atTop?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atTop?'#D1D5DB':'#9CA3AF'};cursor:${atTop?'default':'pointer'};">▲</button>
+        <button onclick="moveComprasCkItem(${r.id},1)" title="Move down" ${atBottom?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atBottom?'#D1D5DB':'#9CA3AF'};cursor:${atBottom?'default':'pointer'};">▼</button>
+      </span>`:'<span style="width:16px;flex-shrink:0;"></span>';
+    return `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-light);cursor:pointer;background:${isChecked?'var(--green-light)':'transparent'};">
+      <input type="checkbox" ${isChecked?'checked':''} onchange="toggleComprasCkPurchased(${r.id},this.checked)" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
+      ${moveBtns}
+      <span style="flex:1;font-size:13px;${isChecked?'text-decoration:line-through;color:var(--text-secondary);':''}">${nameLabel}</span>
+      ${r.code?`<span class="copy-value-box" title="Click to copy" onclick="event.preventDefault();event.stopPropagation();copyValueToClipboard(this,'${String(r.code).replace(/'/g,"\\'")}')" style="min-width:60px;justify-content:flex-end;"><strong>${r.code}</strong> <span class="copy-value-icon">📋</span></span>`:`<span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;min-width:60px;text-align:right;">—</span>`}
+      <span style="font-size:13px;font-weight:600;white-space:nowrap;min-width:70px;text-align:right;" title="${r.linked_product_id?'Locked — linked to a product, update the price there':''}">${r.linked_product_id?'🔒 ':''}${effPrice!=null?smFmtMoney(effPrice):'—'}</span>
+      <span style="display:flex;gap:4px;" onclick="event.preventDefault();">
+        <button class="btn-sm" onclick="startComprasCkEdit(${r.id})" title="Edit" style="font-size:11px;padding:5px 6px;">✏️</button>
+        <button class="btn-sm red" onclick="removeComprasCkEntry(${r.id})" title="Remove" style="font-size:11px;padding:5px 6px;">✕</button>
+      </span>
+    </label>`;
+  }).join('');
+}
+async function moveComprasCkItem(id,dir){
+  const errEl=document.getElementById('compras-ck-error');
+  const idx=comprasCkCache.findIndex(x=>x.id===id);
+  const swapIdx=idx+dir;
+  if(idx<0||swapIdx<0||swapIdx>=comprasCkCache.length)return;
+  const a=comprasCkCache[idx], b=comprasCkCache[swapIdx];
+  const aOrder=a.sort_order, bOrder=b.sort_order;
+  // Swap positions immediately for a snappy UI, then persist both rows.
+  comprasCkCache[idx]=b; comprasCkCache[swapIdx]=a;
+  a.sort_order=bOrder; b.sort_order=aOrder;
+  renderComprasCkList();
+  try{
+    await Promise.all([
+      sbPatch('compras_ck',`id=eq.${a.id}`,{sort_order:a.sort_order,updated_at:new Date().toISOString()}),
+      sbPatch('compras_ck',`id=eq.${b.id}`,{sort_order:b.sort_order,updated_at:new Date().toISOString()})
+    ]);
+  }catch(e){
+    if(errEl){errEl.textContent='Error saving order: '+e.message;errEl.style.display='block';}
+    await loadComprasCkTab(); // re-sync with the server if the reorder failed to save
+  }
+}
+async function toggleComprasCkPurchased(id,checked){
+  const errEl=document.getElementById('compras-ck-error');
+  const r=comprasCkCache.find(x=>x.id===id);
+  if(!r)return;
+  try{
+    await sbPatch('compras_ck',`id=eq.${id}`,{purchased:checked,updated_at:new Date().toISOString()});
+    r.purchased=checked;
+    renderComprasCkList();
+  }catch(e){
+    if(errEl){errEl.textContent='Error saving: '+e.message;errEl.style.display='block';}
+    renderComprasCkList();
+  }
+}
+async function resetComprasCkChecklist(){
+  if(!confirm('Uncheck every item in Compras CK?'))return;
+  const errEl=document.getElementById('compras-ck-error');
+  try{
+    await Promise.all(comprasCkCache.filter(r=>r.purchased).map(async r=>{
+      await sbPatch('compras_ck',`id=eq.${r.id}`,{purchased:false,updated_at:new Date().toISOString()});
+      r.purchased=false;
+    }));
+    renderComprasCkList();
+  }catch(e){errEl.textContent='Error resetting: '+e.message;errEl.style.display='block';}
+}
+function startComprasCkEdit(id){
+  comprasCkEditingId=id;
+  const errEl=document.getElementById('compras-ck-error');
+  if(errEl)errEl.style.display='none';
+  renderComprasCkList();
+}
+function cancelComprasCkEdit(){
+  comprasCkEditingId=null;
+  renderComprasCkList();
+}
+async function saveComprasCkEdit(id){
+  const errEl=document.getElementById('compras-ck-error');
+  const code=document.getElementById('edit-cck-code').value.trim()||null;
+  const name=document.getElementById('edit-cck-name').value.trim();
+  const packSize=document.getElementById('edit-cck-packsize').value.trim()||null;
+  const linkSel=document.getElementById('edit-cck-linked-product').value;
+  const linkedProductId=linkSel||null;
+  // When linked, the price field is just a locked mirror of the product's Cost — don't
+  // save it as this row's own price (comprasCkEffectivePrice always reads it live from
+  // the product instead, so the stored value here is irrelevant either way).
+  const priceVal=document.getElementById('edit-cck-price').value.trim();
+  const price=linkedProductId?null:(priceVal===''?null:parseFloat(priceVal));
+  if(!name){errEl.textContent='Name can\'t be empty.';errEl.style.display='block';return;}
+  try{
+    const payload={code,name,pack_size:packSize,price,linked_product_id:linkedProductId,updated_at:new Date().toISOString()};
+    await sbPatch('compras_ck',`id=eq.${id}`,payload);
+    const r=comprasCkCache.find(x=>x.id===id);
+    if(r)Object.assign(r,payload);
+    comprasCkEditingId=null;
+    errEl.style.display='none';
+    renderComprasCkList();
+  }catch(e){errEl.textContent='Error saving: '+e.message;errEl.style.display='block';}
+}
+async function removeComprasCkEntry(id){
+  if(!confirm('Remove this item from Compras CK?'))return;
+  const errEl=document.getElementById('compras-ck-error');
+  try{
+    await sbDelete('compras_ck',`id=eq.${id}`);
+    comprasCkCache=comprasCkCache.filter(r=>r.id!==id);
+    renderComprasCkList();
+  }catch(e){errEl.textContent='Error removing: '+e.message;errEl.style.display='block';}
+}
+async function addComprasCkEntry(){
+  const errEl=document.getElementById('compras-ck-error');
+  errEl.style.display='none';
+  const codeEl=document.getElementById('new-cck-code');
+  const nameEl=document.getElementById('new-cck-name');
+  const packEl=document.getElementById('new-cck-packsize');
+  const priceEl=document.getElementById('new-cck-price');
+  const code=codeEl.value.trim()||null;
+  const name=nameEl.value.trim();
+  const packSize=packEl.value.trim()||null;
+  const priceVal=priceEl.value.trim();
+  const price=priceVal===''?null:parseFloat(priceVal);
+  if(!name){errEl.textContent='Enter a product name.';errEl.style.display='block';return;}
+  try{
+    // New items go to the bottom of the list (highest sort_order + 1) so reordering
+    // never has to guess where something newly added belongs.
+    const nextOrder=comprasCkCache.length?Math.max(...comprasCkCache.map(r=>r.sort_order||0))+1:1;
+    const payload={code,name,pack_size:packSize,price,sort_order:nextOrder};
+    const rows=await sbPost('compras_ck',payload);
+    if(rows&&rows[0])comprasCkCache.push(rows[0]);
+    codeEl.value='';nameEl.value='';packEl.value='';priceEl.value='';
+    renderComprasCkList();
+  }catch(e){errEl.textContent='Error adding: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+}
+
 async function completeOrder(id){
   const order=findOrderAnyCache(id);
   try{
@@ -8928,6 +9376,8 @@ function openAddProduct(){
   document.getElementById('prod-name').value='';
   document.getElementById('prod-description').value='';
   document.getElementById('prod-order-multiple').value='1';
+  document.getElementById('prod-supplier-name').value='';
+  document.getElementById('prod-supplier-code').value='';
   document.getElementById('prod-cat').value='sauces';
   document.getElementById('add-product-error').style.display='none';
   document.getElementById('prod-image-preview').style.display='none';
@@ -8943,6 +9393,8 @@ async function openEditProduct(id){
     document.getElementById('prod-name').value=p.name;
     document.getElementById('prod-description').value=p.description||'';
     document.getElementById('prod-order-multiple').value=p.order_multiple||1;
+    document.getElementById('prod-supplier-name').value=p.supplier_name||'';
+    document.getElementById('prod-supplier-code').value=p.supplier_code||'';
     document.getElementById('prod-cat').value=p.cat;
     document.getElementById('add-product-error').style.display='none';
     document.getElementById('prod-image-file').value='';
@@ -8960,6 +9412,8 @@ async function saveProduct(){
   const name=document.getElementById('prod-name').value.trim();
   const description=document.getElementById('prod-description').value.trim();
   const order_multiple=Math.max(1,Math.min(999,parseInt(document.getElementById('prod-order-multiple').value)||1));
+  const supplier_name=document.getElementById('prod-supplier-name').value.trim()||null;
+  const supplier_code=document.getElementById('prod-supplier-code').value.trim()||null;
   const cat=document.getElementById('prod-cat').value;
   const err=document.getElementById('add-product-error');
   if(!name){err.textContent='Name is required.';err.style.display='block';return;}
@@ -8985,7 +9439,7 @@ async function saveProduct(){
     // omitting them from the payload leaves whatever is already in the
     // database untouched on PATCH. Food Cost items get theirs from their
     // recipe (Menu -> Food Cost); everything else keeps its existing value.
-    const payload={name,description,cat,image_url,order_multiple};
+    const payload={name,description,cat,image_url,order_multiple,supplier_name,supplier_code};
     let savedId=editingProductId;
     if(editingProductId){
       await sbPatch('products',`id=eq.${editingProductId}`,payload);
