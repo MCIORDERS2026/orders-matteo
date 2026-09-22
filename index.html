@@ -178,6 +178,9 @@
   .copy-value-box:hover{border-color:#6D28D9;background:#F5F3FF;}
   .copy-value-box .copy-value-icon{font-size:11px;opacity:.6;}
   .copy-value-box-done{border-color:#059669;background:#ECFDF5;}
+  .copy-value-toast{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:4px;background:#111827;color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:20;animation:copyValueToastPop .15s ease-out;}
+  .copy-value-toast::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#111827;}
+  @keyframes copyValueToastPop{from{opacity:0;transform:translateX(-50%) translateY(3px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
   .order-actions{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);}
   .admin-qty-input{width:45px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);}
   .add-item-row{display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);}
@@ -4733,15 +4736,24 @@ async function checkAllInvoiceItems(orderId){
 }
 // Click-to-copy on a checklist line total — mirrors the same feature in VRC Orders.
 // Copies just the plain number (no £) so it pastes cleanly into a spreadsheet/invoice
-// tool, and gives a brief visual confirmation (icon flips to a checkmark for 1s).
+// tool, and gives a brief visual confirmation: icon flips to a checkmark AND a small
+// "Copied!" toast pops up above the box for a moment, same as VRC.
 function copyValueToClipboard(el,value){
   const done=()=>{
     const icon=el.querySelector('.copy-value-icon');
-    if(!icon)return;
-    const prev=icon.textContent;
-    icon.textContent='✅';
+    const prevIcon=icon?icon.textContent:null;
+    if(icon)icon.textContent='✅';
     el.classList.add('copy-value-box-done');
-    setTimeout(()=>{icon.textContent=prev;el.classList.remove('copy-value-box-done');},1000);
+    const toast=document.createElement('span');
+    toast.className='copy-value-toast';
+    toast.textContent='Copied!';
+    el.style.position='relative';
+    el.appendChild(toast);
+    setTimeout(()=>{
+      if(icon)icon.textContent=prevIcon;
+      el.classList.remove('copy-value-box-done');
+      toast.remove();
+    },1000);
   };
   if(navigator.clipboard&&navigator.clipboard.writeText){
     navigator.clipboard.writeText(value).then(done).catch(()=>{
