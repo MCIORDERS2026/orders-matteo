@@ -4059,12 +4059,16 @@ function filterSupplierInfoBySupplier(val){
   supplierInfoSupplierFilter=val;
   renderSupplierInfoList();
 }
+// Populated from whatever supplier names are actually typed on products right now (not just
+// the curated SUPPLIERS list from ⚙️ Suppliers) — so a name typed freeform on a product (e.g.
+// via the datalist's free-text entry) shows up here immediately, with no extra bookkeeping.
 function updateSupplierFilterDropdown(){
   const sel=document.getElementById('sif-supplier-filter');
   if(!sel)return;
   const current=sel.value;
-  sel.innerHTML='<option value="">All suppliers</option>'+SUPPLIERS.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('');
-  sel.value=SUPPLIERS.includes(current)?current:'';
+  const usedSuppliers=[...new Set(supplierInfoCache.map(p=>p.supplier_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  sel.innerHTML='<option value="">All suppliers</option>'+usedSuppliers.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('');
+  sel.value=usedSuppliers.includes(current)?current:'';
 }
 // Central Kitchen (recipe-tracked) items get their Cost from Menu -> Food Cost instead of
 // being typed in directly here — shown locked with a message pointing there.
@@ -4165,6 +4169,7 @@ async function saveSupplierField(id,field,inputEl){
     if(ap)ap[field]=value;
     const gp=findProductAny(id);
     if(gp)gp[field]=value;
+    if(field==='supplier_name')updateSupplierFilterDropdown(); // pick up a newly typed supplier immediately
     renderSupplierInfoList();
   }catch(e){alert('Error saving: '+e.message);inputEl.disabled=false;}
 }
