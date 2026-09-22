@@ -1667,7 +1667,7 @@ async function logKitchenActivity(order,action,details){
       action,
       details
     });
-  }catch(e){/* never block the underlying action on a logging failure */}
+  }catch(e){console.error('logKitchenActivity failed:',e);/* never block the underlying action on a logging failure */}
 }
 function findOrderAnyCache(id){
   return (typeof allOrdersCache!=='undefined'&&allOrdersCache.find(o=>o.id===id))
