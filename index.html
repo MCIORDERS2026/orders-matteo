@@ -4078,10 +4078,10 @@ function comprasCkSupplierOf(r){
   const p=findProductAny(r.linked_product_id);
   return (p&&p.supplier_name)?p.supplier_name:null;
 }
-function renderComprasCkList(){
-  const el=document.getElementById('compras-ck-list');
-  const progressEl=document.getElementById('compras-ck-progress');
-  if(!el)return;
+// Applies search + Unchecked only + Supplier + Day exactly as the list itself does — shared
+// by the list render, "Reset checklist" (so it only clears what's actually on screen, not the
+// whole catalogue) and anything else that needs to know "what's currently visible".
+function getFilteredComprasCkRows(){
   const q=comprasCkSearch;
   let rows=q?comprasCkCache.filter(r=>(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)):comprasCkCache;
   if(comprasCkUncheckedOnly)rows=rows.filter(r=>!r.purchased);
@@ -4090,6 +4090,14 @@ function renderComprasCkList(){
     const sup=comprasCkSupplierOf(r);
     return sup&&(supplierDays[sup]||[]).includes(comprasCkDayFilter);
   });
+  return rows;
+}
+function renderComprasCkList(){
+  const el=document.getElementById('compras-ck-list');
+  const progressEl=document.getElementById('compras-ck-progress');
+  if(!el)return;
+  const q=comprasCkSearch;
+  let rows=getFilteredComprasCkRows();
   if(progressEl){
     const checkedCount=comprasCkCache.filter(r=>r.purchased).length;
     progressEl.textContent=`${checkedCount} / ${comprasCkCache.length} checked`;
@@ -4118,7 +4126,9 @@ function renderComprasCkList(){
   const canReorder=!q&&!comprasCkUncheckedOnly;
   el.innerHTML=groupKeys.map(key=>{
     const bucket=groups[key];
-    const header=`<div style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;background:var(--bg);border-bottom:1px solid var(--border);">${key}</div>`;
+    const allChecked=bucket.every(r=>r.purchased);
+    const checkAllBtn=allChecked?'':`<button class="btn-sm" onclick="checkAllComprasCkGroup([${bucket.map(r=>r.id).join(',')}])" style="font-size:10px;font-weight:600;padding:2px 9px;text-transform:none;letter-spacing:normal;">☑ Check all</button>`;
+    const header=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;background:var(--bg);border-bottom:1px solid var(--border);"><span>${key}</span>${checkAllBtn}</div>`;
     const itemsHtml=bucket.map((r,i)=>renderComprasCkRow(r,canReorder,i>0?bucket[i-1].id:null,i<bucket.length-1?bucket[i+1].id:null)).join('');
     return header+itemsHtml;
   }).join('');
@@ -4198,11 +4208,38 @@ async function toggleComprasCkPurchased(id,checked){
     renderComprasCkList();
   }
 }
+// Marks every row in one supplier group as purchased in one go — for when everything from
+// that supplier just arrived and ticking each item individually would be tedious.
+async function checkAllComprasCkGroup(ids){
+  const errEl=document.getElementById('compras-ck-error');
+  const rows=ids.map(id=>comprasCkCache.find(r=>r.id===id)).filter(r=>r&&!r.purchased);
+  if(!rows.length)return;
+  try{
+    await Promise.all(rows.map(async r=>{
+      await sbPatch('compras_ck',`id=eq.${r.id}`,{purchased:true,updated_at:new Date().toISOString()});
+      r.purchased=true;
+    }));
+    renderComprasCkList();
+    renderComprasCkDayRow();
+  }catch(e){
+    if(errEl){errEl.textContent='Error saving: '+e.message;errEl.style.display='block';}
+    renderComprasCkList();
+  }
+}
+// Only resets whatever the current filters (Day / Supplier / search) are actually showing —
+// NOT the whole Compras CK catalogue — so resetting Wednesday's list never touches items
+// scheduled for other days or other suppliers you're not looking at right now.
 async function resetComprasCkChecklist(){
-  if(!confirm('Uncheck every item in Compras CK?'))return;
+  const visible=getFilteredComprasCkRows().filter(r=>r.purchased);
+  if(!visible.length){alert('Nothing checked in the current view to reset.');return;}
+  const scopeParts=[];
+  if(comprasCkDayFilter!=null)scopeParts.push(WEEKDAY_LABELS[comprasCkDayFilter]);
+  if(comprasCkSupplierFilter)scopeParts.push(comprasCkSupplierFilter);
+  const scopeLabel=scopeParts.length?scopeParts.join(' / '):'the current view';
+  if(!confirm(`Uncheck ${visible.length} item(s) in ${scopeLabel}? This won't touch items outside what's currently shown.`))return;
   const errEl=document.getElementById('compras-ck-error');
   try{
-    await Promise.all(comprasCkCache.filter(r=>r.purchased).map(async r=>{
+    await Promise.all(visible.map(async r=>{
       await sbPatch('compras_ck',`id=eq.${r.id}`,{purchased:false,updated_at:new Date().toISOString()});
       r.purchased=false;
     }));
