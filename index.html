@@ -373,14 +373,14 @@
       </div>
       <!-- COMPRAS (Shopping List + Compras CK) — admin only, same gate as the tools themselves -->
       <div class="notif-bell-wrap" id="compras-menu-wrap" style="display:none;">
-        <button class="btn-sm" onclick="toggleComprasMenu()">🛒 Compras</button>
+        <button class="btn-sm" onclick="toggleComprasMenu()">🛒 Purchasing</button>
         <div class="notif-dropdown" id="compras-menu-dropdown">
-          <div class="notif-dropdown-header">Compras</div>
-          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');openShoppingOrderSelectModal()">
+          <div class="notif-dropdown-header">Purchasing</div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');goAdminMenu('shoppingselect')">
             <div class="notif-item-title">🛒 Shopping List</div>
             <div class="notif-item-text">Purchase checklist for orders in New Orders &amp; In Production</div>
           </div>
-          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');openComprasCkModal()">
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');goAdminMenu('comprasck')">
             <div class="notif-item-title">🧾 Compras CK</div>
             <div class="notif-item-text">Freely editable purchase list, by supplier &amp; day</div>
           </div>
@@ -1058,23 +1058,20 @@
   </div>
 </div>
 
-<!-- 🛒 Select Orders — the first step of Shopping List, opened from the topbar's Compras menu.
+<!-- 🛒 Select Orders — the first step of Shopping List, opened from the topbar's Purchasing menu.
      Lists every order in New Orders (pending/accepted) and In Production so you pick exactly
      which ones feed the list, without needing to visit either tab first. -->
-<div class="modal-overlay" id="shopping-orders-select-modal">
-  <div class="modal" style="max-width:640px;width:94vw;max-height:85vh;overflow-y:auto;">
-    <h3>🛒 Select Orders</h3>
-    <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">Choose which orders to include in the Shopping List — from New Orders and In Production. Everything's selected by default.</p>
-    <div style="display:flex;gap:8px;margin-bottom:10px;">
-      <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(true)">Select all</button>
-      <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(false)">Select none</button>
-    </div>
-    <div id="shopping-orders-select-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:52vh;overflow-y:auto;"></div>
-    <div class="modal-error" id="shopping-orders-select-error" style="display:none;"></div>
-    <div class="modal-btns">
-      <button onclick="closeModal('shopping-orders-select-modal')">Cancel</button>
-      <button class="primary" onclick="continueToShoppingList()">Continue →</button>
-    </div>
+<div id="tab-shoppingselect" style="display:none;">
+  <div class="section-toolbar">
+    <h2>🛒 Select Orders</h2>
+    <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(true)">Select all</button>
+    <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(false)">Select none</button>
+  </div>
+  <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">Choose which orders to include in the Shopping List — from New Orders and In Production. Everything's selected by default.</p>
+  <div id="shopping-orders-select-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:60vh;overflow-y:auto;"></div>
+  <div class="modal-error" id="shopping-orders-select-error" style="display:none;margin-top:10px;"></div>
+  <div style="margin-top:14px;">
+    <button class="primary" onclick="continueToShoppingList()">Continue →</button>
   </div>
 </div>
 
@@ -1082,71 +1079,64 @@
      grouped by Supplier. "Purchased" is stored per ORDER (purchased_items column on
      orders_history, same idea as invoiced_items) so it travels with the order itself —
      regardless of which tab it's currently sitting in. Ported from VRC Orders. -->
-<div class="modal-overlay" id="shopping-list-modal">
-  <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;">
-    <h3>Shopping List</h3>
-    <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">Everything ordered across the orders currently In Production. Check off items as you buy them, in any order — your progress is saved per order, so moving an order out and back doesn't lose it.</p>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-      <span style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
-        <span style="font-size:13px;">🔍</span>
-        <input type="text" id="shopping-list-search" placeholder="Search products..." oninput="searchShoppingList(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:150px;"/>
-      </span>
-      <span style="display:flex;align-items:center;gap:6px;">
-        <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
-        <select id="shopping-list-supplier-filter" onchange="renderShoppingListModal()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"></select>
-      </span>
-      <button class="btn-sm" id="shopping-list-unchecked" onclick="toggleShoppingListUncheckedOnly()">☐ Unchecked only</button>
-      <span id="shopping-list-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
-      <button class="btn-sm red" onclick="resetShoppingChecklist()">↺ Reset checklist</button>
-    </div>
-    <div id="shopping-list-body" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:56vh;overflow-y:auto;"></div>
-    <div class="modal-error" id="shopping-list-error" style="display:none;"></div>
-    <div class="modal-btns">
-      <button onclick="closeShoppingListModal()">Close</button>
-    </div>
+<div id="tab-shoppinglist" style="display:none;">
+  <div class="section-toolbar">
+    <h2>🛒 Shopping List</h2>
+    <button class="btn-sm" onclick="showAdminTab('shoppingselect')">← Select Orders</button>
+    <button class="btn-sm red" onclick="resetShoppingChecklist()">↺ Reset checklist</button>
   </div>
+  <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">Everything ordered across the orders you picked. Check off items as you buy them, in any order — your progress is saved per order, so moving an order out and back doesn't lose it.</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
+      <span style="font-size:13px;">🔍</span>
+      <input type="text" id="shopping-list-search" placeholder="Search products..." oninput="searchShoppingList(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:150px;"/>
+    </span>
+    <span style="display:flex;align-items:center;gap:6px;">
+      <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
+      <select id="shopping-list-supplier-filter" onchange="renderShoppingListModal()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"></select>
+    </span>
+    <button class="btn-sm" id="shopping-list-unchecked" onclick="toggleShoppingListUncheckedOnly()">☐ Unchecked only</button>
+    <span id="shopping-list-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
+  </div>
+  <div id="shopping-list-body" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:65vh;overflow-y:auto;margin-top:10px;"></div>
+  <div class="modal-error" id="shopping-list-error" style="display:none;margin-top:10px;"></div>
 </div>
 
 <!-- 🧾 Compras CK — a separate, freely editable purchase reference list, not linked to
      orders or products (unless a row is deliberately linked to one for live pricing).
      Ported from VRC Orders. -->
-<div class="modal-overlay" id="compras-ck-modal">
-  <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;">
-    <h3>Compras CK</h3>
-    <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">A separate, freely editable purchase list — not linked to orders or products. Check items off as you buy them; add, edit or remove rows any time.</p>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-      <span style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
-        <span style="font-size:13px;">🔍</span>
-        <input type="text" id="cck-search" placeholder="Search code or name..." oninput="searchComprasCk(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
-      </span>
-      <span style="display:flex;align-items:center;gap:6px;">
-        <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
-        <select id="compras-ck-supplier-filter" onchange="filterComprasCkBySupplier(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"><option value="">All suppliers</option></select>
-      </span>
-      <button class="btn-sm" id="compras-ck-unchecked" onclick="toggleComprasCkUncheckedOnly()">☐ Unchecked only</button>
-      <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
-      <span style="display:flex;gap:8px;">
-        <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Pull in every product in the catalogue — resold items and Central Kitchen items alike">⬇️ Import all products</button>
-        <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
-      </span>
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-light);">
-      <span style="font-size:12px;color:var(--text-secondary);margin-right:2px;">📅 Day:</span>
-      <div id="compras-ck-day-row" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
-    </div>
-    <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:55vh;overflow-y:auto;margin-top:10px;"></div>
-    <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
-      <input type="text" id="new-cck-code" placeholder="Code" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
-      <input type="text" id="new-cck-name" placeholder="Product name" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
-      <input type="text" id="new-cck-packsize" placeholder="Pack size" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
-      <input type="number" step="0.01" min="0" id="new-cck-price" placeholder="Price £" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
-      <button class="btn-sm green" onclick="addComprasCkEntry()">+ Add</button>
-    </div>
-    <div class="modal-error" id="compras-ck-error" style="display:none;margin-top:10px;"></div>
-    <div class="modal-btns">
-      <button onclick="closeComprasCkModal()">Close</button>
-    </div>
+<div id="tab-comprasck" style="display:none;">
+  <div class="section-toolbar">
+    <h2>🧾 Compras CK</h2>
+    <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Pull in every product in the catalogue — resold items and Central Kitchen items alike">⬇️ Import all products</button>
+    <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
   </div>
+  <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">A separate, freely editable purchase list — not linked to orders or products. Check items off as you buy them; add, edit or remove rows any time.</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
+      <span style="font-size:13px;">🔍</span>
+      <input type="text" id="cck-search" placeholder="Search code or name..." oninput="searchComprasCk(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
+    </span>
+    <span style="display:flex;align-items:center;gap:6px;">
+      <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
+      <select id="compras-ck-supplier-filter" onchange="filterComprasCkBySupplier(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"><option value="">All suppliers</option></select>
+    </span>
+    <button class="btn-sm" id="compras-ck-unchecked" onclick="toggleComprasCkUncheckedOnly()">☐ Unchecked only</button>
+    <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-light);">
+    <span style="font-size:12px;color:var(--text-secondary);margin-right:2px;">📅 Day:</span>
+    <div id="compras-ck-day-row" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+  </div>
+  <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:60vh;overflow-y:auto;margin-top:10px;"></div>
+  <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
+    <input type="text" id="new-cck-code" placeholder="Code" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+    <input type="text" id="new-cck-name" placeholder="Product name" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+    <input type="text" id="new-cck-packsize" placeholder="Pack size" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+    <input type="number" step="0.01" min="0" id="new-cck-price" placeholder="Price £" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+    <button class="btn-sm green" onclick="addComprasCkEntry()">+ Add</button>
+  </div>
+  <div class="modal-error" id="compras-ck-error" style="display:none;margin-top:10px;"></div>
 </div>
 
 <!-- 🏷️ Manage Suppliers — the list of names offered as autocomplete/filter options on the
@@ -3257,7 +3247,7 @@ function showAdminTab(t,el){
   // Flush any pending Client Prices autosave before navigating away, so leaving the
   // tab right after typing never loses the last edit.
   if(clientPricesAutoSaveTimer){clearTimeout(clientPricesAutoSaveTimer);clientPricesAutoSaveTimer=null;saveClientPrices();}
-  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost','invoiced','suppliers'].forEach(x=>{
+  ['orders','completed','users','products','trash','chat','delivery','complete','sales','activity','prices','foodcost','invoiced','suppliers','shoppingselect','shoppinglist','comprasck'].forEach(x=>{
     const d=document.getElementById('tab-'+x);
     if(d)d.style.display=x===t?'block':'none';
   });
@@ -3280,6 +3270,8 @@ function showAdminTab(t,el){
   if(t==='foodcost'){loadFoodCostTab();}
   if(t==='invoiced'){loadInvoicedOrders();}
   if(t==='suppliers'){loadSupplierInfoTab();}
+  if(t==='shoppingselect'){openShoppingOrderSelectModal();}
+  if(t==='comprasck'){openComprasCkModal();}
   // Keep "online now" dots fresh while the Users tab is open; stop polling elsewhere.
   if(_usersPollInterval){clearInterval(_usersPollInterval);_usersPollInterval=null;}
   if(t==='users'){_usersPollInterval=setInterval(loadUsers,10000);}
@@ -3716,7 +3708,6 @@ function shoppingOrderLookup(oid){
 async function openShoppingOrderSelectModal(){
   const errEl=document.getElementById('shopping-orders-select-error');
   if(errEl)errEl.style.display='none';
-  openModal('shopping-orders-select-modal');
   const listEl=document.getElementById('shopping-orders-select-list');
   if(listEl)listEl.innerHTML='<div class="empty-state">Loading...</div>';
   try{
@@ -3764,7 +3755,6 @@ function continueToShoppingList(){
   if(!checked.length){if(errEl){errEl.textContent='Select at least one order.';errEl.style.display='block';}return;}
   shoppingListItems=computeShoppingListItems(checked);
   if(!shoppingListItems.length){if(errEl){errEl.textContent='Nothing to buy — no items on the selected orders.';errEl.style.display='block';}return;}
-  closeModal('shopping-orders-select-modal');
   shoppingListSupplierFilter='';
   shoppingListUncheckedOnly=false;
   shoppingListSearch='';
@@ -3774,7 +3764,7 @@ function continueToShoppingList(){
   if(filterEl){delete filterEl.dataset.built;filterEl.value='';}
   const uncheckedBtn=document.getElementById('shopping-list-unchecked');
   if(uncheckedBtn){uncheckedBtn.style.fontWeight='400';uncheckedBtn.style.borderColor='var(--border)';uncheckedBtn.style.background='var(--bg)';uncheckedBtn.textContent='☐ Unchecked only';}
-  openModal('shopping-list-modal');
+  showAdminTab('shoppinglist');
   renderShoppingListModal();
 }
 function toggleShoppingListUncheckedOnly(){
@@ -3867,10 +3857,6 @@ async function toggleShoppingListItem(itemId,checked){
   }
 }
 
-function closeShoppingListModal(){
-  closeModal('shopping-list-modal');
-  renderIPList(); // refresh in case anything visual depends on purchased_items later
-}
 
 async function resetShoppingChecklist(){
   if(!confirm('Reset the shopping checklist? Every item currently shown will be unchecked again.'))return;
@@ -3932,7 +3918,6 @@ function onComprasCkLinkChange(){
   }
 }
 async function openComprasCkModal(){
-  openModal('compras-ck-modal');
   comprasCkSearch='';
   comprasCkUncheckedOnly=false;
   comprasCkSupplierFilter='';
@@ -3943,9 +3928,6 @@ async function openComprasCkModal(){
   if(ub){ub.style.fontWeight='400';ub.style.borderColor='var(--border)';ub.style.background='var(--bg)';ub.textContent='☐ Unchecked only';}
   await fetchSupplierDaysFromSupabase(); // pick up any schedule changes made elsewhere
   await loadComprasCkTab();
-}
-function closeComprasCkModal(){
-  closeModal('compras-ck-modal');
 }
 function filterComprasCkBySupplier(val){
   comprasCkSupplierFilter=val;
