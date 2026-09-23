@@ -3788,7 +3788,7 @@ function renderShoppingOrderSelectList(){
   const purchasedCount=shoppingOrderCache.filter(isOrderFullyPurchased).length;
   if(toggleBtn){
     toggleBtn.style.display=purchasedCount?'inline-flex':'none';
-    toggleBtn.textContent=shoppingSelectShowPurchased?`🙈 Hide purchased (${purchasedCount})`:`👁 Show purchased (${purchasedCount})`;
+    toggleBtn.textContent=shoppingSelectShowPurchased?`Hide purchased (${purchasedCount})`:`Show purchased (${purchasedCount})`;
   }
   const visibleOrders=shoppingSelectShowPurchased?shoppingOrderCache:shoppingOrderCache.filter(o=>!isOrderFullyPurchased(o));
   const groups=[
@@ -3801,8 +3801,10 @@ function renderShoppingOrderSelectList(){
     html+=`<div style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;background:var(--bg);border-bottom:1px solid var(--border);">${g.label} (${g.rows.length})</div>`;
     html+=g.rows.map(o=>{
       const itemCount=Object.keys(o.items||{}).length;
-      const dateRaw=o.timestamp||o.created_at;
-      const dateLabel=dateRaw?new Date(dateRaw).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):'';
+      // o.timestamp is already a ready-to-display string (same field used everywhere else in
+      // the app, e.g. order cards/history) — NOT a raw date, so it's shown as-is rather than
+      // re-parsed with `new Date()` (which was producing "Invalid Date").
+      const dateLabel=o.timestamp||'';
       const name=displayNameFor(o.username)||o.username||'—';
       const done=isOrderFullyPurchased(o);
       // Already-purchased orders only show up here when "Show purchased" is on — they start
@@ -3819,7 +3821,7 @@ function renderShoppingOrderSelectList(){
   if(!html){
     html=shoppingSelectShowPurchased
       ? '<div class="empty-state">No orders in New Orders or In Production right now.</div>'
-      : `<div class="empty-state">Everything here has already been purchased.<br/><button class="btn-sm" style="margin-top:8px;" onclick="toggleShoppingSelectShowPurchased()">👁 Show purchased (${purchasedCount})</button></div>`;
+      : `<div class="empty-state">Everything here has already been purchased.<br/><button class="btn-sm" style="margin-top:8px;" onclick="toggleShoppingSelectShowPurchased()">Show purchased (${purchasedCount})</button></div>`;
   }
   el.innerHTML=html;
 }
