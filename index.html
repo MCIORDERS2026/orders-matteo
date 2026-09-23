@@ -4504,8 +4504,25 @@ let supplierEditingIndex=null;
 async function openManageSuppliers(){
   supplierEditingIndex=null;
   await Promise.all([fetchSuppliersFromSupabase(),fetchSupplierDaysFromSupabase()]); // pick up suppliers/days added from another device/session
+  await mergeSuppliersFromProducts(); // pull in any supplier already typed on a product but not yet in this list
   renderSuppliersList();
   openModal('manage-suppliers-modal');
+}
+// Products already carry a supplier_name (typed freeform on Supplier List) that may not be in
+// the curated SUPPLIERS list yet — e.g. names typed before this list existed. Pull those in
+// automatically so the admin doesn't have to retype every name just to set its shopping days.
+async function mergeSuppliersFromProducts(){
+  try{
+    const rows=await sbGet('products','select=supplier_name&supplier_name=not.is.null');
+    const usedSuppliers=[...new Set(rows.map(r=>(r.supplier_name||'').trim()).filter(Boolean))];
+    const existingLower=new Set(SUPPLIERS.map(s=>s.toLowerCase()));
+    const newOnes=usedSuppliers.filter(s=>!existingLower.has(s.toLowerCase()));
+    if(!newOnes.length)return;
+    SUPPLIERS=[...SUPPLIERS,...newOnes].sort((a,b)=>a.localeCompare(b));
+    saveSuppliersLocal(SUPPLIERS);
+    renderSuppliersDatalist();
+    await saveSuppliersToSupabase(SUPPLIERS);
+  }catch(e){/* products table read failed — leave SUPPLIERS as-is */}
 }
 function renderSuppliersList(){
   const el=document.getElementById('suppliers-list');
