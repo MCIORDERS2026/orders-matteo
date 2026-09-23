@@ -1124,9 +1124,11 @@
     <button class="btn-sm" id="compras-ck-unchecked" onclick="toggleComprasCkUncheckedOnly()">☐ Unchecked only</button>
     <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
   </div>
-  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-light);">
-    <span style="font-size:12px;color:var(--text-secondary);margin-right:2px;">📅 Day:</span>
-    <div id="compras-ck-day-row" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-light);">
+    <div style="font-size:13px;font-weight:600;margin-bottom:2px;">📅 Shopping day</div>
+    <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Pick a weekday to see only the suppliers you buy from that day. 🔵 Blue = everything for that day is bought. 🟡 Yellow = today, still missing items. No color = not due yet.</p>
+    <div id="compras-ck-day-row" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    <div id="compras-ck-day-suppliers" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
   </div>
   <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:60vh;overflow-y:auto;margin-top:10px;"></div>
   <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
@@ -3387,7 +3389,7 @@ function orderShoppingDoneBadge(o){
   const purchased=o.purchased_items||{};
   const allDone=keys.every(id=>purchased[id]===true);
   if(!allDone)return '';
-  return '<span class="order-status" style="background:#DBEAFE;border-color:#BFDBFE;color:#1E40AF;" title="Every item on this order has been checked off in the Shopping List">🛒 Compras feitas</span>';
+  return '<span class="order-status" style="background:#DBEAFE;border-color:#BFDBFE;color:#1E40AF;" title="Every item on this order has been checked off in the Shopping List">🛒 Purchased</span>';
 }
 
 async function saveOriginalIfNeeded(order){
@@ -3973,18 +3975,61 @@ function setComprasCkDayFilter(day){
   renderComprasCkDayRow();
   renderComprasCkList();
 }
+// All Compras CK rows whose linked-product's supplier is scheduled to shop on weekday `d`
+// (0-6, Date.getDay()) — the same set the Day filter itself narrows the list down to.
+function comprasCkRowsForDay(d){
+  return comprasCkCache.filter(r=>{
+    const sup=comprasCkSupplierOf(r);
+    return sup&&(supplierDays[sup]||[]).includes(d);
+  });
+}
+// 'done' (blue) once every item scheduled for that day is checked off, 'today' (yellow) if
+// it's the current weekday and still has unchecked items, otherwise 'neutral' (not due yet,
+// or nothing scheduled at all for that day).
+function comprasCkDayStatus(d){
+  const rows=comprasCkRowsForDay(d);
+  if(!rows.length)return 'neutral';
+  const allDone=rows.every(r=>r.purchased);
+  if(allDone)return 'done';
+  if(d===new Date().getDay())return 'today';
+  return 'neutral';
+}
+// Every supplier scheduled to shop on weekday `d`, straight from supplierDays — shown as a
+// plain list even if nothing's been imported into Compras CK for them yet.
+function suppliersForDay(d){
+  return Object.keys(supplierDays).filter(name=>(supplierDays[name]||[]).includes(d)).sort((a,b)=>a.localeCompare(b));
+}
 function renderComprasCkDayRow(){
   const el=document.getElementById('compras-ck-day-row');
   if(!el)return;
   const todayIdx=new Date().getDay();
   const allActive=comprasCkDayFilter==null;
-  let html=`<button onclick="setComprasCkDayFilter(null)" style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid ${allActive?'var(--green)':'var(--border)'};background:${allActive?'var(--green)':'var(--bg)'};color:${allActive?'#fff':'var(--text-secondary)'};cursor:pointer;">All days</button>`;
+  let html=`<button onclick="setComprasCkDayFilter(null)" style="font-size:13px;font-weight:600;padding:7px 16px;border-radius:999px;border:1px solid ${allActive?'var(--green)':'var(--border)'};background:${allActive?'var(--green)':'var(--bg)'};color:${allActive?'#fff':'var(--text-secondary)'};cursor:pointer;${allActive?'box-shadow:0 0 0 2px rgba(17,24,39,.35);':''}">All days</button>`;
   html+=WEEKDAY_ORDER.map(d=>{
     const active=comprasCkDayFilter===d;
     const isToday=d===todayIdx;
-    return `<button onclick="setComprasCkDayFilter(${d})" title="${isToday?'Today':''}" style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid ${active?'var(--green)':(isToday?'#F59E0B':'var(--border)')};background:${active?'var(--green)':'var(--bg)'};color:${active?'#fff':'var(--text-secondary)'};cursor:pointer;">${WEEKDAY_LABELS[d]}${isToday&&!active?' •':''}</button>`;
+    const status=comprasCkDayStatus(d);
+    const colors=status==='done'
+      ?{border:'#1D4ED8',bg:'#2563EB',text:'#fff'}
+      :status==='today'
+      ?{border:'#D97706',bg:'#F59E0B',text:'#fff'}
+      :{border:'var(--border)',bg:'var(--bg)',text:'var(--text-secondary)'};
+    const title=status==='done'?`${WEEKDAY_LABELS[d]}: everything bought`:status==='today'?`${WEEKDAY_LABELS[d]}: today — still missing items`:isToday?`${WEEKDAY_LABELS[d]}: today`:`${WEEKDAY_LABELS[d]}: not due yet`;
+    return `<button onclick="setComprasCkDayFilter(${d})" title="${title}" style="font-size:13px;font-weight:600;padding:7px 16px;border-radius:999px;border:1px solid ${colors.border};background:${colors.bg};color:${colors.text};cursor:pointer;${active?'box-shadow:0 0 0 2px rgba(17,24,39,.35);':''}">${WEEKDAY_LABELS[d]}${isToday?' •':''}</button>`;
   }).join('');
   el.innerHTML=html;
+  renderComprasCkDaySuppliers();
+}
+function renderComprasCkDaySuppliers(){
+  const el=document.getElementById('compras-ck-day-suppliers');
+  if(!el)return;
+  if(comprasCkDayFilter==null){el.innerHTML='';return;}
+  const names=suppliersForDay(comprasCkDayFilter);
+  if(!names.length){
+    el.innerHTML=`No suppliers scheduled for ${WEEKDAY_LABELS[comprasCkDayFilter]} yet — set shopping days in ⚙️ Suppliers.`;
+    return;
+  }
+  el.innerHTML=`<strong>${WEEKDAY_LABELS[comprasCkDayFilter]} suppliers:</strong> ${names.join(', ')}`;
 }
 function updateComprasCkSupplierDropdown(){
   const sel=document.getElementById('compras-ck-supplier-filter');
@@ -4147,6 +4192,7 @@ async function toggleComprasCkPurchased(id,checked){
     await sbPatch('compras_ck',`id=eq.${id}`,{purchased:checked,updated_at:new Date().toISOString()});
     r.purchased=checked;
     renderComprasCkList();
+    renderComprasCkDayRow(); // a checkbox may have just finished (or un-finished) a day's chip
   }catch(e){
     if(errEl){errEl.textContent='Error saving: '+e.message;errEl.style.display='block';}
     renderComprasCkList();
@@ -4161,6 +4207,7 @@ async function resetComprasCkChecklist(){
       r.purchased=false;
     }));
     renderComprasCkList();
+    renderComprasCkDayRow();
   }catch(e){errEl.textContent='Error resetting: '+e.message;errEl.style.display='block';}
 }
 function startComprasCkEdit(id){
@@ -4254,6 +4301,7 @@ async function importComprasCkFromSupplierList(){
     const rows=await sbPost('compras_ck',payload);
     if(Array.isArray(rows))comprasCkCache.push(...rows);
     renderComprasCkList();
+    renderComprasCkDayRow();
   }catch(e){errEl.textContent='Error importing: '+e.message;errEl.style.display='block';}
 }
 
