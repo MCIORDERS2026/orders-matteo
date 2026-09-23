@@ -4265,8 +4265,12 @@ async function moveComprasCkItem(id,neighborId){
   const a=comprasCkCache.find(x=>x.id===id), b=comprasCkCache.find(x=>x.id===neighborId);
   if(!a||!b)return;
   const aOrder=a.sort_order, bOrder=b.sort_order;
-  // Swap sort_order immediately for a snappy UI, then persist both rows.
+  // Swap sort_order immediately for a snappy UI, then persist both rows. Swapping the
+  // numbers alone isn't enough — comprasCkCache also has to be RE-SORTED to match, since
+  // the list render just walks the array in its current order; without this the two rows'
+  // sort_order values change but the row you see on screen never actually moves.
   a.sort_order=bOrder; b.sort_order=aOrder;
+  comprasCkCache.sort((x,y)=>(x.sort_order||0)-(y.sort_order||0)||String(x.name||'').localeCompare(String(y.name||'')));
   renderComprasCkList();
   try{
     await Promise.all([
