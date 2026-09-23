@@ -1061,7 +1061,7 @@
 <!-- 🛒 Select Orders — the first step of Shopping List, opened from the topbar's Purchasing menu.
      Lists every order in New Orders (pending/accepted) and In Production so you pick exactly
      which ones feed the list, without needing to visit either tab first. -->
-<div id="tab-shoppingselect" style="display:none;">
+<div id="tab-shoppingselect" class="main" style="display:none;">
   <div class="section-toolbar">
     <h2>🛒 Select Orders</h2>
     <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(true)">Select all</button>
@@ -1079,7 +1079,7 @@
      grouped by Supplier. "Purchased" is stored per ORDER (purchased_items column on
      orders_history, same idea as invoiced_items) so it travels with the order itself —
      regardless of which tab it's currently sitting in. Ported from VRC Orders. -->
-<div id="tab-shoppinglist" style="display:none;">
+<div id="tab-shoppinglist" class="main" style="display:none;">
   <div class="section-toolbar">
     <h2>🛒 Shopping List</h2>
     <button class="btn-sm" onclick="showAdminTab('shoppingselect')">← Select Orders</button>
@@ -1105,7 +1105,7 @@
 <!-- 🧾 Compras CK — a separate, freely editable purchase reference list, not linked to
      orders or products (unless a row is deliberately linked to one for live pricing).
      Ported from VRC Orders. -->
-<div id="tab-comprasck" style="display:none;">
+<div id="tab-comprasck" class="main" style="display:none;">
   <div class="section-toolbar">
     <h2>🧾 Compras CK</h2>
     <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Pull in every product in the catalogue — resold items and Central Kitchen items alike">⬇️ Import all products</button>
