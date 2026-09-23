@@ -1055,6 +1055,10 @@
     <h3>Shopping List</h3>
     <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">Everything ordered across the orders currently In Production. Check off items as you buy them, in any order — your progress is saved per order, so moving an order out and back doesn't lose it.</p>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <span style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;background:var(--bg);">
+        <span style="font-size:13px;">🔍</span>
+        <input type="text" id="shopping-list-search" placeholder="Search products..." oninput="searchShoppingList(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:150px;"/>
+      </span>
       <span style="display:flex;align-items:center;gap:6px;">
         <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
         <select id="shopping-list-supplier-filter" onchange="renderShoppingListModal()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"></select>
@@ -3652,6 +3656,9 @@ async function openShoppingListModal(){
   if(!shoppingListItems.length){alert('Nothing to buy — no items on the selected orders.');return;}
   shoppingListSupplierFilter='';
   shoppingListUncheckedOnly=false;
+  shoppingListSearch='';
+  const searchEl=document.getElementById('shopping-list-search');
+  if(searchEl)searchEl.value='';
   const filterEl=document.getElementById('shopping-list-supplier-filter');
   if(filterEl){delete filterEl.dataset.built;filterEl.value='';}
   const uncheckedBtn=document.getElementById('shopping-list-unchecked');
@@ -3670,9 +3677,14 @@ function toggleShoppingListUncheckedOnly(){
   }
   renderShoppingListModal();
 }
+function searchShoppingList(v){
+  shoppingListSearch=(v||'').trim().toLowerCase();
+  renderShoppingListModal();
+}
 
 let shoppingListSupplierFilter=''; // '' = all suppliers
 let shoppingListUncheckedOnly=false;
+let shoppingListSearch='';
 function renderShoppingListModal(){
   const el=document.getElementById('shopping-list-body');
   const progressEl=document.getElementById('shopping-list-progress');
@@ -3692,11 +3704,12 @@ function renderShoppingListModal(){
     ? shoppingListItems.filter(r=>(r.supplier_name||'—')===shoppingListSupplierFilter)
     : shoppingListItems;
   if(shoppingListUncheckedOnly)visibleItems=visibleItems.filter(r=>!isShoppingRowChecked(r));
+  if(shoppingListSearch)visibleItems=visibleItems.filter(r=>r.name.toLowerCase().includes(shoppingListSearch));
 
   let html='';
   let lastSupplier=undefined;
   if(!visibleItems.length){
-    html=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${shoppingListUncheckedOnly?'Nothing left to buy — everything shown is checked off.':'No items for this supplier.'}</div>`;
+    html=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${shoppingListSearch?'No products match.':(shoppingListUncheckedOnly?'Nothing left to buy — everything shown is checked off.':'No items for this supplier.')}</div>`;
   }
   visibleItems.forEach((r)=>{
     const supplierLabel=r.supplier_name||'No supplier set';
@@ -3846,6 +3859,14 @@ function searchComprasCk(v){
   comprasCkSearch=(v||'').trim().toLowerCase();
   renderComprasCkList();
 }
+// A row's "supplier" is whatever its linked product is tagged with on Menu -> Supplier List
+// (rows brought in via ⬇️ Import from Supplier List are always linked); a manually-added,
+// unlinked row has no supplier and falls into its own "No supplier set" group.
+function comprasCkSupplierOf(r){
+  if(!r.linked_product_id)return null;
+  const p=findProductAny(r.linked_product_id);
+  return (p&&p.supplier_name)?p.supplier_name:null;
+}
 function renderComprasCkList(){
   const el=document.getElementById('compras-ck-list');
   const progressEl=document.getElementById('compras-ck-progress');
@@ -3858,7 +3879,29 @@ function renderComprasCkList(){
     progressEl.textContent=`${checkedCount} / ${comprasCkCache.length} checked`;
   }
   if(!rows.length){el.innerHTML=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${!comprasCkCache.length?'No items yet — add one below.':(comprasCkUncheckedOnly?'Nothing left to buy — everything is checked off.':'No matches.')}</div>`;return;}
-  el.innerHTML=rows.map(r=>{
+  // Group by supplier (blank last), same convention as the 🛒 Shopping List. Up/down only
+  // reorders within a group — "adjacent" is computed against that group's own neighbours,
+  // not the raw global list, so moving an item never jumps it into another supplier's rows.
+  const groups={};
+  rows.forEach(r=>{
+    const key=comprasCkSupplierOf(r)||'No supplier set';
+    if(!groups[key])groups[key]=[];
+    groups[key].push(r);
+  });
+  const groupKeys=Object.keys(groups).sort((a,b)=>{
+    if(a==='No supplier set')return 1;
+    if(b==='No supplier set')return -1;
+    return a.localeCompare(b);
+  });
+  const canReorder=!q&&!comprasCkUncheckedOnly;
+  el.innerHTML=groupKeys.map(key=>{
+    const bucket=groups[key];
+    const header=`<div style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;background:var(--bg);border-bottom:1px solid var(--border);">${key}</div>`;
+    const itemsHtml=bucket.map((r,i)=>renderComprasCkRow(r,canReorder,i>0?bucket[i-1].id:null,i<bucket.length-1?bucket[i+1].id:null)).join('');
+    return header+itemsHtml;
+  }).join('');
+}
+function renderComprasCkRow(r,canReorder,prevId,nextId){
     if(r.id===comprasCkEditingId){
       const effPriceEdit=comprasCkEffectivePrice(r);
       const linkedOptions=[...allProducts].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${String(r.linked_product_id)===String(p.id)?'selected':''}>${String(p.name).replace(/</g,'&lt;')}</option>`).join('');
@@ -3880,14 +3923,13 @@ function renderComprasCkList(){
     const isChecked=!!r.purchased;
     const nameLabel=r.pack_size?`${r.name} (${r.pack_size})`:r.name;
     const effPrice=comprasCkEffectivePrice(r);
-    // Move up/down only makes sense against the full, unfiltered order — hide it while
-    // a search is active so "adjacent" always means adjacent in the real saved order.
-    const idx=comprasCkCache.findIndex(x=>x.id===r.id);
-    const canReorder=!q&&!comprasCkUncheckedOnly;
-    const atTop=idx<=0, atBottom=idx>=comprasCkCache.length-1;
+    // Up/down only ever swaps with this row's neighbour WITHIN its own supplier group
+    // (passed in as prevId/nextId — see renderComprasCkList) — hidden during search/unchecked
+    // filters, same as before, since "adjacent" wouldn't mean much in a partial view.
+    const atTop=!canReorder||prevId==null, atBottom=!canReorder||nextId==null;
     const moveBtns=canReorder?`<span style="display:flex;flex-direction:column;flex-shrink:0;" onclick="event.preventDefault();">
-        <button onclick="moveComprasCkItem(${r.id},-1)" title="Move up" ${atTop?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atTop?'#D1D5DB':'#9CA3AF'};cursor:${atTop?'default':'pointer'};">▲</button>
-        <button onclick="moveComprasCkItem(${r.id},1)" title="Move down" ${atBottom?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atBottom?'#D1D5DB':'#9CA3AF'};cursor:${atBottom?'default':'pointer'};">▼</button>
+        <button onclick="moveComprasCkItem(${r.id},${prevId})" title="Move up" ${atTop?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atTop?'#D1D5DB':'#9CA3AF'};cursor:${atTop?'default':'pointer'};">▲</button>
+        <button onclick="moveComprasCkItem(${r.id},${nextId})" title="Move down" ${atBottom?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atBottom?'#D1D5DB':'#9CA3AF'};cursor:${atBottom?'default':'pointer'};">▼</button>
       </span>`:'<span style="width:16px;flex-shrink:0;"></span>';
     return `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-light);cursor:pointer;background:${isChecked?'var(--green-light)':'transparent'};">
       <input type="checkbox" ${isChecked?'checked':''} onchange="toggleComprasCkPurchased(${r.id},this.checked)" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
@@ -3900,17 +3942,14 @@ function renderComprasCkList(){
         <button class="btn-sm red" onclick="removeComprasCkEntry(${r.id})" title="Remove" style="font-size:11px;padding:5px 6px;">✕</button>
       </span>
     </label>`;
-  }).join('');
 }
-async function moveComprasCkItem(id,dir){
+async function moveComprasCkItem(id,neighborId){
+  if(neighborId==null)return;
   const errEl=document.getElementById('compras-ck-error');
-  const idx=comprasCkCache.findIndex(x=>x.id===id);
-  const swapIdx=idx+dir;
-  if(idx<0||swapIdx<0||swapIdx>=comprasCkCache.length)return;
-  const a=comprasCkCache[idx], b=comprasCkCache[swapIdx];
+  const a=comprasCkCache.find(x=>x.id===id), b=comprasCkCache.find(x=>x.id===neighborId);
+  if(!a||!b)return;
   const aOrder=a.sort_order, bOrder=b.sort_order;
-  // Swap positions immediately for a snappy UI, then persist both rows.
-  comprasCkCache[idx]=b; comprasCkCache[swapIdx]=a;
+  // Swap sort_order immediately for a snappy UI, then persist both rows.
   a.sort_order=bOrder; b.sort_order=aOrder;
   renderComprasCkList();
   try{
