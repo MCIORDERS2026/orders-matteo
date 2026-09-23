@@ -1059,6 +1059,7 @@
         <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
         <select id="shopping-list-supplier-filter" onchange="renderShoppingListModal()" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"></select>
       </span>
+      <button class="btn-sm" id="shopping-list-unchecked" onclick="toggleShoppingListUncheckedOnly()">☐ Unchecked only</button>
       <span id="shopping-list-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
       <button class="btn-sm red" onclick="resetShoppingChecklist()">↺ Reset checklist</button>
     </div>
@@ -1082,6 +1083,7 @@
         <span style="font-size:13px;">🔍</span>
         <input type="text" id="cck-search" placeholder="Search code or name..." oninput="searchComprasCk(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
       </span>
+      <button class="btn-sm" id="compras-ck-unchecked" onclick="toggleComprasCkUncheckedOnly()">☐ Unchecked only</button>
       <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
       <span style="display:flex;gap:8px;">
         <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Add every product with a supplier set (except CPU — those are already on the Shopping List)">⬇️ Import from Supplier List</button>
@@ -3649,13 +3651,28 @@ async function openShoppingListModal(){
   shoppingListItems=computeShoppingListItems(orders);
   if(!shoppingListItems.length){alert('Nothing to buy — no items on the selected orders.');return;}
   shoppingListSupplierFilter='';
+  shoppingListUncheckedOnly=false;
   const filterEl=document.getElementById('shopping-list-supplier-filter');
   if(filterEl){delete filterEl.dataset.built;filterEl.value='';}
+  const uncheckedBtn=document.getElementById('shopping-list-unchecked');
+  if(uncheckedBtn){uncheckedBtn.style.fontWeight='400';uncheckedBtn.style.borderColor='var(--border)';uncheckedBtn.style.background='var(--bg)';uncheckedBtn.textContent='☐ Unchecked only';}
   openModal('shopping-list-modal');
+  renderShoppingListModal();
+}
+function toggleShoppingListUncheckedOnly(){
+  shoppingListUncheckedOnly=!shoppingListUncheckedOnly;
+  const b=document.getElementById('shopping-list-unchecked');
+  if(b){
+    b.style.fontWeight=shoppingListUncheckedOnly?'600':'400';
+    b.style.borderColor=shoppingListUncheckedOnly?'var(--green)':'var(--border)';
+    b.style.background=shoppingListUncheckedOnly?'var(--green-light)':'var(--bg)';
+    b.textContent=shoppingListUncheckedOnly?'☑ Unchecked only':'☐ Unchecked only';
+  }
   renderShoppingListModal();
 }
 
 let shoppingListSupplierFilter=''; // '' = all suppliers
+let shoppingListUncheckedOnly=false;
 function renderShoppingListModal(){
   const el=document.getElementById('shopping-list-body');
   const progressEl=document.getElementById('shopping-list-progress');
@@ -3671,14 +3688,15 @@ function renderShoppingListModal(){
   }
   if(filterEl)shoppingListSupplierFilter=filterEl.value;
 
-  const visibleItems=shoppingListSupplierFilter
+  let visibleItems=shoppingListSupplierFilter
     ? shoppingListItems.filter(r=>(r.supplier_name||'—')===shoppingListSupplierFilter)
     : shoppingListItems;
+  if(shoppingListUncheckedOnly)visibleItems=visibleItems.filter(r=>!isShoppingRowChecked(r));
 
   let html='';
   let lastSupplier=undefined;
   if(!visibleItems.length){
-    html='<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">No items for this supplier.</div>';
+    html=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${shoppingListUncheckedOnly?'Nothing left to buy — everything shown is checked off.':'No items for this supplier.'}</div>`;
   }
   visibleItems.forEach((r)=>{
     const supplierLabel=r.supplier_name||'No supplier set';
@@ -3757,6 +3775,7 @@ async function resetShoppingChecklist(){
 let comprasCkCache=[];
 let comprasCkEditingId=null;
 let comprasCkSearch='';
+let comprasCkUncheckedOnly=false;
 // A linked row's price always comes live from that product's Cost (Menu -> Products)
 // instead of its own `price` column — one source of truth, no extra write-back logic.
 function comprasCkEffectivePrice(r){
@@ -3789,11 +3808,25 @@ function onComprasCkLinkChange(){
 async function openComprasCkModal(){
   openModal('compras-ck-modal');
   comprasCkSearch='';
+  comprasCkUncheckedOnly=false;
   const se=document.getElementById('cck-search');if(se)se.value='';
+  const ub=document.getElementById('compras-ck-unchecked');
+  if(ub){ub.style.fontWeight='400';ub.style.borderColor='var(--border)';ub.style.background='var(--bg)';ub.textContent='☐ Unchecked only';}
   await loadComprasCkTab();
 }
 function closeComprasCkModal(){
   closeModal('compras-ck-modal');
+}
+function toggleComprasCkUncheckedOnly(){
+  comprasCkUncheckedOnly=!comprasCkUncheckedOnly;
+  const b=document.getElementById('compras-ck-unchecked');
+  if(b){
+    b.style.fontWeight=comprasCkUncheckedOnly?'600':'400';
+    b.style.borderColor=comprasCkUncheckedOnly?'var(--green)':'var(--border)';
+    b.style.background=comprasCkUncheckedOnly?'var(--green-light)':'var(--bg)';
+    b.textContent=comprasCkUncheckedOnly?'☑ Unchecked only':'☐ Unchecked only';
+  }
+  renderComprasCkList();
 }
 async function loadComprasCkTab(){
   comprasCkEditingId=null;
@@ -3818,12 +3851,13 @@ function renderComprasCkList(){
   const progressEl=document.getElementById('compras-ck-progress');
   if(!el)return;
   const q=comprasCkSearch;
-  const rows=q?comprasCkCache.filter(r=>(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)):comprasCkCache;
+  let rows=q?comprasCkCache.filter(r=>(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)):comprasCkCache;
+  if(comprasCkUncheckedOnly)rows=rows.filter(r=>!r.purchased);
   if(progressEl){
     const checkedCount=comprasCkCache.filter(r=>r.purchased).length;
     progressEl.textContent=`${checkedCount} / ${comprasCkCache.length} checked`;
   }
-  if(!rows.length){el.innerHTML=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${comprasCkCache.length?'No matches.':'No items yet — add one below.'}</div>`;return;}
+  if(!rows.length){el.innerHTML=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${!comprasCkCache.length?'No items yet — add one below.':(comprasCkUncheckedOnly?'Nothing left to buy — everything is checked off.':'No matches.')}</div>`;return;}
   el.innerHTML=rows.map(r=>{
     if(r.id===comprasCkEditingId){
       const effPriceEdit=comprasCkEffectivePrice(r);
@@ -3849,7 +3883,7 @@ function renderComprasCkList(){
     // Move up/down only makes sense against the full, unfiltered order — hide it while
     // a search is active so "adjacent" always means adjacent in the real saved order.
     const idx=comprasCkCache.findIndex(x=>x.id===r.id);
-    const canReorder=!q;
+    const canReorder=!q&&!comprasCkUncheckedOnly;
     const atTop=idx<=0, atBottom=idx>=comprasCkCache.length-1;
     const moveBtns=canReorder?`<span style="display:flex;flex-direction:column;flex-shrink:0;" onclick="event.preventDefault();">
         <button onclick="moveComprasCkItem(${r.id},-1)" title="Move up" ${atTop?'disabled':''} style="border:none;background:none;padding:1px 2px;line-height:1;font-size:11px;color:${atTop?'#D1D5DB':'#9CA3AF'};cursor:${atTop?'default':'pointer'};">▲</button>
