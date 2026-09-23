@@ -371,6 +371,21 @@
         <button class="btn-sm notif-bell" onclick="toggleOnlineDropdown()" title="Clients online now">👁 <span id="online-count">0</span></button>
         <div class="notif-dropdown" id="online-dropdown"></div>
       </div>
+      <!-- COMPRAS (Shopping List + Compras CK) — admin only, same gate as the tools themselves -->
+      <div class="notif-bell-wrap" id="compras-menu-wrap" style="display:none;">
+        <button class="btn-sm" onclick="toggleComprasMenu()">🛒 Compras</button>
+        <div class="notif-dropdown" id="compras-menu-dropdown">
+          <div class="notif-dropdown-header">Compras</div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');openShoppingOrderSelectModal()">
+            <div class="notif-item-title">🛒 Shopping List</div>
+            <div class="notif-item-text">Purchase checklist for orders in New Orders &amp; In Production</div>
+          </div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');openComprasCkModal()">
+            <div class="notif-item-title">🧾 Compras CK</div>
+            <div class="notif-item-text">Freely editable purchase list, by supplier &amp; day</div>
+          </div>
+        </div>
+      </div>
       <!-- ADMIN MENU -->
       <div class="notif-bell-wrap" id="admin-menu-wrap" style="display:none;">
         <button class="btn-sm" onclick="toggleAdminMenu()">⚙️ Menu</button>
@@ -539,8 +554,6 @@
           <button class="btn-sm" onclick="loadCompletedOrders()">↻ Refresh</button>
           <button class="btn-sm amber" onclick="exportCompletedExcel()">⬇ Excel</button>
           <button class="btn-sm" onclick="printCompletedPDF()" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151;">🖨 PDF</button>
-          <button class="btn-sm kitchen-hide-delete" style="background:#DBEAFE;border-color:#93C5FD;color:#1E40AF;" onclick="openShoppingListModal()">Shopping List</button>
-          <button class="btn-sm kitchen-hide-delete" style="background:#EDE9FE;border-color:#C4B5FD;color:#5B21B6;" onclick="openComprasCkModal()">Compras CK</button>
           <button class="btn-sm red kitchen-hide-delete" onclick="promptDeleteCompleted()">🗑 Delete selected</button>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
@@ -1045,11 +1058,30 @@
   </div>
 </div>
 
-<!-- 🛒 Shopping List — aggregates every ordered item across whatever orders are currently
-     In Production (or just the checked ones), grouped by Supplier. "Purchased" is stored per
-     ORDER (purchased_items column on orders_history, same idea as invoiced_items) so it
-     travels with the order itself — if an order leaves In Production and comes back later,
-     its purchase history is exactly as you left it, nothing is lost. Ported from VRC Orders. -->
+<!-- 🛒 Select Orders — the first step of Shopping List, opened from the topbar's Compras menu.
+     Lists every order in New Orders (pending/accepted) and In Production so you pick exactly
+     which ones feed the list, without needing to visit either tab first. -->
+<div class="modal-overlay" id="shopping-orders-select-modal">
+  <div class="modal" style="max-width:640px;width:94vw;max-height:85vh;overflow-y:auto;">
+    <h3>🛒 Select Orders</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-top:-6px;">Choose which orders to include in the Shopping List — from New Orders and In Production. Everything's selected by default.</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(true)">Select all</button>
+      <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(false)">Select none</button>
+    </div>
+    <div id="shopping-orders-select-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:52vh;overflow-y:auto;"></div>
+    <div class="modal-error" id="shopping-orders-select-error" style="display:none;"></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('shopping-orders-select-modal')">Cancel</button>
+      <button class="primary" onclick="continueToShoppingList()">Continue →</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🛒 Shopping List — aggregates every ordered item across the orders picked in Select Orders,
+     grouped by Supplier. "Purchased" is stored per ORDER (purchased_items column on
+     orders_history, same idea as invoiced_items) so it travels with the order itself —
+     regardless of which tab it's currently sitting in. Ported from VRC Orders. -->
 <div class="modal-overlay" id="shopping-list-modal">
   <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;overflow-y:auto;">
     <h3>Shopping List</h3>
@@ -1087,12 +1119,20 @@
         <span style="font-size:13px;">🔍</span>
         <input type="text" id="cck-search" placeholder="Search code or name..." oninput="searchComprasCk(this.value)" style="border:none;outline:none;background:transparent;font-size:13px;width:160px;"/>
       </span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:12px;color:var(--text-secondary);">Supplier:</span>
+        <select id="compras-ck-supplier-filter" onchange="filterComprasCkBySupplier(this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 9px;font-size:13px;background:var(--bg);"><option value="">All suppliers</option></select>
+      </span>
       <button class="btn-sm" id="compras-ck-unchecked" onclick="toggleComprasCkUncheckedOnly()">☐ Unchecked only</button>
       <span id="compras-ck-progress" style="font-size:13px;font-weight:600;color:var(--text-secondary);">—</span>
       <span style="display:flex;gap:8px;">
-        <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Add every product with a supplier set (except CPU — those are already on the Shopping List)">⬇️ Import from Supplier List</button>
+        <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Pull in every product in the catalogue — resold items and Central Kitchen items alike">⬇️ Import all products</button>
         <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
       </span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-light);">
+      <span style="font-size:12px;color:var(--text-secondary);margin-right:2px;">📅 Day:</span>
+      <div id="compras-ck-day-row" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
     </div>
     <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:55vh;overflow-y:auto;margin-top:10px;"></div>
     <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
@@ -2272,6 +2312,7 @@ async function launch(){
   document.getElementById('cart-toggle-btn').style.display=staff?'none':'';
   document.getElementById('client-menu-wrap').style.display=staff?'none':'inline-block';
   document.getElementById('admin-menu-wrap').style.display=staff?'inline-block':'none';
+  document.getElementById('compras-menu-wrap').style.display=isAdmin?'inline-block':'none';
   document.getElementById('client-tabs').style.display=staff?'none':'flex';
   document.getElementById('admin-tabs').style.display=staff?'flex':'none';
   document.getElementById('tab-order').style.display=staff?'none':'block';
@@ -2530,6 +2571,7 @@ function toggleNotifDropdown(){
     document.getElementById('notif-dropdown').classList.toggle('open');
     document.getElementById('admin-menu-dropdown')?.classList.remove('open');
     document.getElementById('online-dropdown')?.classList.remove('open');
+    document.getElementById('compras-menu-dropdown')?.classList.remove('open');
   } else {
     // Client: open dropdown with clear button + link to messages
     document.getElementById('notif-dropdown').classList.toggle('open');
@@ -2539,6 +2581,7 @@ function toggleOnlineDropdown(){
   document.getElementById('online-dropdown').classList.toggle('open');
   document.getElementById('notif-dropdown')?.classList.remove('open');
   document.getElementById('admin-menu-dropdown')?.classList.remove('open');
+  document.getElementById('compras-menu-dropdown')?.classList.remove('open');
   checkOnlineClients(); // refresh right when opened
 }
 // Hover-to-open (mouse leaving the button+dropdown area closes it automatically —
@@ -2560,6 +2603,13 @@ function toggleAdminMenu(){
   document.getElementById('admin-menu-dropdown').classList.toggle('open');
   document.getElementById('notif-dropdown')?.classList.remove('open');
   document.getElementById('online-dropdown')?.classList.remove('open');
+  document.getElementById('compras-menu-dropdown')?.classList.remove('open');
+}
+function toggleComprasMenu(){
+  document.getElementById('compras-menu-dropdown').classList.toggle('open');
+  document.getElementById('notif-dropdown')?.classList.remove('open');
+  document.getElementById('online-dropdown')?.classList.remove('open');
+  document.getElementById('admin-menu-dropdown')?.classList.remove('open');
 }
 function goAdminMenu(tab){
   document.getElementById('admin-menu-dropdown').classList.remove('open');
@@ -2644,6 +2694,10 @@ document.addEventListener('click',function(e){
   const adminWrap=document.getElementById('admin-menu-wrap');
   if(adminWrap&&!adminWrap.contains(e.target)){
     document.getElementById('admin-menu-dropdown')?.classList.remove('open');
+  }
+  const comprasWrap=document.getElementById('compras-menu-wrap');
+  if(comprasWrap&&!comprasWrap.contains(e.target)){
+    document.getElementById('compras-menu-dropdown')?.classList.remove('open');
   }
   const clientMenuWrap=document.getElementById('client-menu-wrap');
   if(clientMenuWrap&&!clientMenuWrap.contains(e.target)){
@@ -3641,19 +3695,76 @@ function computeShoppingListItems(orders){
 // OWN purchased_items — so it stays accurate even as orders enter/leave In Production.
 function isShoppingRowChecked(r){
   return r.orderIds.every(oid=>{
-    const o=completedOrdersCache.find(x=>x.id===oid);
+    const o=shoppingOrderLookup(oid);
     return !!(o&&o.purchased_items&&o.purchased_items[String(r.id)]===true);
   });
 }
 
-async function openShoppingListModal(){
-  const errEl=document.getElementById('shopping-list-error');
+// ── 🛒 Select Orders — opened from the topbar's Compras menu (not tied to any tab's own
+// checkboxes anymore). Lists every order currently in New Orders (pending/accepted) AND In
+// Production, so you can pick exactly which ones feed the Shopping List — everything's
+// selected by default. `shoppingOrderCache` is this modal's own fresh fetch, independent of
+// whatever's cached for the New Orders / In Production tabs (so it works even if you open
+// Compras before ever visiting either tab). ──
+let shoppingOrderCache=[];
+// Looks an order up wherever it might be cached — the Select Orders fetch first (since that's
+// exactly the set the open Shopping List was built from), then any other tab's cache as a
+// fallback — so toggling/resetting a checked item always finds the right row to patch.
+function shoppingOrderLookup(oid){
+  return shoppingOrderCache.find(o=>o.id===oid)||findOrderAnyCache(oid);
+}
+async function openShoppingOrderSelectModal(){
+  const errEl=document.getElementById('shopping-orders-select-error');
   if(errEl)errEl.style.display='none';
-  if(!completedOrdersCache.length){alert('No orders in production right now.');return;}
-  const checked=completedOrdersCache.filter(o=>{const c=document.getElementById('cchk-'+o.id);return c&&c.checked;});
-  const orders=checked.length>0?checked:completedOrdersCache;
-  shoppingListItems=computeShoppingListItems(orders);
-  if(!shoppingListItems.length){alert('Nothing to buy — no items on the selected orders.');return;}
+  openModal('shopping-orders-select-modal');
+  const listEl=document.getElementById('shopping-orders-select-list');
+  if(listEl)listEl.innerHTML='<div class="empty-state">Loading...</div>';
+  try{
+    shoppingOrderCache=await sbGet('orders_history','deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&status=in.(pending,accepted,in_production)&order=created_at.desc');
+  }catch(e){
+    shoppingOrderCache=[];
+    if(errEl){errEl.textContent='Error loading orders: '+e.message;errEl.style.display='block';}
+  }
+  renderShoppingOrderSelectList();
+}
+function renderShoppingOrderSelectList(){
+  const el=document.getElementById('shopping-orders-select-list');
+  if(!el)return;
+  if(!shoppingOrderCache.length){el.innerHTML='<div class="empty-state">No orders in New Orders or In Production right now.</div>';return;}
+  const groups=[
+    {label:'🆕 New Orders',rows:shoppingOrderCache.filter(o=>o.status==='pending'||o.status==='accepted')},
+    {label:'🍳 In Production',rows:shoppingOrderCache.filter(o=>o.status==='in_production')}
+  ];
+  let html='';
+  groups.forEach(g=>{
+    if(!g.rows.length)return;
+    html+=`<div style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;background:var(--bg);border-bottom:1px solid var(--border);">${g.label} (${g.rows.length})</div>`;
+    html+=g.rows.map(o=>{
+      const itemCount=Object.keys(o.items||{}).length;
+      const dateRaw=o.timestamp||o.created_at;
+      const dateLabel=dateRaw?new Date(dateRaw).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):'';
+      const name=displayNameFor(o.username)||o.username||'—';
+      return `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-light);cursor:pointer;">
+        <input type="checkbox" checked id="sos-chk-${o.id}" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
+        <span style="flex:1;font-size:13px;">${name}</span>
+        <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">${itemCount} item${itemCount!==1?'s':''}</span>
+        <span style="font-size:12px;color:var(--text-tertiary);white-space:nowrap;">${dateLabel}</span>
+      </label>`;
+    }).join('');
+  });
+  el.innerHTML=html;
+}
+function setAllShoppingOrderCheckboxes(checked){
+  shoppingOrderCache.forEach(o=>{const c=document.getElementById('sos-chk-'+o.id);if(c)c.checked=checked;});
+}
+function continueToShoppingList(){
+  const errEl=document.getElementById('shopping-orders-select-error');
+  if(errEl)errEl.style.display='none';
+  const checked=shoppingOrderCache.filter(o=>{const c=document.getElementById('sos-chk-'+o.id);return c&&c.checked;});
+  if(!checked.length){if(errEl){errEl.textContent='Select at least one order.';errEl.style.display='block';}return;}
+  shoppingListItems=computeShoppingListItems(checked);
+  if(!shoppingListItems.length){if(errEl){errEl.textContent='Nothing to buy — no items on the selected orders.';errEl.style.display='block';}return;}
+  closeModal('shopping-orders-select-modal');
   shoppingListSupplierFilter='';
   shoppingListUncheckedOnly=false;
   shoppingListSearch='';
@@ -3741,7 +3852,7 @@ async function toggleShoppingListItem(itemId,checked){
   if(!row)return;
   try{
     await Promise.all(row.orderIds.map(async oid=>{
-      const o=completedOrdersCache.find(x=>x.id===oid);
+      const o=shoppingOrderLookup(oid);
       if(!o)return;
       const newPurchased={...(o.purchased_items||{})};
       if(checked)newPurchased[itemId]=true;else delete newPurchased[itemId];
@@ -3767,7 +3878,7 @@ async function resetShoppingChecklist(){
   const errEl=document.getElementById('shopping-list-error');
   try{
     await Promise.all(affectedOrderIds.map(async oid=>{
-      const o=completedOrdersCache.find(x=>x.id===oid);
+      const o=shoppingOrderLookup(oid);
       if(!o)return;
       const newPurchased={...(o.purchased_items||{})};
       shoppingListItems.forEach(r=>{if(r.orderIds.includes(oid))delete newPurchased[String(r.id)];});
@@ -3789,6 +3900,8 @@ let comprasCkCache=[];
 let comprasCkEditingId=null;
 let comprasCkSearch='';
 let comprasCkUncheckedOnly=false;
+let comprasCkSupplierFilter='';
+let comprasCkDayFilter=null; // 0-6 (Date.getDay()) or null for "All days"
 // A linked row's price always comes live from that product's Cost (Menu -> Products)
 // instead of its own `price` column — one source of truth, no extra write-back logic.
 function comprasCkEffectivePrice(r){
@@ -3822,13 +3935,48 @@ async function openComprasCkModal(){
   openModal('compras-ck-modal');
   comprasCkSearch='';
   comprasCkUncheckedOnly=false;
+  comprasCkSupplierFilter='';
+  comprasCkDayFilter=new Date().getDay(); // defaults to today — see what needs buying right now
   const se=document.getElementById('cck-search');if(se)se.value='';
+  const sf=document.getElementById('compras-ck-supplier-filter');if(sf)sf.value='';
   const ub=document.getElementById('compras-ck-unchecked');
   if(ub){ub.style.fontWeight='400';ub.style.borderColor='var(--border)';ub.style.background='var(--bg)';ub.textContent='☐ Unchecked only';}
+  await fetchSupplierDaysFromSupabase(); // pick up any schedule changes made elsewhere
   await loadComprasCkTab();
 }
 function closeComprasCkModal(){
   closeModal('compras-ck-modal');
+}
+function filterComprasCkBySupplier(val){
+  comprasCkSupplierFilter=val;
+  renderComprasCkList();
+}
+// day = 0-6 (JS Date.getDay()) to filter to that weekday's suppliers, or null for "All days".
+function setComprasCkDayFilter(day){
+  comprasCkDayFilter=day;
+  renderComprasCkDayRow();
+  renderComprasCkList();
+}
+function renderComprasCkDayRow(){
+  const el=document.getElementById('compras-ck-day-row');
+  if(!el)return;
+  const todayIdx=new Date().getDay();
+  const allActive=comprasCkDayFilter==null;
+  let html=`<button onclick="setComprasCkDayFilter(null)" style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid ${allActive?'var(--green)':'var(--border)'};background:${allActive?'var(--green)':'var(--bg)'};color:${allActive?'#fff':'var(--text-secondary)'};cursor:pointer;">All days</button>`;
+  html+=WEEKDAY_ORDER.map(d=>{
+    const active=comprasCkDayFilter===d;
+    const isToday=d===todayIdx;
+    return `<button onclick="setComprasCkDayFilter(${d})" title="${isToday?'Today':''}" style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid ${active?'var(--green)':(isToday?'#F59E0B':'var(--border)')};background:${active?'var(--green)':'var(--bg)'};color:${active?'#fff':'var(--text-secondary)'};cursor:pointer;">${WEEKDAY_LABELS[d]}${isToday&&!active?' •':''}</button>`;
+  }).join('');
+  el.innerHTML=html;
+}
+function updateComprasCkSupplierDropdown(){
+  const sel=document.getElementById('compras-ck-supplier-filter');
+  if(!sel)return;
+  const current=sel.value;
+  const suppliers=[...new Set(comprasCkCache.map(comprasCkSupplierOf).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  sel.innerHTML='<option value="">All suppliers</option>'+suppliers.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('');
+  sel.value=suppliers.includes(current)?current:'';
 }
 function toggleComprasCkUncheckedOnly(){
   comprasCkUncheckedOnly=!comprasCkUncheckedOnly;
@@ -3853,6 +4001,8 @@ async function loadComprasCkTab(){
     comprasCkCache=[];
     if(errEl){errEl.textContent='Error loading: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
   }
+  updateComprasCkSupplierDropdown();
+  renderComprasCkDayRow();
   renderComprasCkList();
 }
 function searchComprasCk(v){
@@ -3874,11 +4024,22 @@ function renderComprasCkList(){
   const q=comprasCkSearch;
   let rows=q?comprasCkCache.filter(r=>(r.name||'').toLowerCase().includes(q)||(r.code||'').toLowerCase().includes(q)):comprasCkCache;
   if(comprasCkUncheckedOnly)rows=rows.filter(r=>!r.purchased);
+  if(comprasCkSupplierFilter)rows=rows.filter(r=>comprasCkSupplierOf(r)===comprasCkSupplierFilter);
+  if(comprasCkDayFilter!=null)rows=rows.filter(r=>{
+    const sup=comprasCkSupplierOf(r);
+    return sup&&(supplierDays[sup]||[]).includes(comprasCkDayFilter);
+  });
   if(progressEl){
     const checkedCount=comprasCkCache.filter(r=>r.purchased).length;
     progressEl.textContent=`${checkedCount} / ${comprasCkCache.length} checked`;
   }
-  if(!rows.length){el.innerHTML=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${!comprasCkCache.length?'No items yet — add one below.':(comprasCkUncheckedOnly?'Nothing left to buy — everything is checked off.':'No matches.')}</div>`;return;}
+  if(!rows.length){
+    let emptyMsg='No matches.';
+    if(!comprasCkCache.length)emptyMsg='No items yet — add one below.';
+    else if(comprasCkDayFilter!=null)emptyMsg=`Nothing scheduled for ${WEEKDAY_LABELS[comprasCkDayFilter]} — set a supplier's shopping day in ⚙️ Suppliers, or pick "All days".`;
+    else if(comprasCkUncheckedOnly)emptyMsg='Nothing left to buy — everything is checked off.';
+    el.innerHTML=`<div style="padding:1rem;font-size:13px;color:var(--text-secondary);text-align:center">${emptyMsg}</div>`;return;
+  }
   // Group by supplier (blank last), same convention as the 🛒 Shopping List. Up/down only
   // reorders within a group — "adjacent" is computed against that group's own neighbours,
   // not the raw global list, so moving an item never jumps it into another supplier's rows.
@@ -4057,15 +4218,21 @@ async function addComprasCkEntry(){
 // comprasCkEffectivePrice). CPU is skipped: those are Central Kitchen items, already covered
 // by the 🛒 Shopping List, so they'd just be noise here. Products already linked to an
 // existing row are skipped too, so this is safe to run again after adding new suppliers.
+// Compras CK is meant to eventually cover EVERY item the business buys — both resold products
+// and Central Kitchen production items — so this pulls in the full catalogue, not just the
+// ones with a supplier already set (that gets filled in later, from ⚙️/Supplier List or by
+// editing a row here directly). Every imported row is linked (so its price always mirrors that
+// product's Cost); products already linked to an existing row are skipped, so this is safe to
+// run again later to pick up newly added products.
 async function importComprasCkFromSupplierList(){
   const errEl=document.getElementById('compras-ck-error');
   errEl.style.display='none';
   try{
     const products=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');
     const alreadyLinked=new Set(comprasCkCache.filter(r=>r.linked_product_id!=null).map(r=>String(r.linked_product_id)));
-    const toImport=products.filter(p=>p.supplier_name&&String(p.supplier_name).trim().toLowerCase()!=='cpu'&&!alreadyLinked.has(String(p.id)));
-    if(!toImport.length){alert('Nothing new to import — every product with a supplier (other than CPU) is already in Compras CK.');return;}
-    if(!confirm(`Import ${toImport.length} product(s) from the Supplier List into Compras CK?\n\nCentral Kitchen items (supplier "CPU") are skipped — they're already on the 🛒 Shopping List.`))return;
+    const toImport=products.filter(p=>!alreadyLinked.has(String(p.id)));
+    if(!toImport.length){alert('Nothing new to import — every product is already in Compras CK.');return;}
+    if(!confirm(`Import all ${toImport.length} product(s) into Compras CK?\n\nThis pulls in the whole catalogue — resold items and Central Kitchen items alike. You can fill in supplier/code for each any time from here or from Supplier List.`))return;
     let nextOrder=comprasCkCache.length?Math.max(...comprasCkCache.map(r=>r.sort_order||0))+1:1;
     const payload=toImport.map(p=>({code:p.supplier_code||null,name:p.name,pack_size:null,linked_product_id:p.id,sort_order:nextOrder++}));
     const rows=await sbPost('compras_ck',payload);
@@ -4112,6 +4279,50 @@ function renderSuppliersDatalist(){
   const dl=document.getElementById('prod-suppliers-list');
   if(!dl)return;
   dl.innerHTML=SUPPLIERS.map(s=>`<option value="${s.replace(/"/g,'&quot;')}"></option>`).join('');
+}
+
+// ── 📅 Supplier shopping days — which weekday(s) you normally order from each supplier (e.g.
+// Carnaval/Divine on Monday, Brakes on Tuesday). Drives the Day filter on 🧾 Compras CK, which
+// opens pre-filtered to today so you always see exactly what you need to order right now.
+// Keyed by supplier name, value = array of JS Date.getDay() weekday numbers (0=Sun..6=Sat), so
+// the "is today?" check is a one-line comparison against `new Date().getDay()`, no timezone
+// or date-math involved. Stored the same way as SUPPLIERS (app_settings, key='supplier_days').
+const WEEKDAY_LABELS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const WEEKDAY_ORDER=[1,2,3,4,5,6,0]; // display Mon -> Sun
+function loadSupplierDays(){
+  try{
+    const saved=localStorage.getItem('matteo-supplier-days');
+    return saved?JSON.parse(saved):{};
+  }catch(e){return {};}
+}
+function saveSupplierDaysLocal(days){
+  try{localStorage.setItem('matteo-supplier-days',JSON.stringify(days));}catch(e){}
+}
+let supplierDays=loadSupplierDays(); // {supplierName:[0-6,...]}
+async function fetchSupplierDaysFromSupabase(){
+  try{
+    const rows=await sbGet('app_settings','key=eq.supplier_days');
+    if(rows&&rows[0]&&rows[0].value){
+      supplierDays=rows[0].value;
+      saveSupplierDaysLocal(supplierDays);
+    }
+  }catch(e){/* app_settings table might not exist yet - keep local/default value */}
+}
+async function saveSupplierDaysToSupabase(days){
+  try{
+    const res=await sbPatch('app_settings','key=eq.supplier_days',{value:days});
+    if(!res||!res.length){
+      await sbPost('app_settings',{key:'supplier_days',value:days});
+    }
+  }catch(e){console.error('Error saving supplier days to Supabase:',e);}
+}
+async function toggleSupplierDay(supplierName,day){
+  const current=supplierDays[supplierName]||[];
+  const has=current.includes(day);
+  supplierDays[supplierName]=has?current.filter(d=>d!==day):[...current,day].sort((a,b)=>a-b);
+  saveSupplierDaysLocal(supplierDays);
+  renderSuppliersList();
+  await saveSupplierDaysToSupabase(supplierDays);
 }
 
 let supplierInfoCache=[],supplierInfoFilter='all',supplierInfoSearch='',supplierInfoSupplierFilter='',supplierInfoCat='all';
@@ -4276,7 +4487,7 @@ async function saveSupplierField(id,field,inputEl){
 let supplierEditingIndex=null;
 async function openManageSuppliers(){
   supplierEditingIndex=null;
-  await fetchSuppliersFromSupabase(); // pick up suppliers added from another device/session
+  await Promise.all([fetchSuppliersFromSupabase(),fetchSupplierDaysFromSupabase()]); // pick up suppliers/days added from another device/session
   renderSuppliersList();
   openModal('manage-suppliers-modal');
 }
@@ -4293,10 +4504,21 @@ function renderSuppliersList(){
         <button class="btn-sm" onclick="cancelSupplierEdit()" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✕ Cancel</button>
       </div>`;
     }
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-light);">
-    <span style="font-size:13px;flex:1;">${s}</span>
-    <button class="btn-sm" onclick="startSupplierEdit(${i})" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✏️ Edit</button>
-    <button class="btn-sm red" onclick="removeSupplier('${s.replace(/'/g,"\\'")}')" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✕ Remove</button>
+    const days=supplierDays[s]||[];
+    const dayChips=WEEKDAY_ORDER.map(d=>{
+      const active=days.includes(d);
+      return `<button onclick="toggleSupplierDay('${s.replace(/'/g,"\\'")}',${d})" title="Toggle ${WEEKDAY_LABELS[d]}" style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;border:1px solid ${active?'var(--green)':'var(--border)'};background:${active?'var(--green)':'var(--bg)'};color:${active?'#fff':'var(--text-secondary)'};cursor:pointer;">${WEEKDAY_LABELS[d]}</button>`;
+    }).join('');
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border-light);">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:13px;flex:1;">${s}</span>
+      <button class="btn-sm" onclick="startSupplierEdit(${i})" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✏️ Edit</button>
+      <button class="btn-sm red" onclick="removeSupplier('${s.replace(/'/g,"\\'")}')" style="font-size:11px;padding:3px 10px;flex-shrink:0;">✕ Remove</button>
+    </div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">
+      <span style="font-size:10px;color:var(--text-tertiary);margin-right:2px;align-self:center;">📅</span>
+      ${dayChips}
+    </div>
   </div>`;
   }).join('');
   if(supplierEditingIndex!=null){
@@ -4337,6 +4559,14 @@ async function saveSupplierRename(i){
     [supplierInfoCache,adminProductsCache,allProducts,allProductsArchive].forEach(cache=>{
       (cache||[]).forEach(p=>{if(p.supplier_name===oldName)p.supplier_name=newName;});
     });
+    // Carry the old name's shopping days over to the new name so a rename never silently
+    // clears the schedule.
+    if(supplierDays[oldName]){
+      supplierDays[newName]=supplierDays[oldName];
+      delete supplierDays[oldName];
+      saveSupplierDaysLocal(supplierDays);
+      await saveSupplierDaysToSupabase(supplierDays);
+    }
     supplierEditingIndex=null;
     renderSuppliersList();
     renderSuppliersDatalist();
@@ -4365,6 +4595,11 @@ async function removeSupplier(name){
   SUPPLIERS=SUPPLIERS.filter(s=>s!==name);
   saveSuppliersLocal(SUPPLIERS);
   await saveSuppliersToSupabase(SUPPLIERS);
+  if(supplierDays[name]){
+    delete supplierDays[name];
+    saveSupplierDaysLocal(supplierDays);
+    await saveSupplierDaysToSupabase(supplierDays);
+  }
   renderSuppliersList();
   renderSuppliersDatalist();
   updateSupplierFilterDropdown();
