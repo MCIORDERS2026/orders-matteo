@@ -1070,8 +1070,9 @@
     <h2>🛒 Select Orders</h2>
     <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(true)">Select all</button>
     <button class="btn-sm" onclick="setAllShoppingOrderCheckboxes(false)">Select none</button>
+    <button class="btn-sm" id="shopping-select-show-purchased" style="display:none;" onclick="toggleShoppingSelectShowPurchased()"></button>
   </div>
-  <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">Choose which orders to include in the Shopping List — from New Orders and In Production. Everything's selected by default.</p>
+  <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">Choose which orders to include in the Shopping List — from New Orders and In Production. Everything's selected by default. Orders already fully purchased are hidden automatically, so you can build another shopping list later the same day covering just what's left — use "Show purchased" to bring them back if you need to double-check one.</p>
   <div id="shopping-orders-select-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:60vh;overflow-y:auto;"></div>
   <div class="modal-error" id="shopping-orders-select-error" style="display:none;margin-top:10px;"></div>
   <div style="margin-top:14px;">
@@ -3722,6 +3723,22 @@ function isShoppingRowChecked(r){
 // whatever's cached for the New Orders / In Production tabs (so it works even if you open
 // Compras before ever visiting either tab). ──
 let shoppingOrderCache=[];
+// Fully-purchased orders (every item checked off in a previous Shopping List) are hidden from
+// Select Orders by default — reset to false each time the screen opens — so admins can run
+// several separate shopping lists in the same day without re-deselecting orders they already
+// bought. "Show purchased" brings them back into view to double-check or re-add one.
+let shoppingSelectShowPurchased=false;
+function isOrderFullyPurchased(o){
+  const items=o.items||{};
+  const keys=Object.keys(items).filter(id=>parseFloat(items[id])>0);
+  if(!keys.length)return false;
+  const purchased=o.purchased_items||{};
+  return keys.every(id=>purchased[id]===true);
+}
+function toggleShoppingSelectShowPurchased(){
+  shoppingSelectShowPurchased=!shoppingSelectShowPurchased;
+  renderShoppingOrderSelectList();
+}
 // Looks an order up wherever it might be cached — the Select Orders fetch first (since that's
 // exactly the set the open Shopping List was built from), then any other tab's cache as a
 // fallback — so toggling/resetting a checked item always finds the right row to patch.
@@ -3750,6 +3767,7 @@ async function openShoppingOrderSelectModal(){
   if(errEl)errEl.style.display='none';
   const listEl=document.getElementById('shopping-orders-select-list');
   if(listEl)listEl.innerHTML='<div class="empty-state">Loading...</div>';
+  shoppingSelectShowPurchased=false; // fresh visit — hide already-purchased orders again
   try{
     shoppingOrderCache=await sbGet('orders_history','deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&status=in.(pending,accepted,in_production)&order=created_at.desc');
   }catch(e){
@@ -3760,11 +3778,22 @@ async function openShoppingOrderSelectModal(){
 }
 function renderShoppingOrderSelectList(){
   const el=document.getElementById('shopping-orders-select-list');
+  const toggleBtn=document.getElementById('shopping-select-show-purchased');
   if(!el)return;
-  if(!shoppingOrderCache.length){el.innerHTML='<div class="empty-state">No orders in New Orders or In Production right now.</div>';return;}
+  if(!shoppingOrderCache.length){
+    el.innerHTML='<div class="empty-state">No orders in New Orders or In Production right now.</div>';
+    if(toggleBtn)toggleBtn.style.display='none';
+    return;
+  }
+  const purchasedCount=shoppingOrderCache.filter(isOrderFullyPurchased).length;
+  if(toggleBtn){
+    toggleBtn.style.display=purchasedCount?'inline-flex':'none';
+    toggleBtn.textContent=shoppingSelectShowPurchased?`🙈 Hide purchased (${purchasedCount})`:`👁 Show purchased (${purchasedCount})`;
+  }
+  const visibleOrders=shoppingSelectShowPurchased?shoppingOrderCache:shoppingOrderCache.filter(o=>!isOrderFullyPurchased(o));
   const groups=[
-    {label:'🆕 New Orders',rows:shoppingOrderCache.filter(o=>o.status==='pending'||o.status==='accepted')},
-    {label:'🍳 In Production',rows:shoppingOrderCache.filter(o=>o.status==='in_production')}
+    {label:'🆕 New Orders',rows:visibleOrders.filter(o=>o.status==='pending'||o.status==='accepted')},
+    {label:'🍳 In Production',rows:visibleOrders.filter(o=>o.status==='in_production')}
   ];
   let html='';
   groups.forEach(g=>{
@@ -3775,14 +3804,23 @@ function renderShoppingOrderSelectList(){
       const dateRaw=o.timestamp||o.created_at;
       const dateLabel=dateRaw?new Date(dateRaw).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):'';
       const name=displayNameFor(o.username)||o.username||'—';
+      const done=isOrderFullyPurchased(o);
+      // Already-purchased orders only show up here when "Show purchased" is on — they start
+      // UNCHECKED so re-opening the list never silently re-adds items you already bought.
+      const badge=done?'<span class="order-status" style="background:#DBEAFE;border-color:#BFDBFE;color:#1E40AF;font-size:10px;margin-left:6px;">🛒 Purchased</span>':'';
       return `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-light);cursor:pointer;">
-        <input type="checkbox" checked id="sos-chk-${o.id}" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
-        <span style="flex:1;font-size:13px;">${name}</span>
+        <input type="checkbox" ${done?'':'checked'} id="sos-chk-${o.id}" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
+        <span style="flex:1;font-size:13px;">${name}${badge}</span>
         <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">${itemCount} item${itemCount!==1?'s':''}</span>
         <span style="font-size:12px;color:var(--text-tertiary);white-space:nowrap;">${dateLabel}</span>
       </label>`;
     }).join('');
   });
+  if(!html){
+    html=shoppingSelectShowPurchased
+      ? '<div class="empty-state">No orders in New Orders or In Production right now.</div>'
+      : `<div class="empty-state">Everything here has already been purchased.<br/><button class="btn-sm" style="margin-top:8px;" onclick="toggleShoppingSelectShowPurchased()">👁 Show purchased (${purchasedCount})</button></div>`;
+  }
   el.innerHTML=html;
 }
 function setAllShoppingOrderCheckboxes(checked){
