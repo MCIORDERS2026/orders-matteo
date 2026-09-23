@@ -3361,6 +3361,7 @@ function renderOrdersList(){
         <input type="checkbox" id="chk-${o.id}" onclick="event.stopPropagation()"/>
         <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
         ${statusHtml}
+        ${orderShoppingDoneBadge(o)}
         <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
       </div>
       <div class="order-card-body${openIds.has(o.id)?' open':''}" id="ob-${o.id}">
@@ -3375,6 +3376,19 @@ function renderOrdersList(){
   }).join('');
 }
 function toggleBody(id){document.getElementById(id).classList.toggle('open');}
+
+// 🛒 Shown on New Orders / In Production cards once every item on that order has been
+// checked off in the Shopping List (purchased_items) — so it's obvious at a glance that
+// buying for this order is already done, and it doesn't get bought twice.
+function orderShoppingDoneBadge(o){
+  const items=o.items||{};
+  const keys=Object.keys(items).filter(id=>parseFloat(items[id])>0);
+  if(!keys.length)return '';
+  const purchased=o.purchased_items||{};
+  const allDone=keys.every(id=>purchased[id]===true);
+  if(!allDone)return '';
+  return '<span class="order-status" style="background:#DBEAFE;border-color:#BFDBFE;color:#1E40AF;" title="Every item on this order has been checked off in the Shopping List">🛒 Compras feitas</span>';
+}
 
 async function saveOriginalIfNeeded(order){
   const notes=order.delivery_notes||{};
@@ -3628,6 +3642,7 @@ function renderIPList(){
         </div>
         <span class="order-card-user">${o.order_number?`<span style="font-size:11px;background:#E5E7EB;border-radius:4px;padding:1px 6px;margin-right:4px;">#${o.order_number}</span>`:''}${o.merge_note?`<span title="${o.merge_note}" style="font-size:11px;background:#EDE9FE;color:#6D28D9;border-radius:4px;padding:1px 6px;margin-right:4px;cursor:help;">🔀 Merged</span>`:''} ${o.username}${o.ordered_by?` <span style="font-size:11px;background:var(--green-light);color:var(--green-dark);border-radius:4px;padding:1px 6px;margin-left:4px;">👤 ${o.ordered_by}</span>`:''} <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">— ${o.timestamp}</span></span>
         <span class="order-status status-accepted">🍳 In Production</span>
+        ${orderShoppingDoneBadge(o)}
         <span style="font-size:12px;color:var(--text-secondary)">${count} items</span>
       </div>
       <div class="order-card-body" id="cb-${o.id}">
@@ -3703,7 +3718,24 @@ let shoppingOrderCache=[];
 // exactly the set the open Shopping List was built from), then any other tab's cache as a
 // fallback — so toggling/resetting a checked item always finds the right row to patch.
 function shoppingOrderLookup(oid){
-  return shoppingOrderCache.find(o=>o.id===oid)||findOrderAnyCache(oid);
+  // Prefer the "live" caches that New Orders/In Production actually render from, so any
+  // purchased_items mutation is visible there immediately — shoppingOrderCache (fetched
+  // fresh on Select Orders) is only a fallback for an order those caches haven't loaded yet.
+  return findOrderAnyCache(oid)||shoppingOrderCache.find(o=>o.id===oid);
+}
+// After a purchase checkbox changes, every cache copy of that order (New Orders,
+// In Production, and the Select Orders snapshot) needs the same purchased_items so the
+// "🛒 Compras feitas" badge is correct wherever the order is rendered.
+function syncPurchasedItemsAcrossCaches(oid,newPurchased){
+  [shoppingOrderCache,
+   (typeof allOrdersCache!=='undefined'?allOrdersCache:[]),
+   (typeof completedOrdersCache!=='undefined'?completedOrdersCache:[])
+  ].forEach(cache=>{
+    const o=cache&&cache.find(x=>x.id===oid);
+    if(o)o.purchased_items=newPurchased;
+  });
+  try{renderOrdersList();}catch(e){}
+  try{renderIPList();}catch(e){}
 }
 async function openShoppingOrderSelectModal(){
   const errEl=document.getElementById('shopping-orders-select-error');
@@ -3848,6 +3880,7 @@ async function toggleShoppingListItem(itemId,checked){
       if(checked)newPurchased[itemId]=true;else delete newPurchased[itemId];
       await sbPatch('orders_history',`id=eq.${oid}`,{purchased_items:newPurchased});
       o.purchased_items=newPurchased; // keep the shared cache in sync
+      syncPurchasedItemsAcrossCaches(oid,newPurchased); // update the "🛒 Compras feitas" badge live
     }));
     renderShoppingListModal();
   }catch(e){
@@ -3870,6 +3903,7 @@ async function resetShoppingChecklist(){
       shoppingListItems.forEach(r=>{if(r.orderIds.includes(oid))delete newPurchased[String(r.id)];});
       await sbPatch('orders_history',`id=eq.${oid}`,{purchased_items:newPurchased});
       o.purchased_items=newPurchased;
+      syncPurchasedItemsAcrossCaches(oid,newPurchased);
     }));
     renderShoppingListModal();
   }catch(e){
