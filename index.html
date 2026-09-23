@@ -1131,10 +1131,12 @@
     <div id="compras-ck-day-suppliers" style="font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
   </div>
   <div id="compras-ck-list" style="border:1px solid var(--border);border-radius:var(--radius-sm);max-height:60vh;overflow-y:auto;margin-top:10px;"></div>
-  <div style="display:grid;grid-template-columns:110px 1.8fr 130px 100px 90px;gap:6px;align-items:center;margin-top:12px;">
+  <p style="font-size:11px;color:var(--text-tertiary);margin:12px 0 4px;">Add a raw ingredient here to give it a supplier &amp; shopping day — it stays separate from the client-facing catalogue in Supplier List (it's never linked to a sellable product unless you deliberately link one for live pricing via ✏️ Edit).</p>
+  <div style="display:grid;grid-template-columns:90px 1.3fr 90px 130px 100px 90px;gap:6px;align-items:center;">
     <input type="text" id="new-cck-code" placeholder="Code" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
     <input type="text" id="new-cck-name" placeholder="Product name" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
     <input type="text" id="new-cck-packsize" placeholder="Pack size" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
+    <input type="text" id="new-cck-supplier" placeholder="Supplier" list="prod-suppliers-list" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
     <input type="number" step="0.01" min="0" id="new-cck-price" placeholder="Price £" style="border:1px solid var(--border);border-radius:6px;padding:8px 9px;font-size:13px;width:100%;"/>
     <button class="btn-sm green" onclick="addComprasCkEntry()">+ Add</button>
   </div>
@@ -3938,6 +3940,7 @@ function comprasCkEffectivePrice(r){
 function onComprasCkLinkChange(){
   const sel=document.getElementById('edit-cck-linked-product');
   const priceInput=document.getElementById('edit-cck-price');
+  const supplierInput=document.getElementById('edit-cck-supplier');
   if(!sel||!priceInput)return;
   const pid=sel.value||null;
   if(pid){
@@ -3947,10 +3950,21 @@ function onComprasCkLinkChange(){
     priceInput.disabled=true;
     priceInput.style.background='var(--bg)';
     priceInput.style.color='var(--text-tertiary)';
+    if(supplierInput){
+      supplierInput.value=(p&&p.supplier_name)?p.supplier_name:'';
+      supplierInput.disabled=true;
+      supplierInput.style.background='var(--bg)';
+      supplierInput.style.color='var(--text-tertiary)';
+    }
   }else{
     priceInput.disabled=false;
     priceInput.style.background='';
     priceInput.style.color='';
+    if(supplierInput){
+      supplierInput.disabled=false;
+      supplierInput.style.background='';
+      supplierInput.style.color='';
+    }
   }
 }
 async function openComprasCkModal(){
@@ -3962,7 +3976,7 @@ async function openComprasCkModal(){
   const sf=document.getElementById('compras-ck-supplier-filter');if(sf)sf.value='';
   const ub=document.getElementById('compras-ck-unchecked');
   if(ub){ub.style.fontWeight='400';ub.style.borderColor='var(--border)';ub.style.background='var(--bg)';ub.textContent='☐ Unchecked only';}
-  await fetchSupplierDaysFromSupabase(); // pick up any schedule changes made elsewhere
+  await Promise.all([fetchSupplierDaysFromSupabase(),fetchSuppliersFromSupabase()]); // schedule + supplier-name autocomplete
   await loadComprasCkTab();
 }
 function filterComprasCkBySupplier(val){
@@ -4090,12 +4104,16 @@ function searchComprasCk(v){
   renderComprasCkList();
 }
 // A row's "supplier" is whatever its linked product is tagged with on Menu -> Supplier List
-// (rows brought in via ⬇️ Import from Supplier List are always linked); a manually-added,
-// unlinked row has no supplier and falls into its own "No supplier set" group.
+// (rows brought in via ⬇️ Import from Supplier List are always linked). A manually-added,
+// unlinked row (a raw ingredient you cook with, not a resold product) carries its OWN
+// supplier_name directly on the compras_ck row instead — deliberately kept separate from
+// products/Supplier List, which is the client-facing catalogue.
 function comprasCkSupplierOf(r){
-  if(!r.linked_product_id)return null;
-  const p=findProductAny(r.linked_product_id);
-  return (p&&p.supplier_name)?p.supplier_name:null;
+  if(r.linked_product_id){
+    const p=findProductAny(r.linked_product_id);
+    return (p&&p.supplier_name)?p.supplier_name:null;
+  }
+  return r.supplier_name||null;
 }
 // Applies search + Unchecked only + Supplier + Day exactly as the list itself does — shared
 // by the list render, "Reset checklist" (so it only clears what's actually on screen, not the
@@ -4159,11 +4177,12 @@ function renderComprasCkRow(r,canReorder,prevId,nextId){
     if(r.id===comprasCkEditingId){
       const effPriceEdit=comprasCkEffectivePrice(r);
       const linkedOptions=[...allProducts].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${String(r.linked_product_id)===String(p.id)?'selected':''}>${String(p.name).replace(/</g,'&lt;')}</option>`).join('');
-      return `<div style="display:grid;grid-template-columns:90px 1.4fr 100px 1fr 90px 80px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border-light);">
+      return `<div style="display:grid;grid-template-columns:80px 1.1fr 80px 110px 1fr 80px 70px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border-light);">
         <input type="text" id="edit-cck-code" value="${r.code?String(r.code).replace(/"/g,'&quot;'):''}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;"/>
         <input type="text" id="edit-cck-name" value="${String(r.name).replace(/"/g,'&quot;')}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;"/>
         <input type="text" id="edit-cck-packsize" value="${r.pack_size?String(r.pack_size).replace(/"/g,'&quot;'):''}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;"/>
-        <select id="edit-cck-linked-product" onchange="onComprasCkLinkChange()" title="Link to a product — locks the price to that product's Cost" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;">
+        <input type="text" id="edit-cck-supplier" value="${r.linked_product_id?'':(r.supplier_name?String(r.supplier_name).replace(/"/g,'&quot;'):'')}" placeholder="Supplier" list="prod-suppliers-list" ${r.linked_product_id?'disabled':''} title="${r.linked_product_id?'Locked — supplier comes from the linked product':''}" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;${r.linked_product_id?'background:var(--bg);color:var(--text-tertiary);':''}"/>
+        <select id="edit-cck-linked-product" onchange="onComprasCkLinkChange()" title="Link to a product — locks the price & supplier to that product" style="border:1px solid var(--border);border-radius:6px;padding:6px 7px;font-size:12px;width:100%;">
           <option value="">— Not linked —</option>
           ${linkedOptions}
         </select>
@@ -4302,21 +4321,24 @@ async function saveComprasCkEdit(id){
   const packSize=document.getElementById('edit-cck-packsize').value.trim()||null;
   const linkSel=document.getElementById('edit-cck-linked-product').value;
   const linkedProductId=linkSel||null;
-  // When linked, the price field is just a locked mirror of the product's Cost — don't
-  // save it as this row's own price (comprasCkEffectivePrice always reads it live from
-  // the product instead, so the stored value here is irrelevant either way).
+  // When linked, price AND supplier just mirror the linked product's Cost/Supplier — don't
+  // save either as this row's own value (comprasCkSupplierOf/comprasCkEffectivePrice always
+  // read them live from the product instead, so whatever's stored here is irrelevant).
+  const supplierVal=document.getElementById('edit-cck-supplier').value.trim();
+  const supplierName=linkedProductId?null:(supplierVal||null);
   const priceVal=document.getElementById('edit-cck-price').value.trim();
   const price=linkedProductId?null:(priceVal===''?null:parseFloat(priceVal));
   if(!name){errEl.textContent='Name can\'t be empty.';errEl.style.display='block';return;}
   try{
-    const payload={code,name,pack_size:packSize,price,linked_product_id:linkedProductId,updated_at:new Date().toISOString()};
+    const payload={code,name,pack_size:packSize,supplier_name:supplierName,price,linked_product_id:linkedProductId,updated_at:new Date().toISOString()};
     await sbPatch('compras_ck',`id=eq.${id}`,payload);
     const r=comprasCkCache.find(x=>x.id===id);
     if(r)Object.assign(r,payload);
     comprasCkEditingId=null;
     errEl.style.display='none';
     renderComprasCkList();
-  }catch(e){errEl.textContent='Error saving: '+e.message;errEl.style.display='block';}
+    renderComprasCkDayRow();
+  }catch(e){errEl.textContent='Error saving: '+e.message+(/supplier_name/i.test(e.message)?' — run matteo_migration_compras_ck_supplier.sql in Supabase first.':'');errEl.style.display='block';}
 }
 async function removeComprasCkEntry(id){
   if(!confirm('Remove this item from Compras CK?'))return;
@@ -4333,10 +4355,12 @@ async function addComprasCkEntry(){
   const codeEl=document.getElementById('new-cck-code');
   const nameEl=document.getElementById('new-cck-name');
   const packEl=document.getElementById('new-cck-packsize');
+  const supplierEl=document.getElementById('new-cck-supplier');
   const priceEl=document.getElementById('new-cck-price');
   const code=codeEl.value.trim()||null;
   const name=nameEl.value.trim();
   const packSize=packEl.value.trim()||null;
+  const supplierName=supplierEl.value.trim()||null;
   const priceVal=priceEl.value.trim();
   const price=priceVal===''?null:parseFloat(priceVal);
   if(!name){errEl.textContent='Enter a product name.';errEl.style.display='block';return;}
@@ -4344,12 +4368,13 @@ async function addComprasCkEntry(){
     // New items go to the bottom of the list (highest sort_order + 1) so reordering
     // never has to guess where something newly added belongs.
     const nextOrder=comprasCkCache.length?Math.max(...comprasCkCache.map(r=>r.sort_order||0))+1:1;
-    const payload={code,name,pack_size:packSize,price,sort_order:nextOrder};
+    const payload={code,name,pack_size:packSize,supplier_name:supplierName,price,sort_order:nextOrder};
     const rows=await sbPost('compras_ck',payload);
     if(rows&&rows[0])comprasCkCache.push(rows[0]);
-    codeEl.value='';nameEl.value='';packEl.value='';priceEl.value='';
+    codeEl.value='';nameEl.value='';packEl.value='';supplierEl.value='';priceEl.value='';
     renderComprasCkList();
-  }catch(e){errEl.textContent='Error adding: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':'');errEl.style.display='block';}
+    renderComprasCkDayRow();
+  }catch(e){errEl.textContent='Error adding: '+e.message+(/relation .compras_ck. does not exist/i.test(e.message)?' — run matteo_migration_shopping_list.sql in Supabase first.':/supplier_name/i.test(e.message)?' — run matteo_migration_compras_ck_supplier.sql in Supabase first.':'');errEl.style.display='block';}
 }
 // Pulls every product that already has a Supplier set on Menu -> Supplier List straight into
 // Compras CK, linked (so its price always mirrors that product's Cost — see
