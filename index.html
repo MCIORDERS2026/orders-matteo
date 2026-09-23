@@ -376,9 +376,13 @@
         <button class="btn-sm" onclick="toggleComprasMenu()">🛒 Purchasing</button>
         <div class="notif-dropdown" id="compras-menu-dropdown">
           <div class="notif-dropdown-header">Purchasing</div>
+          <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');continueShoppingListDirect()">
+            <div class="notif-item-title">▶️ Continue Shopping List</div>
+            <div class="notif-item-text">Jump straight back into your last checklist, no re-selecting</div>
+          </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');goAdminMenu('shoppingselect')">
             <div class="notif-item-title">🛒 Shopping List</div>
-            <div class="notif-item-text">Purchase checklist for orders in New Orders &amp; In Production</div>
+            <div class="notif-item-text">Pick orders and start a new checklist</div>
           </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');goAdminMenu('comprasck')">
             <div class="notif-item-title">🧾 Purchases CK</div>
@@ -3791,6 +3795,7 @@ function continueToShoppingList(){
   if(!checked.length){if(errEl){errEl.textContent='Select at least one order.';errEl.style.display='block';}return;}
   shoppingListItems=computeShoppingListItems(checked);
   if(!shoppingListItems.length){if(errEl){errEl.textContent='Nothing to buy — no items on the selected orders.';errEl.style.display='block';}return;}
+  persistShoppingOrderSelection(checked.map(o=>o.id)); // so "▶️ Continue Shopping List" can jump straight back here later
   shoppingListSupplierFilter='';
   shoppingListUncheckedOnly=false;
   shoppingListSearch='';
@@ -3801,6 +3806,44 @@ function continueToShoppingList(){
   const uncheckedBtn=document.getElementById('shopping-list-unchecked');
   if(uncheckedBtn){uncheckedBtn.style.fontWeight='400';uncheckedBtn.style.borderColor='var(--border)';uncheckedBtn.style.background='var(--bg)';uncheckedBtn.textContent='☐ Unchecked only';}
   showAdminTab('shoppinglist');
+  renderShoppingListModal();
+}
+// Remembers which orders were picked in Select Orders (localStorage, survives page reloads)
+// so "▶️ Continue Shopping List" in the Purchasing menu can rebuild the exact same checklist
+// without making the admin re-pick orders every single time they just want to keep checking
+// items off.
+function persistShoppingOrderSelection(orderIds){
+  try{localStorage.setItem('matteo-shopping-last-orders',JSON.stringify(orderIds));}catch(e){}
+}
+// Jumps straight into the Shopping List using the last-remembered order selection, re-fetched
+// fresh (so checked/unchecked state and quantities are current) — skipping Select Orders
+// entirely. Falls back to the normal Select Orders screen if there's nothing to resume, or if
+// every previously-selected order has since moved out of New Orders/In Production.
+async function continueShoppingListDirect(){
+  let ids=[];
+  try{ids=JSON.parse(localStorage.getItem('matteo-shopping-last-orders')||'[]');}catch(e){ids=[];}
+  if(!ids.length){goAdminMenu('shoppingselect');return;}
+  showAdminTab('shoppinglist');
+  const bodyEl=document.getElementById('shopping-list-body');
+  if(bodyEl)bodyEl.innerHTML='<div class="empty-state">Loading...</div>';
+  try{
+    shoppingOrderCache=await sbGet('orders_history','deleted_at=is.null&or=(admin_purged.eq.false,admin_purged.is.null)&status=in.(pending,accepted,in_production)&order=created_at.desc');
+  }catch(e){
+    shoppingOrderCache=[];
+  }
+  const idSet=new Set(ids.map(String));
+  const checked=shoppingOrderCache.filter(o=>idSet.has(String(o.id)));
+  if(!checked.length){goAdminMenu('shoppingselect');return;} // nothing left to resume — pick fresh instead
+  shoppingListItems=computeShoppingListItems(checked);
+  shoppingListSupplierFilter='';
+  shoppingListUncheckedOnly=false;
+  shoppingListSearch='';
+  const searchEl=document.getElementById('shopping-list-search');
+  if(searchEl)searchEl.value='';
+  const filterEl=document.getElementById('shopping-list-supplier-filter');
+  if(filterEl){delete filterEl.dataset.built;filterEl.value='';}
+  const uncheckedBtn=document.getElementById('shopping-list-unchecked');
+  if(uncheckedBtn){uncheckedBtn.style.fontWeight='400';uncheckedBtn.style.borderColor='var(--border)';uncheckedBtn.style.background='var(--bg)';uncheckedBtn.textContent='☐ Unchecked only';}
   renderShoppingListModal();
 }
 function toggleShoppingListUncheckedOnly(){
