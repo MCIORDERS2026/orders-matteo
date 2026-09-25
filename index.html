@@ -3346,7 +3346,7 @@ function renderOrdersList(){
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
         <div style="display:flex;align-items:center;gap:6px">
           ${itemNoteBtnHtml(o,id)}
-          <input class="admin-qty-input" type="number" value="${q}" min="0" max="999"
+          <input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
             onchange="updateOrderItem('${o.id}',${id},this.value)" title="Edit quantity"/>
           <span style="font-size:11px;color:var(--text-tertiary)">qty</span>
         </div>
@@ -3410,7 +3410,7 @@ async function saveOriginalIfNeeded(order){
   }
 }
 async function updateOrderItem(orderId,productId,newVal){
-  const q=parseInt(newVal)||0;
+  const q=parseAdminQty(findProductAny(productId),newVal);
   const order=allOrdersCache.find(o=>o.id===orderId);
   if(!order)return;
   await saveOriginalIfNeeded(order);
@@ -3428,8 +3428,9 @@ async function addItemToOrder(orderId){
   const select=document.getElementById('add-prod-'+orderId);
   const qtyInput=document.getElementById('add-qty-'+orderId);
   const productId=parseInt(select.value);
-  const qty=parseInt(qtyInput.value)||1;
-  if(!productId||qty<1)return;
+  const prodForQty=findProductAny(productId);
+  const qty=isDecimalQtyProduct(prodForQty)?(parseFloat(qtyInput.value)||0):(parseInt(qtyInput.value)||1);
+  if(!productId||qty<(isDecimalQtyProduct(prodForQty)?0.1:1))return;
   const order=allOrdersCache.find(o=>o.id===orderId);
   if(!order)return;
   await saveOriginalIfNeeded(order);
@@ -3629,7 +3630,7 @@ function renderIPList(){
         <span>${p?p.name:'#'+id}${fmtDesc(p&&p.description)}</span>
         <div class="qty-controls">
           ${itemNoteBtnHtml(o,id)}
-          <input class="admin-qty-input" type="number" value="${q}" min="0" max="999"
+          <input class="admin-qty-input" type="number" value="${q}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
             onchange="updateIPItem('${o.id}',${id},this.value)"
             style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px 6px;font-size:13px;"/>
           <span class="qty-label">qty</span>
@@ -4900,7 +4901,7 @@ async function completeSelectedOrders(){
   }catch(e){alert('Error completing orders: '+e.message);}
 }
 async function updateIPItem(orderId, productId, newQty){
-  const qty=parseInt(newQty)||0;
+  const qty=parseAdminQty(findProductAny(productId),newQty);
   const o=completedOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
   const oldItems={...o.items};
@@ -4933,7 +4934,8 @@ async function addIPItem(orderId){
   const sel=document.getElementById(`ip-add-prod-${orderId}`);
   const qtyInp=document.getElementById(`ip-add-qty-${orderId}`);
   const productId=String(sel.value);
-  const qty=parseInt(qtyInp.value)||1;
+  const prodForQty=findProductAny(productId);
+  const qty=isDecimalQtyProduct(prodForQty)?(parseFloat(qtyInp.value)||0):(parseInt(qtyInp.value)||1);
   if(!productId){alert('Select a product first.');return;}
   const o=completedOrdersCache.find(x=>x.id===orderId);
   if(!o)return;
