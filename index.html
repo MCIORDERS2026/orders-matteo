@@ -385,7 +385,7 @@
             <div class="notif-item-text">Pick orders and start a new checklist</div>
           </div>
           <div class="notif-item admin-menu-full-item" onclick="event.stopPropagation();document.getElementById('compras-menu-dropdown').classList.remove('open');goAdminMenu('comprasck')">
-            <div class="notif-item-title">🧾 Purchases CK</div>
+            <div class="notif-item-title">🧾 Purchases MCI</div>
             <div class="notif-item-text">Freely editable purchase list, by supplier &amp; day</div>
           </div>
         </div>
@@ -1112,7 +1112,7 @@
      Ported from VRC Orders. -->
 <div id="tab-comprasck" class="main" style="display:none;">
   <div class="section-toolbar">
-    <h2>🧾 Purchases CK</h2>
+    <h2>🧾 Purchases MCI</h2>
     <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Pull in every product in the catalogue — resold items and Central Kitchen items alike">⬇️ Import all products</button>
     <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
   </div>
@@ -5207,7 +5207,7 @@ function renderDeliveryEditor(order){
             <span style="font-size:11px;color:#9CA3AF;text-decoration:line-through;">×${item.origQty}</span>
             <span style="font-size:13px;font-weight:700;color:#DC2626;">→ ×${item.qty}</span>
             <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
-              oninput="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+              onchange="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
               style="width:55px;border:1px solid #FCA5A5;border-radius:4px;padding:4px 6px;font-size:13px;text-align:center;background:white;"/>
           </div>
         </div>
@@ -5225,7 +5225,7 @@ function renderDeliveryEditor(order){
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-size:13px;color:var(--text-secondary);">×${item.qty}</span>
             <input type="number" value="${item.qty}" min="0" max="999" step="${isDecimalQtyProduct(p)?'0.1':'1'}"
-              oninput="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
+              onchange="deliveryItems['${id}'].qty=parseAdminQty(findProductAny('${id}'),this.value);deliveryAutoNote('${id}');renderDeliveryEditor({});autoSaveDelivery();"
               style="width:50px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;text-align:center;background:var(--bg);"/>
           </div>
         </div>
