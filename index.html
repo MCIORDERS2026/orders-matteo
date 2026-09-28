@@ -1115,6 +1115,7 @@
     <h2>🧾 Purchases MCI</h2>
     <button class="btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;" onclick="importComprasCkFromSupplierList()" title="Pull in every product in the catalogue — resold items and Central Kitchen items alike">⬇️ Import all products</button>
     <button class="btn-sm red" onclick="resetComprasCkChecklist()">↺ Reset checklist</button>
+    <button class="btn-sm red" style="background:#FEF2F2;border-color:#FECACA;color:#991B1B;" onclick="resetComprasCkNewWeek()" title="Uncheck every item, every day — start completely fresh for a new week">🗓️ Start new week</button>
   </div>
   <p style="font-size:13px;color:var(--text-secondary);margin:-4px 0 12px;">A separate, freely editable purchase list — not linked to orders or products. Check items off as you buy them; add, edit or remove rows any time.</p>
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -4391,6 +4392,28 @@ async function resetComprasCkChecklist(){
     renderComprasCkList();
     renderComprasCkDayRow();
   }catch(e){errEl.textContent='Error resetting: '+e.message+(/purchased_days/i.test(e.message)?' — run matteo_migration_compras_ck_days.sql in Supabase first.':'');errEl.style.display='block';}
+}
+// Unchecks EVERY item across EVERY weekday, ignoring search/supplier/day filters entirely —
+// for starting a brand new week, since "Reset checklist" above only clears what's currently
+// visible (on purpose, so it never wipes another supplier's/day's progress by accident).
+async function resetComprasCkNewWeek(){
+  const anyChecked=comprasCkCache.some(r=>!!r.purchased||(Array.isArray(r.purchased_days)&&r.purchased_days.length));
+  if(!anyChecked){alert('Nothing is checked anywhere — already a clean slate.');return;}
+  if(!confirm(`Start a new week? This unchecks ALL ${comprasCkCache.length} item(s), for every supplier and every day — not just what's currently shown.`))return;
+  const errEl=document.getElementById('compras-ck-error');
+  if(errEl)errEl.style.display='none';
+  const toReset=comprasCkCache.filter(r=>!!r.purchased||(Array.isArray(r.purchased_days)&&r.purchased_days.length));
+  try{
+    await Promise.all(toReset.map(r=>{
+      r.purchased=false;
+      r.purchased_days=[];
+      return sbPatch('compras_ck',`id=eq.${r.id}`,{purchased:false,purchased_days:[],updated_at:new Date().toISOString()});
+    }));
+    renderComprasCkList();
+    renderComprasCkDayRow();
+  }catch(e){
+    if(errEl){errEl.textContent='Error starting new week: '+e.message+(/purchased_days/i.test(e.message)?' — run matteo_migration_compras_ck_days.sql in Supabase first.':'');errEl.style.display='block';}
+  }
 }
 function startComprasCkEdit(id){
   comprasCkEditingId=id;
