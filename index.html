@@ -10395,6 +10395,11 @@ async function saveProduct(){
     if(savedId){await saveProductClientVisibility(String(savedId));}
     closeModal('add-product-modal');
     allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');
+    // allProductsArchive (used by every server-side Excel export — Delivery, In
+    // Production, Complete, Client History) is only ever loaded once at login, so a
+    // brand-new product would stay invisible in every Excel file until the admin
+    // reloaded the whole page. Refresh it here too, right alongside allProducts.
+    try{allProductsArchive=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');}catch(e){}
     loadAdminProducts();
   }catch(e){err.textContent='Error saving product.';err.style.display='block';}
 }
@@ -10475,16 +10480,16 @@ async function saveProductClientVisibility(productId){
   }
 }
 async function toggleProduct(id,current){
-  try{await sbPatch('products',`id=eq.${id}`,{active:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');loadAdminProducts();}
+  try{await sbPatch('products',`id=eq.${id}`,{active:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');try{allProductsArchive=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');}catch(e){}loadAdminProducts();}
   catch(e){alert('Error updating product.');}
 }
 async function toggleOutOfStock(id,current){
-  try{await sbPatch('products',`id=eq.${id}`,{out_of_stock:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');loadAdminProducts();}
+  try{await sbPatch('products',`id=eq.${id}`,{out_of_stock:!current});allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');try{allProductsArchive=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');}catch(e){}loadAdminProducts();}
   catch(e){alert('Error updating stock status.');}
 }
 async function deleteProduct(id){
   if(!confirm('Delete this product permanently?'))return;
-  try{await sbDelete('products',`id=eq.${id}`);allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');loadAdminProducts();}
+  try{await sbDelete('products',`id=eq.${id}`);allProducts=await sbGet('products','or=(active.eq.true,active.is.null)&order=cat.asc,sort_order.asc,name.asc');try{allProductsArchive=await sbGet('products','order=cat.asc,sort_order.asc,name.asc');}catch(e){}loadAdminProducts();}
   catch(e){alert('Error deleting product.');}
 }
 
