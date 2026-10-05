@@ -1377,6 +1377,16 @@ union all select 'structure:columns', count(*), string_agg(format('%s.%s %s defa
         <option value="">— Use default for everyone —</option>
       </select>
     </div>
+    <div id="cutoff-client-manual" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:13px;font-weight:600;">🔓 Open for orders now (manual)</div>
+          <div id="cutoff-client-manual-status" style="font-size:12px;color:var(--text-secondary);margin-top:2px;"></div>
+        </div>
+        <button class="btn-sm" id="cutoff-client-manual-btn" onclick="toggleClientManualOpen()">Open now</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">Lets this client order regardless of the cut-off time and closed days, until you close it again here. Their normal schedule is kept.</div>
+    </div>
     <div id="cutoff-client-override-section" style="display:none;">
       <div class="field">
         <label>Status for this client</label>
@@ -2090,6 +2100,7 @@ function getActiveCutoff(){
 }
 function isClosedDay(){
   const cs=getActiveCutoff();
+  if(cs.manualOpen)return false; // admin manually opened this client — beats closed days
   return (cs.closedDays||[]).includes(new Date().getDay());
 }
 function isCutDay(){
@@ -2098,6 +2109,7 @@ function isCutDay(){
   return cs.days.includes(new Date().getDay());
 }
 function isOrderOpen(){
+  if(getActiveCutoff().manualOpen)return true; // admin manually opened this client — beats cut-off & closed days
   if(isClosedDay())return false; // fully closed day overrides everything else
   const cs=getActiveCutoff();
   if(!cs.enabled)return true;
@@ -2143,7 +2155,10 @@ function updateBanner(){
   // showing a client-facing "orders closed" message that doesn't apply to them.
   if(isInvoicer){if(b)b.style.display='none';recalcStickyOffsets();return;}
   if(b)b.style.display='';
-  if(isClosedDay()){
+  if(!isAdmin&&!isKitchenAdmin&&cs.manualOpen){
+    b.className='banner open';
+    m.textContent='✅ Orders are open right now.';
+  } else if(isClosedDay()){
     if(isAdmin){
       b.className='banner admin-mode';
       m.textContent=`🔑 Admin mode — closed day for clients (no orders on ${DAYS[new Date().getDay()]}).`;
@@ -9603,7 +9618,7 @@ function populateCutoffClientSelect(selectedUsername){
   const sel=document.getElementById('cutoff-client-select');
   if(!sel)return;
   sel.innerHTML='<option value="">— Use default for everyone —</option>'+
-    cutoffClientsCache.map(u=>`<option value="${u.username}"${u.username===selectedUsername?' selected':''}>${u.cutoff_override?'⏰ ':''}${u.username}</option>`).join('');
+    cutoffClientsCache.map(u=>`<option value="${u.username}"${u.username===selectedUsername?' selected':''}>${u.cutoff_override&&u.cutoff_override.manualOpen?'🔓 ':(u.cutoff_override?'⏰ ':'')}${u.username}</option>`).join('');
 }
 function onCutoffClientChange(){
   const sel=document.getElementById('cutoff-client-select');
@@ -9611,8 +9626,11 @@ function onCutoffClientChange(){
   const section=document.getElementById('cutoff-client-override-section');
   const status=document.getElementById('cutoff-client-save-status');
   if(status)status.style.display='none';
-  if(!username){section.style.display='none';return;}
+  const manualWrap=document.getElementById('cutoff-client-manual');
+  if(!username){section.style.display='none';if(manualWrap)manualWrap.style.display='none';return;}
   section.style.display='block';
+  if(manualWrap)manualWrap.style.display='block';
+  updateClientManualUI();
   const u=cutoffClientsCache.find(x=>x.username===username);
   const ov=u&&u.cutoff_override;
   cutoffClientMode=ov?(ov.enabled?'enabled':'disabled'):'default';
@@ -9633,6 +9651,45 @@ function onCutoffClientChange(){
     btn.style.cssText=`padding:8px 14px;border-radius:var(--radius-sm);border:1px solid ${active?'var(--red)':'var(--border)'};background:${active?'var(--red-light)':'var(--bg)'};color:${active?'var(--red)':'inherit'};font-size:13px;cursor:pointer;font-weight:${active?'600':'400'};`;
   });
   updateClientCutoffModeUI();
+}
+function updateClientManualUI(){
+  const username=document.getElementById('cutoff-client-select').value;
+  const u=cutoffClientsCache.find(x=>x.username===username);
+  const on=!!(u&&u.cutoff_override&&u.cutoff_override.manualOpen);
+  const st=document.getElementById('cutoff-client-manual-status');
+  const btn=document.getElementById('cutoff-client-manual-btn');
+  if(st)st.innerHTML=on?'<b style="color:var(--green-dark);">Open now</b> — orders accepted until you close it':'Closed by the normal schedule';
+  if(btn){
+    btn.textContent=on?'🔒 Close again':'🔓 Open now';
+    btn.style.cssText=on?'background:#FEE2E2;border-color:#FCA5A5;color:#991B1B;font-weight:600;':'background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;';
+  }
+}
+async function toggleClientManualOpen(){
+  const username=document.getElementById('cutoff-client-select').value;
+  if(!username){alert('Select a client first.');return;}
+  const u=cutoffClientsCache.find(x=>x.username===username);
+  if(!u)return;
+  const ov=u.cutoff_override;
+  let next;
+  if(ov&&ov.manualOpen){
+    // Close again: drop the manual flag. If this override existed ONLY for the manual open, remove it entirely.
+    if(ov.manualOnly)next=null;
+    else{next=Object.assign({},ov);delete next.manualOpen;}
+  }else if(ov){
+    next=Object.assign({},ov,{manualOpen:true});
+  }else{
+    next=Object.assign(JSON.parse(JSON.stringify(cutoffSettings)),{manualOpen:true,manualOnly:true});
+  }
+  try{
+    await sbPatch('users',`username=eq.${encodeURIComponent(username)}`,{cutoff_override:next});
+    u.cutoff_override=next;
+    updateBanner();
+    populateCutoffClientSelect(username);
+    updateClientManualUI();
+    onCutoffClientChange();
+    const status=document.getElementById('cutoff-client-save-status');
+    if(status){status.textContent=next&&next.manualOpen?`🔓 ${username} is open for orders`:`🔒 ${username} back to the normal schedule`;status.style.display='block';setTimeout(()=>{if(status)status.style.display='none';},2500);}
+  }catch(e){alert('Error: '+e.message);}
 }
 function setClientCutoffMode(mode){
   cutoffClientMode=mode;
@@ -9671,6 +9728,9 @@ async function saveClientCutoffOverride(){
       }
     });
     override={enabled:cutoffClientMode==='enabled',hour:h,minute:m||0,days:days.length?days:[1,4],closedDays};
+    // Keep an active manual open when the schedule itself is edited
+    const prevOv=(cutoffClientsCache.find(x=>x.username===username)||{}).cutoff_override;
+    if(prevOv&&prevOv.manualOpen)override.manualOpen=true;
   }
   try{
     await sbPatch('users',`username=eq.${encodeURIComponent(username)}`,{cutoff_override:override});
