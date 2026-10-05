@@ -1259,17 +1259,30 @@
 </div>
 
 <div class="modal-overlay" id="backup-reminder-modal">
-  <div class="modal" style="max-width:440px;width:92vw;">
+  <div class="modal" style="max-width:520px;width:94vw;max-height:90vh;overflow-y:auto;">
     <h3>🗄️ Monthly Security Backup</h3>
     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">It's a new month — have you exported a backup copy of your data from Supabase this month?</p>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text-secondary);">
-      In the Supabase <b>SQL Editor</b>, run this once, then click <b>Export → CSV</b> on the result (a single file with every table):
-      <div style="font-family:monospace;background:var(--surface);border-radius:4px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.6;white-space:pre-wrap;">select 'orders_history' as table_name, to_jsonb(t) as row_data from orders_history t
-union all select 'users', to_jsonb(t) from users t
-union all select 'products', to_jsonb(t) from products t
-union all select 'admin_messages', to_jsonb(t) from admin_messages t
-union all select 'app_settings', to_jsonb(t) from app_settings t;</div>
-      <div style="margin-top:8px;">Also go to <b>Storage → product-images</b>, select all files and download them (product photos aren't included in the query above).</div>
+      In the Supabase <b>SQL Editor</b> (open a new query tab), run this once, then click <b>Export → Download CSV</b>. It saves everything in a single file: all 9 tables, the login accounts, and your security rules (RLS policies), functions, indexes and column definitions. Each row of the result is one item (<code>data:…</code> = table data, <code>structure:…</code> = database structure), with its <code>row_count</code>:
+      <div style="font-family:monospace;background:var(--surface);border-radius:4px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:170px;overflow:auto;user-select:all;">select 'data:orders_history' as name, count(*) as row_count, jsonb_agg(to_jsonb(t))::text as content from orders_history t
+union all select 'data:users', count(*), jsonb_agg(to_jsonb(t))::text from users t
+union all select 'data:products', count(*), jsonb_agg(to_jsonb(t))::text from products t
+union all select 'data:admin_messages', count(*), jsonb_agg(to_jsonb(t))::text from admin_messages t
+union all select 'data:app_settings', count(*), jsonb_agg(to_jsonb(t))::text from app_settings t
+union all select 'data:compras_ck', count(*), jsonb_agg(to_jsonb(t))::text from compras_ck t
+union all select 'data:ingredients', count(*), jsonb_agg(to_jsonb(t))::text from ingredients t
+union all select 'data:recipes', count(*), jsonb_agg(to_jsonb(t))::text from recipes t
+union all select 'data:order_activity_log', count(*), jsonb_agg(to_jsonb(t))::text from order_activity_log t
+union all select 'data:auth_users', count(*), jsonb_agg(jsonb_build_object('id', id, 'email', email, 'created_at', created_at, 'last_sign_in_at', last_sign_in_at, 'raw_user_meta_data', raw_user_meta_data))::text from auth.users
+union all select 'structure:policies', count(*), string_agg(format('%s | %s | %s | roles=%s | using=%s | check=%s', tablename, policyname, cmd, roles, qual, with_check), E'\n' order by tablename, policyname) from pg_policies where schemaname='public'
+union all select 'structure:rls', count(*), string_agg(format('%s rls_enabled=%s', tablename, rowsecurity), E'\n' order by tablename) from pg_tables where schemaname='public'
+union all select 'structure:functions', count(*), string_agg(pg_get_functiondef(p.oid), E'\n\n') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
+union all select 'structure:triggers', count(*), string_agg(pg_get_triggerdef(oid), E'\n') from pg_trigger where not tgisinternal and tgrelid::regclass::text like 'public.%'
+union all select 'structure:event_triggers', count(*), string_agg(evtname || ' on ' || evtevent, E'\n') from pg_event_trigger
+union all select 'structure:indexes', count(*), string_agg(indexdef, E'\n' order by tablename, indexname) from pg_indexes where schemaname='public'
+union all select 'structure:columns', count(*), string_agg(format('%s.%s %s default=%s nullable=%s', table_name, column_name, data_type, column_default, is_nullable), E'\n' order by table_name, ordinal_position) from information_schema.columns where table_schema='public';</div>
+      <div style="margin-top:6px;">The SQL Editor cuts any result at 100 rows, which is why each table is packed into a single row — don't change it to one row per record. The result should show 17 rows.</div>
+      <div style="margin-top:8px;">Also go to <b>Storage → product-images</b>, select all files and download them (product photos aren't included above). Keep copies of the Cloudflare Worker code and the Netlify environment variables too — they live outside Supabase.</div>
     </div>
     <div class="field">
       <label>Enter admin password to confirm and archive this reminder for this month</label>
