@@ -2811,7 +2811,7 @@ async function deleteCateringProduct(){
   try{await sbDelete('catering_products',`id=eq.${cateringEditingId}`);closeModal('cat-product-modal');await loadCateringProducts();}
   catch(e){alert('Error deleting: '+e.message);}
 }
-let cateringFormView=null,cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={},cateringEditOrderId=null,cateringSnap={};
+let cateringCustom=[],cateringFormView=null,cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={},cateringEditOrderId=null,cateringSnap={};
 function showCateringTab(t){
   cateringTab=t;
   ['neworder','orders','products'].forEach(k=>{
@@ -2829,7 +2829,8 @@ function cateringActiveProducts(){
   Object.values(cateringSnap).forEach(l=>{if(!cateringProducts.some(p=>String(p.id)===String(l.id)))list.push({id:l.id,name:l.name,dine_category:l.dine_category,menu_category:l.menu_category,price_gross:l.price,is_vatable:l.vatable,is_active:true});});
   return list;
 }
-function cateringCartCount(){return Object.values(cateringCart).reduce((a,b)=>a+b,0);}
+function cateringCartCount(){return Object.values(cateringCart).reduce((a,b)=>a+b,0)+cateringCustom.filter(l=>!l.set).reduce((a,l)=>a+l.qty,0);}
+function cateringItemCount(lines){return lines.filter(l=>!l.set).reduce((a,l)=>a+l.qty,0);}
 function cateringEffectiveView(){return cateringFormView||(cateringCartCount()>0?'selected':'all');}
 function setCateringView(v){cateringFormView=v;const sr=document.getElementById('cato-search');if(sr&&v==='selected')sr.value='';renderCateringOrderForm();}
 function renderCateringOrderForm(){
@@ -2845,7 +2846,17 @@ function renderCateringOrderForm(){
   const list=cateringActiveProducts().filter(p=>(view==='all'||cateringCart[p.id])&&(!q||(p.name+' '+p.dine_category+' '+p.menu_category).toLowerCase().includes(q)));
   const groups={};const order=[];
   list.forEach(p=>{const c=p.dine_category||'Uncategorised';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(p);});
-  el.innerHTML=order.length?order.map(c=>`<div style="margin-bottom:14px;">
+  const customHtml=cateringCustom.length?`<div style="margin-bottom:14px;border:1.5px solid var(--green);border-radius:var(--radius);background:#fff;overflow:hidden;">
+    <div style="padding:8px 12px;background:var(--green-light,#E6F6F0);font-weight:700;font-size:13px;color:var(--green-dark);">SET MENU (imported from &amp;Dine)</div>
+    ${cateringCustom.map((l,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border-light,#eee);">
+      <div style="min-width:0;"><div style="font-size:14px;${l.set?'font-weight:700;':'font-weight:500;'}">${fcEsc(l.name)}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);">${l.set?`heads × £${cateringNet(l.price,l.vatable).toFixed(2)} ex VAT per head`:`${fcEsc(l.dine_category||'')} • portions (set component, no extra charge)`}</div></div>
+      <div style="display:flex;align-items:center;gap:6px;flex:none;">
+        <input type="number" min="0" step="1" value="${l.qty}" onchange="cateringCustomQty(${i},this.value)" style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
+        <button class="btn-sm" style="color:var(--red);" onclick="cateringCustomDel(${i})">✕</button>
+      </div></div>`).join('')}
+  </div>`:'';
+  el.innerHTML=customHtml+(order.length?order.map(c=>`<div style="margin-bottom:14px;">
     <div style="font-weight:700;font-size:13px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.4px;padding:6px 2px;border-bottom:1px solid var(--border);">${fcEsc(c)}</div>
     ${groups[c].map(p=>{const n=cateringCart[p.id]||0;return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border-light,#eee);${n?'background:var(--green-light,#E6F6F0);':''}">
       <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(p.name)}</div><div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(p.menu_category||'')} • ${cateringNetStr(p)} • ${cateringPrice(p)} inc VAT</div></div>
@@ -2853,9 +2864,11 @@ function renderCateringOrderForm(){
         <button class="btn-sm" onclick="cateringAdj(${p.id},-1)">−</button>
         <input type="number" min="0" step="1" value="${n}" onchange="cateringSet(${p.id},this.value)" style="width:56px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
         <button class="btn-sm" onclick="cateringAdj(${p.id},1)">+</button>
-      </div></div>`;}).join('')}</div>`).join(''):`<div style="padding:16px;color:var(--text-secondary);">${view==='selected'?'No items selected yet. Tap <b>All products</b> to add some.':'No products found.'}</div>`;
+      </div></div>`;}).join('')}</div>`).join(''):(cateringCustom.length&&view==='selected'?'':`<div style="padding:16px;color:var(--text-secondary);">${view==='selected'?'No items selected yet. Tap <b>All products</b> to add some.':'No products found.'}</div>`));
   updateCateringTotal();
 }
+function cateringCustomQty(i,v){v=Math.max(0,Math.floor(Number(v)||0));if(cateringCustom[i])cateringCustom[i].qty=v;renderCateringOrderForm();}
+function cateringCustomDel(i){cateringCustom.splice(i,1);renderCateringOrderForm();}
 function cateringAdj(id,d){cateringSet(id,(cateringCart[id]||0)+d);}
 function cateringSet(id,v){
   v=Math.max(0,Math.floor(Number(v)||0));
@@ -2863,20 +2876,21 @@ function cateringSet(id,v){
   renderCateringOrderForm();
 }
 function cateringCartLines(){
-  return Object.entries(cateringCart).map(([id,qty])=>{
+  const custom=cateringCustom.filter(l=>l.qty>0).map(l=>Object.assign({},l));
+  return custom.concat(Object.entries(cateringCart).map(([id,qty])=>{
     const snap=cateringSnap[id];
     if(snap)return Object.assign({},snap,{qty}); // existing line of the order being edited: keep its original name/price/VAT
-    const p=cateringProducts.find(x=>String(x.id)===String(id));return p?{id:p.id,name:p.name,dine_category:p.dine_category,menu_category:p.menu_category,qty,price:p.price_gross==null?null:Number(p.price_gross),vatable:p.is_vatable!==false}:null;}).filter(Boolean);
+    const p=cateringProducts.find(x=>String(x.id)===String(id));return p?{id:p.id,name:p.name,dine_category:p.dine_category,menu_category:p.menu_category,qty,price:p.price_gross==null?null:Number(p.price_gross),vatable:p.is_vatable!==false}:null;}).filter(Boolean));
 }
 function cateringLinesTotal(lines){return lines.reduce((s,l)=>s+(l.price||0)*l.qty,0);}
 function cateringLinesNet(lines){return lines.reduce((s,l)=>s+cateringNet(l.price,l.vatable)*l.qty,0);}
 function cateringTotalsHtml(lines){const g=cateringLinesTotal(lines),n=cateringLinesNet(lines);return `Subtotal (ex VAT) £${n.toFixed(2)} • VAT £${(g-n).toFixed(2)} • <b>Total £${g.toFixed(2)}</b>`;}
 function updateCateringTotal(){
   const lines=cateringCartLines();const el=document.getElementById('cato-total');
-  if(el)el.innerHTML=lines.length?`${lines.reduce((s,l)=>s+l.qty,0)} items<div style="font-size:12px;font-weight:400;color:var(--text-secondary);">${cateringTotalsHtml(lines)}</div>`:'No items yet';
+  if(el)el.innerHTML=lines.length?`${cateringItemCount(lines)} items<div style="font-size:12px;font-weight:400;color:var(--text-secondary);">${cateringTotalsHtml(lines)}</div>`:'No items yet';
 }
 function resetCateringOrderForm(){
-  cateringCart={};cateringSnap={};cateringEditOrderId=null;cateringFormView=null;
+  cateringCart={};cateringSnap={};cateringCustom=[];cateringEditOrderId=null;cateringFormView=null;
   const n=document.getElementById('cato-number');if(n)n.value='';
   const ir=document.getElementById('cato-import-result');if(ir)ir.style.display='none';
   cateringUpdateEditUI();renderCateringOrderForm();
@@ -2891,6 +2905,22 @@ function cateringUpdateEditUI(){
 function cateringNorm(x){return String(x||'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').trim();}
 function openCateringImport(){document.getElementById('cat-import-text').value='';openModal('cat-import-modal');setTimeout(()=>document.getElementById('cat-import-text').focus(),50);}
 // Parses the text copied from a &Dine hub order page: order reference (MAT-XXXXX) and the "N ×" / name / "£x / unit" blocks.
+function parseDineSetOrder(text){
+  const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\u00a0/g,' ').trim()).filter(l=>l!=='');
+  const idx=lines.findIndex(l=>/\d+\s+portions\s+at\s+£\s*[\d.,]+\s+per\s+head/i.test(l));
+  if(idx<0)return null;
+  const hm=lines[idx].match(/(\d+)\s+portions\s+at\s+£\s*([\d.,]+)\s+per\s+head/i);
+  const refM=String(text||'').match(/\bMAT-[A-Z0-9]{3,}\b/i);
+  const titleCase=x=>x.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+  const comps=[];let section='';
+  for(let i=idx+1;i<lines.length;i++){
+    if(/^order subtotal/i.test(lines[i]))break;
+    if(/^\d+\s+portions\s+total$/i.test(lines[i])){section=titleCase(lines[i-1]||'');continue;}
+    const m=lines[i].match(/^(\d+)\s+portions?$/i);
+    if(m&&lines[i+1])comps.push({name:lines[i+1],qty:parseInt(m[1],10),section});
+  }
+  return {ref:refM?refM[0].toUpperCase():'',menuName:lines[idx-1]||'Set menu',heads:parseInt(hm[1],10),netPerHead:parseFloat(hm[2].replace(/,/g,'')),comps};
+}
 function parseDineOrderText(text){
   const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\u00a0/g,' ').trim()).filter(l=>l!=='');
   const refM=String(text||'').match(/\bMAT-[A-Z0-9]{3,}\b/i);
@@ -2908,7 +2938,24 @@ function parseDineOrderText(text){
   return {ref:refM?refM[0].toUpperCase():'',items};
 }
 function runCateringImport(){
-  const parsed=parseDineOrderText(document.getElementById('cat-import-text').value);
+  const rawText=document.getElementById('cat-import-text').value;
+  const setOrder=parseDineSetOrder(rawText);
+  if(setOrder){
+    const grossPerHead=Math.round(setOrder.netPerHead*(1+CAT_VAT)*100)/100;
+    cateringCart={};cateringSnap={};cateringEditOrderId=null;
+    cateringCustom=[{set:true,id:null,name:setOrder.menuName.replace(/\b(\w)(\w*)/g,(m,a,b)=>a.toUpperCase()+b.toLowerCase()),dine_category:'Set menu',menu_category:'',qty:setOrder.heads,price:grossPerHead,vatable:true}]
+      .concat(setOrder.comps.map(c=>({component:true,id:null,name:c.name,dine_category:c.section||'Items',menu_category:'',qty:c.qty,price:0,vatable:true})));
+    document.getElementById('cato-number').value=setOrder.ref||'';
+    cateringFormView='selected';
+    closeModal('cat-import-modal');
+    cateringUpdateEditUI();renderCateringOrderForm();
+    const box=document.getElementById('cato-import-result');
+    box.innerHTML=`📥 Set menu imported${setOrder.ref?` for <b>${fcEsc(setOrder.ref)}</b>`:' (order number not found — type it above)'}: <b>${fcEsc(setOrder.menuName)}</b>, ${setOrder.heads} heads at £${setOrder.netPerHead.toFixed(2)} ex VAT per head, ${setOrder.comps.length} dishes. Check the list below, then press <b>Create order</b>.`;
+    box.style.display='block';box.style.background='#E6F6F0';box.style.border='1.5px solid var(--green)';
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+    return;
+  }
+  const parsed=parseDineOrderText(rawText);
   if(!parsed.items.length){alert('Could not find any items in the pasted text. Make sure the Order Summary tab was open when you copied.');return;}
   // merge repeated lines (the hub lists each person's meal separately)
   const merged=[];
@@ -2943,8 +2990,8 @@ function runCateringImport(){
 }
 function startEditCateringOrder(id){
   const o=cateringOrders.find(x=>x.id===id);if(!o)return;
-  cateringEditOrderId=id;cateringCart={};cateringSnap={};cateringFormView='selected';
-  (o.items||[]).forEach(l=>{cateringCart[l.id]=l.qty;cateringSnap[l.id]=l;});
+  cateringEditOrderId=id;cateringCart={};cateringSnap={};cateringCustom=[];cateringFormView='selected';
+  (o.items||[]).forEach(l=>{if(l.set||l.component||l.id==null)cateringCustom.push(Object.assign({},l));else{cateringCart[l.id]=l.qty;cateringSnap[l.id]=l;}});
   document.getElementById('cato-number').value=o.order_number;
   showCateringTab('neworder');
   cateringUpdateEditUI();
@@ -2980,11 +3027,11 @@ function renderCateringOrders(){
     const dt=new Date(o.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
     return `<div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;background:#fff;overflow:hidden;">
       <div onclick="cateringToggleOrder(${o.id})" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;flex-wrap:wrap;">
-        <div><div style="font-weight:700;font-size:15px;">#${fcEsc(o.order_number)}</div><div style="font-size:12px;color:var(--text-secondary);">${dt} • ${items.reduce((s,l)=>s+l.qty,0)} items • £${Number(o.total||0).toFixed(2)} inc VAT</div></div>
+        <div><div style="font-weight:700;font-size:15px;">#${fcEsc(o.order_number)}</div><div style="font-size:12px;color:var(--text-secondary);">${dt} • ${cateringItemCount(items)} items • £${Number(o.total||0).toFixed(2)} inc VAT</div></div>
         <div style="font-size:13px;font-weight:600;">${CATERING_STATUS[o.status]||fcEsc(o.status)}</div>
       </div>
       ${open?`<div style="border-top:1px solid var(--border-light,#eee);padding:10px 14px;">
-        ${items.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;"><span><b>${l.qty}×</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);">(${fcEsc(l.dine_category||'')})</span></span><span>${l.price==null?'—':'£'+(cateringNet(l.price,l.vatable)*l.qty).toFixed(2)}</span></div>`).join('')}
+        ${items.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;${l.set?'font-weight:700;':''}"><span><b>${l.qty}${l.set?' heads ×':l.component?' portions':'×'}</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);font-weight:400;">(${fcEsc(l.dine_category||'')})</span></span><span>${l.component?'':(l.price==null?'—':'£'+(cateringNet(l.price,l.vatable)*l.qty).toFixed(2))}</span></div>`).join('')}
         <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:13px;text-align:right;color:var(--text-secondary);">Line prices ex VAT<br>${cateringTotalsHtml(items)}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
           ${o.status!=='new'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'new')">🆕 New</button>`:''}
@@ -3010,16 +3057,17 @@ async function deleteCateringOrder(id){
 function printCateringOrder(id){
   const o=cateringOrders.find(x=>x.id===id);if(!o)return;
   const groups={};const order=[];
-  (o.items||[]).forEach(l=>{const c=l.dine_category||'Other';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(l);});
+  const setLine=(o.items||[]).find(l=>l.set);
+  (o.items||[]).filter(l=>!l.set).forEach(l=>{const c=l.dine_category||'Other';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(l);});
   const dt=new Date(o.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Catering #${fcEsc(o.order_number)}</title>
   <style>body{font-family:Arial,sans-serif;margin:28px;color:#111;}h1{font-size:22px;margin:0 0 4px;}.sub{color:#666;font-size:12px;margin-bottom:18px;}
   h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;background:#E6F6F0;color:#0F6E56;padding:6px 8px;margin:16px 0 0;}
   table{width:100%;border-collapse:collapse;}td{padding:7px 8px;border-bottom:1px solid #ddd;font-size:14px;}td.q{width:60px;font-weight:700;font-size:16px;}td.m{color:#666;font-size:12px;text-align:right;}
   .foot{margin-top:18px;font-size:12px;color:#666;}</style></head><body>
-  <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}</div>
-  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}×</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
-  <div class="foot">Total items: ${(o.items||[]).reduce((s,l)=>s+l.qty,0)}</div>
+  <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}${setLine?` • <b>${fcEsc(setLine.name)} — ${setLine.qty} heads</b>`:''}</div>
+  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
+  <div class="foot">Total ${setLine?'portions':'items'}: ${cateringItemCount(o.items||[])}</div>
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
   w.document.write(html);w.document.close();
