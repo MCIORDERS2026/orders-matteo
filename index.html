@@ -421,11 +421,24 @@
 <div class="modal-overlay" id="cat-totals-modal" style="z-index:600;">
   <div class="modal" style="max-width:480px;width:94vw;max-height:92vh;overflow-y:auto;">
     <h3>Ingredients in total</h3>
-    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">Tick the ingredients that should appear in the <b>TOTAL INGREDIENTS</b> list at the end of the kitchen sheets. If every ingredient is ticked, all of them are shown.</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">Tick the ingredients that should appear in the <b>TOTAL INGREDIENTS</b> list at the end of the kitchen sheets, and use <b>▲ ▼</b> to set their order. If every ingredient is ticked, all of them are shown (in this order).</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
       <input type="text" id="cattot-search" placeholder="Search ingredients..." oninput="catTotRender()" style="flex:1;min-width:140px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px;font-size:13px;background:var(--bg);"/>
       <button type="button" class="btn-sm" onclick="catTotAll(true)">All</button>
       <button type="button" class="btn-sm" onclick="catTotAll(false)">None</button>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;background:#fff;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Groups (e.g. Veg, Protein) — order of sections in the total</div>
+      <div id="cattot-groups"></div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+        <input type="text" id="cattot-newgroup" placeholder="New group name" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:13px;background:var(--bg);"/>
+        <button type="button" class="btn-sm" onclick="catTotAddGroup()">+ Add group</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;color:var(--text-secondary);">Put the ticked ingredients shown below into</span>
+        <select id="cattot-bulk" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px;font-size:13px;background:var(--bg);"></select>
+        <button type="button" class="btn-sm" onclick="catTotBulkApply()">Apply</button>
+      </div>
     </div>
     <div id="cattot-count" style="font-size:12px;color:var(--text-tertiary);"></div>
     <div id="cattot-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;"></div>
@@ -2811,7 +2824,18 @@ async function loadCateringProducts(){
     cateringLoaded=true;
     try{cateringComponents=await sbGet('catering_components','order=sort_order.asc,name.asc&limit=500');cateringCompError='';}
     catch(e2){cateringComponents=[];cateringCompError=e2.message||'error';}
-    try{const st=await sbGet('app_settings','key=eq.catering_totals_filter');cateringTotalsFilter=(st&&st[0]&&Array.isArray(st[0].value))?st[0].value.map(x=>String(x).toLowerCase()):null;}catch(e3){cateringTotalsFilter=null;}
+    try{
+      const st=await sbGet('app_settings','key=eq.catering_totals_filter');
+      const v=st&&st[0]?st[0].value:null;
+      cateringTotalsFilter=null;cateringTotalsOrder=[];cateringTotalsGroups={};cateringTotalsGroupOrder=[];
+      if(Array.isArray(v))cateringTotalsFilter=v.map(x=>String(x).toLowerCase());
+      else if(v&&typeof v==='object'){
+        if(Array.isArray(v.selected))cateringTotalsFilter=v.selected.map(x=>String(x).toLowerCase());
+        if(Array.isArray(v.order))cateringTotalsOrder=v.order.map(x=>String(x).toLowerCase());
+        cateringTotalsGroups=(v.groups&&typeof v.groups==='object')?v.groups:{};
+        cateringTotalsGroupOrder=Array.isArray(v.groupOrder)?v.groupOrder:[];
+      }
+    }catch(e3){cateringTotalsFilter=null;cateringTotalsOrder=[];}
   }catch(e){
     if(el)el.innerHTML='<div style="padding:16px;color:var(--red);font-size:13px;">Could not load products. Have you run <b>matteo_migration_catering_products.sql</b> in Supabase?<br><span style="color:var(--text-tertiary);">'+fcEsc(e.message||'')+'</span></div>';
     return;
@@ -2991,7 +3015,7 @@ function cateringUpdateEditUI(){
   const sb=document.getElementById('cato-submit-btn');if(sb)sb.textContent=ed?'Save changes':'Create order';
   const cb=document.getElementById('cato-clear-btn');if(cb)cb.textContent=ed?'Cancel edit':'Clear';
 }
-let cateringTotalsFilter=null,cateringTotSel=new Set(),cateringTotNames=[],cateringRecipeRows=[],cateringComponents=[],cateringCompError='',cateringCompEditId=null,cateringCompRows=[],cateringCompSel=new Set();
+let cateringTotalsGroups={},cateringTotalsGroupOrder=[],cateringTotGroups={},cateringTotGroupOrder=[],cateringTotalsOrder=[],cateringTotalsFilter=null,cateringTotSel=new Set(),cateringTotNames=[],cateringRecipeRows=[],cateringComponents=[],cateringCompError='',cateringCompEditId=null,cateringCompRows=[],cateringCompSel=new Set();
 function catCompsOf(p){return cateringComponents.filter(c=>(c.product_ids||[]).map(String).includes(String(p.id)));}
 function catHasRecipe(p){return (p.recipe&&p.recipe.length)||catCompsOf(p).some(c=>(c.recipe||[]).length);}
 function catResolveRecipe(p){
@@ -3130,7 +3154,7 @@ function printCateringRecipes(id){
   .warn{background:#FFF7E0;border:1px solid #F59E0B;padding:6px 10px;font-size:12px;margin:6px 0;}.tot{}h3{background:#E6F6F0;color:#0F6E56;padding:6px 8px;font-size:14px;margin:0 0 4px;}</style></head><body>
   <h1>Recipe sheet — order #${fcEsc(o.order_number)}</h1><div class="sub">${dt}${setLine?` • Set menu: ${fcEsc(setLine.name)} — ${setLine.qty} heads`:''}</div>
   ${noRecipe.length?`<div class="warn">⚠ No recipe yet for: ${noRecipe.map(d=>fcEsc(d.l.name)).join('; ')}. Ingredients below do not include these.</div>`:''}
-  <div class="tot"><h3>TOTAL INGREDIENTS — whole order</h3>${cateringTotalsFilter?'<div style="font-size:11px;color:#888;margin-bottom:4px;">Selected ingredients only</div>':''}<table>${catFilterTotals(Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name))).map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${fmtTotal(t)}</td></tr>`).join('')||'<tr><td>No recipes found for this order.</td></tr>'}</table></div>
+  <div class="tot"><h3>TOTAL INGREDIENTS — whole order</h3>${cateringTotalsFilter?'<div style="font-size:11px;color:#888;margin-bottom:4px;">Selected ingredients only</div>':''}${catTotalsTableHtml(catFilterTotals(Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name))),'')}</div>
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
   w.document.write(html);w.document.close();
@@ -3290,9 +3314,27 @@ async function deleteCateringOrder(id){
   catch(e){alert('Error: '+e.message);}
 }
 function catFilterTotals(list){
-  if(!cateringTotalsFilter)return list;
-  const set=new Set(cateringTotalsFilter);
-  return list.filter(t=>set.has(String(t.name).trim().toLowerCase()));
+  let out=list;
+  if(cateringTotalsFilter){const set=new Set(cateringTotalsFilter);out=out.filter(t=>set.has(String(t.name).trim().toLowerCase()));}
+  const pos=k=>{const i=cateringTotalsOrder.indexOf(k);return i<0?1e9:i;};
+  // manual order first; ingredients not in the saved order keep their alphabetical order after it
+  return out.map((t,i)=>({t,i,p:pos(String(t.name).trim().toLowerCase())})).sort((a,b)=>a.p-b.p||a.i-b.i).map(x=>x.t);
+}
+function catTotalsTableHtml(list,tableClass){
+  if(!list.length)return '<table class="'+(tableClass||'')+'"><tr><td>No recipes found for this order.</td></tr></table>';
+  const gOf=t=>cateringTotalsGroups[String(t.name).trim().toLowerCase()]||'';
+  const row=t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${catFmtTotal(t)}</td></tr>`;
+  const anyGroup=list.some(t=>gOf(t));
+  if(!anyGroup)return `<table class="${tableClass||''}">${list.map(row).join('')}</table>`;
+  const names=[...cateringTotalsGroupOrder];
+  list.forEach(t=>{const g=gOf(t);if(g&&!names.includes(g))names.push(g);});
+  const parts=[];
+  names.concat(['']).forEach(g=>{
+    const items=list.filter(t=>gOf(t)===g);
+    if(!items.length)return;
+    parts.push(`<div style="background:#E6F6F0;color:#0F6E56;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;padding:5px 8px;margin-top:12px;">${fcEsc(g||'Other')}</div><table class="${tableClass||''}">${items.map(row).join('')}</table>`);
+  });
+  return parts.join('');
 }
 function catAllIngredientNames(){
   const seen=new Map();
@@ -3302,17 +3344,58 @@ function catAllIngredientNames(){
   return [...seen.entries()].map(([k,n])=>({k,n})).sort((a,b)=>a.n.localeCompare(b.n));
 }
 function openCateringTotalsModal(){
-  cateringTotNames=catAllIngredientNames();
-  if(!cateringTotNames.length){alert('No ingredients yet. Add recipes to products or components first.');return;}
+  const base=catAllIngredientNames();
+  if(!base.length){alert('No ingredients yet. Add recipes to products or components first.');return;}
+  const pos=k=>{const i=cateringTotalsOrder.indexOf(k);return i<0?1e9:i;};
+  cateringTotNames=base.map((x,i)=>({x,i,p:pos(x.k)})).sort((a,b)=>a.p-b.p||a.i-b.i).map(o=>o.x);
   cateringTotSel=new Set(cateringTotalsFilter?cateringTotalsFilter:cateringTotNames.map(x=>x.k));
+  cateringTotGroups=Object.assign({},cateringTotalsGroups);
+  cateringTotGroupOrder=cateringTotalsGroupOrder.length?[...cateringTotalsGroupOrder]:(Object.keys(cateringTotalsGroups).length?[]:['Veg','Protein']);
+  Object.values(cateringTotGroups).forEach(g=>{if(g&&!cateringTotGroupOrder.includes(g))cateringTotGroupOrder.push(g);});
   document.getElementById('cattot-search').value='';
   catTotRender();openModal('cat-totals-modal');
 }
+function catTotGroupsRender(){
+  const el=document.getElementById('cattot-groups');
+  el.innerHTML=cateringTotGroupOrder.length?cateringTotGroupOrder.map((g,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px;"><span style="flex:1;font-weight:600;">${fcEsc(g)}</span>
+    <button type="button" class="btn-sm" style="padding:2px 8px;" onclick="catTotGroupMove(${i},-1)">▲</button>
+    <button type="button" class="btn-sm" style="padding:2px 8px;" onclick="catTotGroupMove(${i},1)">▼</button>
+    <button type="button" class="btn-sm" style="padding:2px 8px;color:var(--red);" onclick="catTotGroupDel(${i})">✕</button></div>`).join(''):'<div style="font-size:12px;color:var(--text-tertiary);">No groups: the total is one plain list.</div>';
+  const sel=document.getElementById('cattot-bulk');
+  sel.innerHTML='<option value="">— no group —</option>'+cateringTotGroupOrder.map(g=>`<option value="${fcEsc(g)}">${fcEsc(g)}</option>`).join('');
+}
+function catTotAddGroup(){const i=document.getElementById('cattot-newgroup');const v=i.value.trim();if(!v)return;if(!cateringTotGroupOrder.includes(v))cateringTotGroupOrder.push(v);i.value='';catTotRender();}
+function catTotGroupMove(i,d){const j=i+d;if(j<0||j>=cateringTotGroupOrder.length)return;const [g]=cateringTotGroupOrder.splice(i,1);cateringTotGroupOrder.splice(j,0,g);catTotRender();}
+function catTotGroupDel(i){const g=cateringTotGroupOrder[i];cateringTotGroupOrder.splice(i,1);Object.keys(cateringTotGroups).forEach(k=>{if(cateringTotGroups[k]===g)delete cateringTotGroups[k];});catTotRender();}
+function catTotSetGroup(k,g){k=decodeURIComponent(k);if(g)cateringTotGroups[k]=g;else delete cateringTotGroups[k];}
+function catTotBulkApply(){
+  const g=document.getElementById('cattot-bulk').value;
+  const q=(document.getElementById('cattot-search').value||'').trim().toLowerCase();
+  cateringTotNames.filter(x=>cateringTotSel.has(x.k)&&(!q||x.n.toLowerCase().includes(q))).forEach(x=>{if(g)cateringTotGroups[x.k]=g;else delete cateringTotGroups[x.k];});
+  catTotRender();
+}
 function catTotRender(){
+  catTotGroupsRender();
   const q=(document.getElementById('cattot-search').value||'').trim().toLowerCase();
   const el=document.getElementById('cattot-list');
-  el.innerHTML=cateringTotNames.filter(x=>!q||x.n.toLowerCase().includes(q)).map(x=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border-light,#eee);font-size:13px;cursor:pointer;"><input type="checkbox" style="width:auto;flex:none;" ${cateringTotSel.has(x.k)?'checked':''} onchange="catTotToggle('${encodeURIComponent(x.k)}',this.checked)"/> ${fcEsc(x.n)}</label>`).join('')||'<div style="padding:12px;font-size:12px;color:var(--text-tertiary);">No ingredients found.</div>';
+  const keep=el.scrollTop;
+  const opts=k=>'<option value="">—</option>'+cateringTotGroupOrder.map(g=>`<option value="${fcEsc(g)}"${cateringTotGroups[k]===g?' selected':''}>${fcEsc(g)}</option>`).join('');
+  el.innerHTML=cateringTotNames.map((x,idx)=>({x,idx})).filter(o=>!q||o.x.n.toLowerCase().includes(q)).map(({x,idx})=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid var(--border-light,#eee);font-size:13px;">
+    <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer;"><input type="checkbox" style="width:auto;flex:none;" ${cateringTotSel.has(x.k)?'checked':''} onchange="catTotToggle('${encodeURIComponent(x.k)}',this.checked)"/> ${fcEsc(x.n)}</label>
+    <select onchange="catTotSetGroup('${encodeURIComponent(x.k)}',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px;font-size:12px;background:var(--bg);max-width:90px;">${opts(x.k)}</select>
+    <button type="button" class="btn-sm" style="padding:2px 8px;" onclick="catTotMove(${idx},-1)" title="Move up">▲</button>
+    <button type="button" class="btn-sm" style="padding:2px 8px;" onclick="catTotMove(${idx},1)" title="Move down">▼</button></div>`).join('')||'<div style="padding:12px;font-size:12px;color:var(--text-tertiary);">No ingredients found.</div>';
+  el.scrollTop=keep;
   catTotCount();
+}
+function catTotMove(idx,dir){
+  const q=(document.getElementById('cattot-search').value||'').trim().toLowerCase();
+  const vis=i=>!q||cateringTotNames[i].n.toLowerCase().includes(q);
+  let j=idx+dir;while(j>=0&&j<cateringTotNames.length&&!vis(j))j+=dir;
+  if(j<0||j>=cateringTotNames.length)return;
+  const [it]=cateringTotNames.splice(idx,1);
+  cateringTotNames.splice(j,0,it);
+  catTotRender();
 }
 function catTotCount(){document.getElementById('cattot-count').textContent=`${cateringTotSel.size} of ${cateringTotNames.length} ingredients selected`;}
 function catTotToggle(k,on){k=decodeURIComponent(k);if(on)cateringTotSel.add(k);else cateringTotSel.delete(k);catTotCount();}
@@ -3323,11 +3406,14 @@ function catTotAll(on){
 }
 async function saveCateringTotals(){
   const all=cateringTotNames.length&&cateringTotNames.every(x=>cateringTotSel.has(x.k));
-  const value=all?{all:true}:[...cateringTotSel];
+  const order=cateringTotNames.map(x=>x.k);
+  const selected=all?null:cateringTotNames.filter(x=>cateringTotSel.has(x.k)).map(x=>x.k);
+  const groups={};Object.keys(cateringTotGroups).forEach(k=>{if(cateringTotGroups[k]&&cateringTotGroupOrder.includes(cateringTotGroups[k]))groups[k]=cateringTotGroups[k];});
+  const value={order,selected,groups,groupOrder:cateringTotGroupOrder};
   try{
     const res=await sbPatch('app_settings','key=eq.catering_totals_filter',{value});
     if(!res||!res.length)await sbPost('app_settings',{key:'catering_totals_filter',value});
-    cateringTotalsFilter=all?null:value.map(x=>String(x).toLowerCase());
+    cateringTotalsFilter=selected;cateringTotalsOrder=order;cateringTotalsGroups=groups;cateringTotalsGroupOrder=[...cateringTotGroupOrder];
     closeModal('cat-totals-modal');
   }catch(e){alert('Error saving: '+e.message);}
 }
@@ -3363,7 +3449,7 @@ function printCateringOrder(id){
   ${noRec.length?`<div class="warn">⚠ No recipe yet for: ${noRec.map(fcEsc).join('; ')}</div>`:''}
   ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
   <div class="foot">Total ${setLine?'portions':'items'}: ${cateringItemCount(o.items||[])}</div>
-  ${totalsList.length?`<h3 class="tot">TOTAL INGREDIENTS — whole order</h3>${cateringTotalsFilter?'<div style="font-size:11px;color:#888;margin-bottom:4px;">Selected ingredients only</div>':''}<table class="tot">${totalsList.map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${catFmtTotal(t)}</td></tr>`).join('')}</table>`:''}
+  ${totalsList.length?`<h3 class="tot">TOTAL INGREDIENTS — whole order</h3>${cateringTotalsFilter?'<div style="font-size:11px;color:#888;margin-bottom:4px;">Selected ingredients only</div>':''}${catTotalsTableHtml(totalsList,'tot')}`:''}
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
   w.document.write(html);w.document.close();
