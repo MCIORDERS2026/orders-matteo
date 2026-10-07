@@ -358,16 +358,35 @@
 <div id="catering-hub" style="display:none;position:fixed;inset:0;z-index:500;background:var(--bg,#fff);flex-direction:column;overflow:hidden;">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:#fff;">
     <div style="font-size:18px;font-weight:700;">Catering <span style="color:var(--green);">Hub</span></div>
-    <button class="btn-sm" onclick="closeCateringHub()">✕ Close</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn-sm" id="cat-tab-neworder" onclick="showCateringTab('neworder')">+ New order</button>
+      <button class="btn-sm" id="cat-tab-orders" onclick="showCateringTab('orders')">Orders</button>
+      <button class="btn-sm" id="cat-tab-products" onclick="showCateringTab('products')">Products</button>
+      <button class="btn-sm" onclick="closeCateringHub()">✕ Close</button>
+    </div>
   </div>
   <div id="catering-hub-body" style="flex:1;overflow-y:auto;padding:16px;">
     <div style="max-width:900px;margin:0 auto;">
+     <div id="cat-panel-neworder" style="display:none;">
+      <div class="field" style="margin-bottom:12px;"><label>Order number *</label>
+        <input type="text" id="cato-number" placeholder="Type the order number" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:15px;background:var(--bg);width:100%;"/></div>
+      <input type="text" id="cato-search" placeholder="Search products..." oninput="renderCateringOrderForm()" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;background:var(--bg);margin-bottom:12px;"/>
+      <div id="cato-products"></div>
+      <div id="cato-bar" style="position:sticky;bottom:0;background:#fff;border-top:1px solid var(--border);padding:12px 0;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div id="cato-total" style="font-size:14px;font-weight:600;"></div>
+        <div style="display:flex;gap:8px;"><button class="btn-sm" onclick="resetCateringOrderForm()">Clear</button>
+        <button class="btn-sm" style="background:var(--green);border-color:var(--green);color:#fff;font-weight:600;" onclick="submitCateringOrder()">Create order</button></div>
+      </div>
+     </div>
+     <div id="cat-panel-orders" style="display:none;"><div id="cat-orders-list"></div></div>
+     <div id="cat-panel-products">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
         <input type="text" id="cat-search" placeholder="Search products..." oninput="renderCateringProducts()" style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;background:var(--bg);"/>
         <button class="btn-sm" style="background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;" onclick="openCateringProductModal()">+ Add product</button>
       </div>
       <div id="cat-summary" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;"></div>
       <div id="cat-products-list"></div>
+     </div>
     </div>
   </div>
 </div>
@@ -379,8 +398,7 @@
     <div class="field"><label>&amp;Dine category *</label><input type="text" id="cat-f-dine" list="cat-dine-list" placeholder="e.g. Individual Meals"/><datalist id="cat-dine-list"></datalist></div>
     <div class="field"><label>Menu category</label><input type="text" id="cat-f-menu" list="cat-menu-list" placeholder="e.g. Salad Boxes"/><datalist id="cat-menu-list"></datalist></div>
     <div class="field"><label>Price (gross, £)</label><input type="number" step="0.01" min="0" id="cat-f-price"/></div>
-    <div class="field"><label>Type</label><select id="cat-f-type"><option>INVENTORY</option><option>BUNDLE</option></select></div>
-    <div class="field"><label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="cat-f-active" checked/> Active</label></div>
+    <div class="field"><label style="display:flex;align-items:center;justify-content:flex-start;gap:8px;"><input type="checkbox" id="cat-f-active" checked style="width:auto;flex:none;"/> Active</label></div>
     <div class="modal-btns">
       <button onclick="closeModal('cat-product-modal')">Cancel</button>
       <button class="primary" onclick="saveCateringProduct()">Save</button>
@@ -2693,7 +2711,7 @@ function openCateringHub(){
   ['notif-dropdown','online-dropdown','admin-menu-dropdown','compras-menu-dropdown'].forEach(id=>document.getElementById(id)?.classList.remove('open'));
   document.getElementById('catering-hub').style.display='flex';
   document.body.style.overflow='hidden';
-  loadCateringProducts();
+  loadCateringProducts().then(()=>showCateringTab(cateringTab));
 }
 let cateringProducts=[],cateringLoaded=false,cateringEditingId=null,cateringCollapsed={};
 async function loadCateringProducts(){
@@ -2743,7 +2761,6 @@ function openCateringProductModal(id){
   document.getElementById('cat-f-dine').value=p?p.dine_category:'';
   document.getElementById('cat-f-menu').value=p?p.menu_category:'';
   document.getElementById('cat-f-price').value=p&&p.price_gross!=null?p.price_gross:'';
-  document.getElementById('cat-f-type').value=p?p.type:'INVENTORY';
   document.getElementById('cat-f-active').checked=p?!!p.is_active:true;
   document.getElementById('cat-f-delete').style.display=p?'block':'none';
   const uniq=k=>[...new Set(cateringProducts.map(x=>x[k]).filter(Boolean))].sort();
@@ -2757,7 +2774,7 @@ async function saveCateringProduct(){
   if(!name||!dine){alert('Name and &Dine category are required.');return;}
   const pr=document.getElementById('cat-f-price').value;
   const row={name,dine_category:dine,menu_category:document.getElementById('cat-f-menu').value.trim(),
-    price_gross:pr===''?null:parseFloat(pr),type:document.getElementById('cat-f-type').value,is_active:document.getElementById('cat-f-active').checked};
+    price_gross:pr===''?null:parseFloat(pr),type:(cateringEditingId&&(cateringProducts.find(x=>x.id===cateringEditingId)||{}).type)||'INVENTORY',is_active:document.getElementById('cat-f-active').checked};
   try{
     if(cateringEditingId){await sbPatch('catering_products',`id=eq.${cateringEditingId}`,row);}
     else{row.sort_order=(cateringProducts.reduce((m,x)=>Math.max(m,x.sort_order||0),0))+1;await sbPost('catering_products',row);}
@@ -2771,6 +2788,120 @@ async function deleteCateringProduct(){
   if(!confirm(`Delete "${p?p.name:'this product'}"?`))return;
   try{await sbDelete('catering_products',`id=eq.${cateringEditingId}`);closeModal('cat-product-modal');await loadCateringProducts();}
   catch(e){alert('Error deleting: '+e.message);}
+}
+let cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={};
+function showCateringTab(t){
+  cateringTab=t;
+  ['neworder','orders','products'].forEach(k=>{
+    document.getElementById('cat-panel-'+k).style.display=(k===t)?'block':'none';
+    const b=document.getElementById('cat-tab-'+k);
+    if(b)b.style.cssText=(k===t)?'background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;':'';
+  });
+  if(t==='neworder')renderCateringOrderForm();
+  if(t==='orders')loadCateringOrders();
+  if(t==='products')renderCateringProducts();
+}
+function cateringActiveProducts(){return cateringProducts.filter(p=>p.is_active);}
+function renderCateringOrderForm(){
+  const el=document.getElementById('cato-products');if(!el)return;
+  const q=((document.getElementById('cato-search')||{}).value||'').trim().toLowerCase();
+  const list=cateringActiveProducts().filter(p=>!q||(p.name+' '+p.dine_category+' '+p.menu_category).toLowerCase().includes(q));
+  const groups={};const order=[];
+  list.forEach(p=>{const c=p.dine_category||'Uncategorised';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(p);});
+  el.innerHTML=order.length?order.map(c=>`<div style="margin-bottom:14px;">
+    <div style="font-weight:700;font-size:13px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.4px;padding:6px 2px;border-bottom:1px solid var(--border);">${fcEsc(c)}</div>
+    ${groups[c].map(p=>{const n=cateringCart[p.id]||0;return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border-light,#eee);${n?'background:var(--green-light,#E6F6F0);':''}">
+      <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(p.name)}</div><div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(p.menu_category||'')} • ${cateringPrice(p)}</div></div>
+      <div style="display:flex;align-items:center;gap:6px;flex:none;">
+        <button class="btn-sm" onclick="cateringAdj(${p.id},-1)">−</button>
+        <input type="number" min="0" step="1" value="${n}" onchange="cateringSet(${p.id},this.value)" style="width:56px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
+        <button class="btn-sm" onclick="cateringAdj(${p.id},1)">+</button>
+      </div></div>`;}).join('')}</div>`).join(''):'<div style="padding:16px;color:var(--text-secondary);">No products found.</div>';
+  updateCateringTotal();
+}
+function cateringAdj(id,d){cateringSet(id,(cateringCart[id]||0)+d);}
+function cateringSet(id,v){
+  v=Math.max(0,Math.floor(Number(v)||0));
+  if(v)cateringCart[id]=v;else delete cateringCart[id];
+  renderCateringOrderForm();
+}
+function cateringCartLines(){
+  return Object.entries(cateringCart).map(([id,qty])=>{const p=cateringProducts.find(x=>String(x.id)===String(id));return p?{id:p.id,name:p.name,dine_category:p.dine_category,menu_category:p.menu_category,qty,price:p.price_gross==null?null:Number(p.price_gross)}:null;}).filter(Boolean);
+}
+function cateringLinesTotal(lines){return lines.reduce((s,l)=>s+(l.price||0)*l.qty,0);}
+function updateCateringTotal(){
+  const lines=cateringCartLines();const el=document.getElementById('cato-total');
+  if(el)el.textContent=lines.length?`${lines.reduce((s,l)=>s+l.qty,0)} items • £${cateringLinesTotal(lines).toFixed(2)}`:'No items yet';
+}
+function resetCateringOrderForm(){cateringCart={};const n=document.getElementById('cato-number');if(n)n.value='';renderCateringOrderForm();}
+async function submitCateringOrder(){
+  const num=document.getElementById('cato-number').value.trim();
+  const lines=cateringCartLines();
+  if(!num){alert('Enter the order number.');return;}
+  if(!lines.length){alert('Add at least one product.');return;}
+  try{
+    await sbPost('catering_orders',{order_number:num,items:lines,total:cateringLinesTotal(lines),status:'new'});
+    resetCateringOrderForm();
+    showCateringTab('orders');
+  }catch(e){alert('Error creating order: '+e.message+'\n\nHave you run the catering_orders SQL in Supabase?');}
+}
+const CATERING_STATUS={new:'🆕 New',production:'🍳 In production',done:'✅ Done'};
+async function loadCateringOrders(){
+  const el=document.getElementById('cat-orders-list');
+  el.innerHTML='<div style="padding:16px;color:var(--text-secondary);">Loading...</div>';
+  try{cateringOrders=await sbGet('catering_orders','order=created_at.desc&limit=200');}
+  catch(e){el.innerHTML='<div style="padding:16px;color:var(--red);font-size:13px;">Could not load orders. Run the catering_orders part of <b>matteo_migration_catering_products.sql</b> in Supabase.<br>'+fcEsc(e.message||'')+'</div>';return;}
+  renderCateringOrders();
+}
+function renderCateringOrders(){
+  const el=document.getElementById('cat-orders-list');
+  if(!cateringOrders.length){el.innerHTML='<div style="padding:20px;color:var(--text-secondary);">No catering orders yet.</div>';return;}
+  el.innerHTML=cateringOrders.map(o=>{
+    const items=o.items||[];const open=!!cateringOpenOrders[o.id];
+    const dt=new Date(o.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    return `<div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;background:#fff;overflow:hidden;">
+      <div onclick="cateringToggleOrder(${o.id})" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;flex-wrap:wrap;">
+        <div><div style="font-weight:700;font-size:15px;">#${fcEsc(o.order_number)}</div><div style="font-size:12px;color:var(--text-secondary);">${dt} • ${items.reduce((s,l)=>s+l.qty,0)} items • £${Number(o.total||0).toFixed(2)}</div></div>
+        <div style="font-size:13px;font-weight:600;">${CATERING_STATUS[o.status]||fcEsc(o.status)}</div>
+      </div>
+      ${open?`<div style="border-top:1px solid var(--border-light,#eee);padding:10px 14px;">
+        ${items.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;"><span><b>${l.qty}×</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);">(${fcEsc(l.dine_category||'')})</span></span><span>${l.price==null?'—':'£'+(l.price*l.qty).toFixed(2)}</span></div>`).join('')}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
+          ${o.status!=='new'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'new')">🆕 New</button>`:''}
+          ${o.status!=='production'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'production')">🍳 In production</button>`:''}
+          ${o.status!=='done'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'done')">✅ Done</button>`:''}
+          <button class="btn-sm" onclick="printCateringOrder(${o.id})">🖨 Production sheet</button>
+          <button class="btn-sm" style="color:var(--red);" onclick="deleteCateringOrder(${o.id})">🗑 Delete</button>
+        </div></div>`:''}
+    </div>`;}).join('');
+}
+function cateringToggleOrder(id){cateringOpenOrders[id]=!cateringOpenOrders[id];renderCateringOrders();}
+async function cateringSetStatus(id,st){
+  try{await sbPatch('catering_orders',`id=eq.${id}`,{status:st});const o=cateringOrders.find(x=>x.id===id);if(o)o.status=st;renderCateringOrders();}
+  catch(e){alert('Error: '+e.message);}
+}
+async function deleteCateringOrder(id){
+  const o=cateringOrders.find(x=>x.id===id);
+  if(!confirm(`Delete order #${o?o.order_number:id}?`))return;
+  try{await sbDelete('catering_orders',`id=eq.${id}`);cateringOrders=cateringOrders.filter(x=>x.id!==id);renderCateringOrders();}
+  catch(e){alert('Error: '+e.message);}
+}
+function printCateringOrder(id){
+  const o=cateringOrders.find(x=>x.id===id);if(!o)return;
+  const groups={};const order=[];
+  (o.items||[]).forEach(l=>{const c=l.dine_category||'Other';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(l);});
+  const dt=new Date(o.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Catering #${fcEsc(o.order_number)}</title>
+  <style>body{font-family:Arial,sans-serif;margin:28px;color:#111;}h1{font-size:22px;margin:0 0 4px;}.sub{color:#666;font-size:12px;margin-bottom:18px;}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;background:#E6F6F0;color:#0F6E56;padding:6px 8px;margin:16px 0 0;}
+  table{width:100%;border-collapse:collapse;}td{padding:7px 8px;border-bottom:1px solid #ddd;font-size:14px;}td.q{width:60px;font-weight:700;font-size:16px;}td.m{color:#666;font-size:12px;text-align:right;}
+  .foot{margin-top:18px;font-size:12px;color:#666;}</style></head><body>
+  <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}</div>
+  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}×</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
+  <div class="foot">Total items: ${(o.items||[]).reduce((s,l)=>s+l.qty,0)}</div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
+  const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
+  w.document.write(html);w.document.close();
 }
 function closeCateringHub(){
   document.getElementById('catering-hub').style.display='none';
