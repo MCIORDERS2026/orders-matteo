@@ -373,6 +373,7 @@
       <div id="cato-import-result" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;line-height:1.5;"></div>
       <div class="field" style="margin-bottom:12px;"><label>Order number *</label>
         <input type="text" id="cato-number" placeholder="Type the order number" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:15px;background:var(--bg);width:100%;"/></div>
+      <div id="cato-view-chips" style="display:flex;gap:8px;margin-bottom:10px;"></div>
       <input type="text" id="cato-search" placeholder="Search products..." oninput="renderCateringOrderForm()" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;background:var(--bg);margin-bottom:12px;"/>
       <div id="cato-products"></div>
       <div id="cato-bar" style="position:sticky;bottom:0;background:#fff;border-top:1px solid var(--border);padding:12px 0;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -2810,7 +2811,7 @@ async function deleteCateringProduct(){
   try{await sbDelete('catering_products',`id=eq.${cateringEditingId}`);closeModal('cat-product-modal');await loadCateringProducts();}
   catch(e){alert('Error deleting: '+e.message);}
 }
-let cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={},cateringEditOrderId=null,cateringSnap={};
+let cateringFormView=null,cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={},cateringEditOrderId=null,cateringSnap={};
 function showCateringTab(t){
   cateringTab=t;
   ['neworder','orders','products'].forEach(k=>{
@@ -2822,11 +2823,26 @@ function showCateringTab(t){
   if(t==='orders')loadCateringOrders();
   if(t==='products')renderCateringProducts();
 }
-function cateringActiveProducts(){return cateringProducts.filter(p=>p.is_active||cateringCart[p.id]);}
+function cateringActiveProducts(){
+  const list=cateringProducts.filter(p=>p.is_active||cateringCart[p.id]);
+  // lines of an order being edited whose product no longer exists in the catalogue
+  Object.values(cateringSnap).forEach(l=>{if(!cateringProducts.some(p=>String(p.id)===String(l.id)))list.push({id:l.id,name:l.name,dine_category:l.dine_category,menu_category:l.menu_category,price_gross:l.price,is_vatable:l.vatable,is_active:true});});
+  return list;
+}
+function cateringCartCount(){return Object.values(cateringCart).reduce((a,b)=>a+b,0);}
+function cateringEffectiveView(){return cateringFormView||(cateringCartCount()>0?'selected':'all');}
+function setCateringView(v){cateringFormView=v;const sr=document.getElementById('cato-search');if(sr&&v==='selected')sr.value='';renderCateringOrderForm();}
 function renderCateringOrderForm(){
   const el=document.getElementById('cato-products');if(!el)return;
   const q=((document.getElementById('cato-search')||{}).value||'').trim().toLowerCase();
-  const list=cateringActiveProducts().filter(p=>!q||(p.name+' '+p.dine_category+' '+p.menu_category).toLowerCase().includes(q));
+  const view=q?'all':cateringEffectiveView();
+  const nSel=cateringCartCount();
+  const chips=document.getElementById('cato-view-chips');
+  if(chips){
+    const st=on=>on?'background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;':'';
+    chips.innerHTML=`<button class="btn-sm" style="${st(view==='selected')}" onclick="setCateringView('selected')">Selected (${nSel})</button><button class="btn-sm" style="${st(view==='all')}" onclick="setCateringView('all')">All products</button>`;
+  }
+  const list=cateringActiveProducts().filter(p=>(view==='all'||cateringCart[p.id])&&(!q||(p.name+' '+p.dine_category+' '+p.menu_category).toLowerCase().includes(q)));
   const groups={};const order=[];
   list.forEach(p=>{const c=p.dine_category||'Uncategorised';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(p);});
   el.innerHTML=order.length?order.map(c=>`<div style="margin-bottom:14px;">
@@ -2837,7 +2853,7 @@ function renderCateringOrderForm(){
         <button class="btn-sm" onclick="cateringAdj(${p.id},-1)">−</button>
         <input type="number" min="0" step="1" value="${n}" onchange="cateringSet(${p.id},this.value)" style="width:56px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
         <button class="btn-sm" onclick="cateringAdj(${p.id},1)">+</button>
-      </div></div>`;}).join('')}</div>`).join(''):'<div style="padding:16px;color:var(--text-secondary);">No products found.</div>';
+      </div></div>`;}).join('')}</div>`).join(''):`<div style="padding:16px;color:var(--text-secondary);">${view==='selected'?'No items selected yet. Tap <b>All products</b> to add some.':'No products found.'}</div>`;
   updateCateringTotal();
 }
 function cateringAdj(id,d){cateringSet(id,(cateringCart[id]||0)+d);}
@@ -2860,7 +2876,7 @@ function updateCateringTotal(){
   if(el)el.innerHTML=lines.length?`${lines.reduce((s,l)=>s+l.qty,0)} items<div style="font-size:12px;font-weight:400;color:var(--text-secondary);">${cateringTotalsHtml(lines)}</div>`:'No items yet';
 }
 function resetCateringOrderForm(){
-  cateringCart={};cateringSnap={};cateringEditOrderId=null;
+  cateringCart={};cateringSnap={};cateringEditOrderId=null;cateringFormView=null;
   const n=document.getElementById('cato-number');if(n)n.value='';
   const ir=document.getElementById('cato-import-result');if(ir)ir.style.display='none';
   cateringUpdateEditUI();renderCateringOrderForm();
@@ -2910,6 +2926,7 @@ function runCateringImport(){
     }
   });
   document.getElementById('cato-number').value=parsed.ref||'';
+  cateringFormView='selected';
   closeModal('cat-import-modal');
   cateringUpdateEditUI();
   renderCateringOrderForm();
@@ -2926,7 +2943,7 @@ function runCateringImport(){
 }
 function startEditCateringOrder(id){
   const o=cateringOrders.find(x=>x.id===id);if(!o)return;
-  cateringEditOrderId=id;cateringCart={};cateringSnap={};
+  cateringEditOrderId=id;cateringCart={};cateringSnap={};cateringFormView='selected';
   (o.items||[]).forEach(l=>{cateringCart[l.id]=l.qty;cateringSnap[l.id]=l;});
   document.getElementById('cato-number').value=o.order_number;
   showCateringTab('neworder');
