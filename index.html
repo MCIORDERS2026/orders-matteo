@@ -2846,16 +2846,25 @@ function renderCateringOrderForm(){
   const list=cateringActiveProducts().filter(p=>(view==='all'||cateringCart[p.id])&&(!q||(p.name+' '+p.dine_category+' '+p.menu_category).toLowerCase().includes(q)));
   const groups={};const order=[];
   list.forEach(p=>{const c=p.dine_category||'Uncategorised';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(p);});
-  const customHtml=cateringCustom.length?`<div style="margin-bottom:14px;border:1.5px solid var(--green);border-radius:var(--radius);background:#fff;overflow:hidden;">
-    <div style="padding:8px 12px;background:var(--green-light,#E6F6F0);font-weight:700;font-size:13px;color:var(--green-dark);">SET MENU (imported from &amp;Dine)</div>
-    ${cateringCustom.map((l,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border-light,#eee);">
-      <div style="min-width:0;"><div style="font-size:14px;${l.set?'font-weight:700;':'font-weight:500;'}">${fcEsc(l.name)}</div>
-      <div style="font-size:11px;color:var(--text-tertiary);">${l.set?`heads × £${cateringNet(l.price,l.vatable).toFixed(2)} ex VAT per head`:`${fcEsc(l.dine_category||'')} • portions (set component, no extra charge)`}</div></div>
+  const setIdx=cateringCustom.findIndex(l=>l.set);
+  const setLn=setIdx>=0?cateringCustom[setIdx]:null;
+  const compRows=cateringCustom.map((l,i)=>({l,i})).filter(x=>!x.l.set);
+  const customHtml=(setLn?`<div style="margin-bottom:12px;padding:10px 14px;border:1.5px solid var(--green);border-radius:var(--radius);background:var(--green-light,#E6F6F0);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div><div style="font-size:11px;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.4px;">Set menu (order info)</div>
+    <div style="font-size:15px;font-weight:700;">${fcEsc(setLn.name)}</div>
+    <div style="font-size:12px;color:var(--text-secondary);">£${cateringNet(setLn.price,setLn.vatable).toFixed(2)} ex VAT per head — sets the order price</div></div>
+    <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;color:var(--text-secondary);">Heads</span>
+      <input type="number" min="0" step="1" value="${setLn.qty}" onchange="cateringCustomQty(${setIdx},this.value)" style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
+      <button class="btn-sm" style="color:var(--red);" onclick="cateringCustomDel(${setIdx})" title="Remove set info">✕</button></div></div>`:'')
+  +(compRows.length?`<div style="margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius);background:#fff;overflow:hidden;">
+    <div style="padding:8px 12px;background:#F3F4F6;font-weight:700;font-size:13px;">Dishes to produce (portions)</div>
+    ${compRows.map(({l,i})=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border-light,#eee);">
+      <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(l.name)}</div><div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(l.dine_category||'')}</div></div>
       <div style="display:flex;align-items:center;gap:6px;flex:none;">
         <input type="number" min="0" step="1" value="${l.qty}" onchange="cateringCustomQty(${i},this.value)" style="width:60px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
         <button class="btn-sm" style="color:var(--red);" onclick="cateringCustomDel(${i})">✕</button>
       </div></div>`).join('')}
-  </div>`:'';
+  </div>`:'');
   el.innerHTML=customHtml+(order.length?order.map(c=>`<div style="margin-bottom:14px;">
     <div style="font-weight:700;font-size:13px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.4px;padding:6px 2px;border-bottom:1px solid var(--border);">${fcEsc(c)}</div>
     ${groups[c].map(p=>{const n=cateringCart[p.id]||0;return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border-light,#eee);${n?'background:var(--green-light,#E6F6F0);':''}">
@@ -2943,14 +2952,14 @@ function runCateringImport(){
   if(setOrder){
     const grossPerHead=Math.round(setOrder.netPerHead*(1+CAT_VAT)*100)/100;
     cateringCart={};cateringSnap={};cateringEditOrderId=null;
-    cateringCustom=[{set:true,id:null,name:setOrder.menuName.replace(/\b(\w)(\w*)/g,(m,a,b)=>a.toUpperCase()+b.toLowerCase()),dine_category:'Set menu',menu_category:'',qty:setOrder.heads,price:grossPerHead,vatable:true}]
+    cateringCustom=[{set:true,id:null,name:(()=>{const t=setOrder.menuName.match(/\(([^)]+)\)/);const raw=t?t[1]:setOrder.menuName;return raw.toLowerCase().replace(/(^|[\s(])([a-z])/g,(m,p,c)=>p+c.toUpperCase());})(),dine_category:'Set menu',menu_category:'',qty:setOrder.heads,price:grossPerHead,vatable:true}]
       .concat(setOrder.comps.map(c=>({component:true,id:null,name:c.name,dine_category:c.section||'Items',menu_category:'',qty:c.qty,price:0,vatable:true})));
     document.getElementById('cato-number').value=setOrder.ref||'';
     cateringFormView='selected';
     closeModal('cat-import-modal');
     cateringUpdateEditUI();renderCateringOrderForm();
     const box=document.getElementById('cato-import-result');
-    box.innerHTML=`📥 Set menu imported${setOrder.ref?` for <b>${fcEsc(setOrder.ref)}</b>`:' (order number not found — type it above)'}: <b>${fcEsc(setOrder.menuName)}</b>, ${setOrder.heads} heads at £${setOrder.netPerHead.toFixed(2)} ex VAT per head, ${setOrder.comps.length} dishes. Check the list below, then press <b>Create order</b>.`;
+    box.innerHTML=`📥 Set menu imported${setOrder.ref?` for <b>${fcEsc(setOrder.ref)}</b>`:' (order number not found — type it above)'}: set <b>${fcEsc(cateringCustom[0].name)}</b>, ${setOrder.heads} heads at £${setOrder.netPerHead.toFixed(2)} ex VAT per head, ${setOrder.comps.length} dishes. Check the list below, then press <b>Create order</b>.`;
     box.style.display='block';box.style.background='#E6F6F0';box.style.border='1.5px solid var(--green)';
     box.scrollIntoView({behavior:'smooth',block:'start'});
     return;
@@ -3031,7 +3040,8 @@ function renderCateringOrders(){
         <div style="font-size:13px;font-weight:600;">${CATERING_STATUS[o.status]||fcEsc(o.status)}</div>
       </div>
       ${open?`<div style="border-top:1px solid var(--border-light,#eee);padding:10px 14px;">
-        ${items.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;${l.set?'font-weight:700;':''}"><span><b>${l.qty}${l.set?' heads ×':l.component?' portions':'×'}</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);font-weight:400;">(${fcEsc(l.dine_category||'')})</span></span><span>${l.component?'':(l.price==null?'—':'£'+(cateringNet(l.price,l.vatable)*l.qty).toFixed(2))}</span></div>`).join('')}
+        ${items.filter(l=>l.set).map(l=>`<div style="background:var(--green-light,#E6F6F0);border-radius:var(--radius-sm);padding:6px 10px;margin-bottom:6px;font-size:12px;display:flex;justify-content:space-between;gap:10px;"><span><b>Set menu:</b> ${fcEsc(l.name)} • ${l.qty} heads × £${cateringNet(l.price,l.vatable).toFixed(2)} ex VAT</span><span>£${(cateringNet(l.price,l.vatable)*l.qty).toFixed(2)}</span></div>`).join('')}
+        ${items.filter(l=>!l.set).map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;"><span><b>${l.qty}${l.component?' portions':'×'}</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);">(${fcEsc(l.dine_category||'')})</span></span><span>${l.component?'':(l.price==null?'—':'£'+(cateringNet(l.price,l.vatable)*l.qty).toFixed(2))}</span></div>`).join('')}
         <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:13px;text-align:right;color:var(--text-secondary);">Line prices ex VAT<br>${cateringTotalsHtml(items)}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
           ${o.status!=='new'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'new')">🆕 New</button>`:''}
@@ -3065,7 +3075,7 @@ function printCateringOrder(id){
   h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;background:#E6F6F0;color:#0F6E56;padding:6px 8px;margin:16px 0 0;}
   table{width:100%;border-collapse:collapse;}td{padding:7px 8px;border-bottom:1px solid #ddd;font-size:14px;}td.q{width:60px;font-weight:700;font-size:16px;}td.m{color:#666;font-size:12px;text-align:right;}
   .foot{margin-top:18px;font-size:12px;color:#666;}</style></head><body>
-  <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}${setLine?` • <b>${fcEsc(setLine.name)} — ${setLine.qty} heads</b>`:''}</div>
+  <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}${setLine?` • <b>Set menu: ${fcEsc(setLine.name)} — ${setLine.qty} heads</b>`:''}</div>
   ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
   <div class="foot">Total ${setLine?'portions':'items'}: ${cateringItemCount(o.items||[])}</div>
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
