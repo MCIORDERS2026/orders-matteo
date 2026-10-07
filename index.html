@@ -368,14 +368,15 @@
   <div id="catering-hub-body" style="flex:1;overflow-y:auto;padding:16px;">
     <div style="max-width:900px;margin:0 auto;">
      <div id="cat-panel-neworder" style="display:none;">
+      <div id="cato-edit-banner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7E0;border:1.5px solid #F59E0B;border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:#92400E;"></div>
       <div class="field" style="margin-bottom:12px;"><label>Order number *</label>
         <input type="text" id="cato-number" placeholder="Type the order number" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:15px;background:var(--bg);width:100%;"/></div>
       <input type="text" id="cato-search" placeholder="Search products..." oninput="renderCateringOrderForm()" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;background:var(--bg);margin-bottom:12px;"/>
       <div id="cato-products"></div>
       <div id="cato-bar" style="position:sticky;bottom:0;background:#fff;border-top:1px solid var(--border);padding:12px 0;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
         <div id="cato-total" style="font-size:14px;font-weight:600;"></div>
-        <div style="display:flex;gap:8px;"><button class="btn-sm" onclick="resetCateringOrderForm()">Clear</button>
-        <button class="btn-sm" style="background:var(--green);border-color:var(--green);color:#fff;font-weight:600;" onclick="submitCateringOrder()">Create order</button></div>
+        <div style="display:flex;gap:8px;"><button class="btn-sm" onclick="resetCateringOrderForm()" id="cato-clear-btn">Clear</button>
+        <button class="btn-sm" style="background:var(--green);border-color:var(--green);color:#fff;font-weight:600;" onclick="submitCateringOrder()" id="cato-submit-btn">Create order</button></div>
       </div>
      </div>
      <div id="cat-panel-orders" style="display:none;"><div id="cat-orders-list"></div></div>
@@ -399,6 +400,7 @@
     <div class="field"><label>Menu category</label><input type="text" id="cat-f-menu" list="cat-menu-list" placeholder="e.g. Salad Boxes"/><datalist id="cat-menu-list"></datalist></div>
     <div class="field"><label>Price (gross, £)</label><input type="number" step="0.01" min="0" id="cat-f-price"/></div>
     <div class="field"><label style="display:flex;align-items:center;justify-content:flex-start;gap:8px;"><input type="checkbox" id="cat-f-active" checked style="width:auto;flex:none;"/> Active</label></div>
+    <div class="field"><label style="display:flex;align-items:center;justify-content:flex-start;gap:8px;"><input type="checkbox" id="cat-f-vat" checked style="width:auto;flex:none;"/> Vatable (20% VAT included in the price)</label></div>
     <div class="modal-btns">
       <button onclick="closeModal('cat-product-modal')">Cancel</button>
       <button class="primary" onclick="saveCateringProduct()">Save</button>
@@ -2726,7 +2728,10 @@ async function loadCateringProducts(){
   }
   renderCateringProducts();
 }
+const CAT_VAT=0.2;
 function cateringPrice(p){return (p.price_gross==null||p.price_gross==='')?'—':'£'+Number(p.price_gross).toFixed(2);}
+function cateringNet(price,vatable){return price==null?0:(vatable===false?Number(price):Number(price)/(1+CAT_VAT));}
+function cateringNetStr(p){return (p.price_gross==null||p.price_gross==='')?'':'£'+cateringNet(p.price_gross,p.is_vatable).toFixed(2)+' ex VAT';}
 function renderCateringProducts(){
   const el=document.getElementById('cat-products-list');if(!el)return;
   const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
@@ -2747,7 +2752,7 @@ function renderCateringProducts(){
       ${open?items.map(p=>`<div onclick="openCateringProductModal(${p.id})" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border-light,#eee);cursor:pointer;${p.is_active?'':'opacity:.5;'}">
         <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(p.name)}</div>
         <div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(p.menu_category||'')}${p.type==='BUNDLE'?' • Bundle':''}${p.is_active?'':' • Inactive'}</div></div>
-        <div style="font-size:14px;font-weight:600;white-space:nowrap;">${cateringPrice(p)}</div>
+        <div style="text-align:right;white-space:nowrap;"><div style="font-size:14px;font-weight:600;">${cateringPrice(p)}</div><div style="font-size:11px;color:var(--text-tertiary);">${cateringNetStr(p)}${p.is_vatable===false?' (no VAT)':''}</div></div>
       </div>`).join(''):''}
     </div>`;
   }).join('');
@@ -2762,6 +2767,7 @@ function openCateringProductModal(id){
   document.getElementById('cat-f-menu').value=p?p.menu_category:'';
   document.getElementById('cat-f-price').value=p&&p.price_gross!=null?p.price_gross:'';
   document.getElementById('cat-f-active').checked=p?!!p.is_active:true;
+  document.getElementById('cat-f-vat').checked=p?p.is_vatable!==false:true;
   document.getElementById('cat-f-delete').style.display=p?'block':'none';
   const uniq=k=>[...new Set(cateringProducts.map(x=>x[k]).filter(Boolean))].sort();
   document.getElementById('cat-dine-list').innerHTML=uniq('dine_category').map(v=>`<option value="${fcEsc(v)}">`).join('');
@@ -2774,7 +2780,7 @@ async function saveCateringProduct(){
   if(!name||!dine){alert('Name and &Dine category are required.');return;}
   const pr=document.getElementById('cat-f-price').value;
   const row={name,dine_category:dine,menu_category:document.getElementById('cat-f-menu').value.trim(),
-    price_gross:pr===''?null:parseFloat(pr),type:(cateringEditingId&&(cateringProducts.find(x=>x.id===cateringEditingId)||{}).type)||'INVENTORY',is_active:document.getElementById('cat-f-active').checked};
+    price_gross:pr===''?null:parseFloat(pr),type:(cateringEditingId&&(cateringProducts.find(x=>x.id===cateringEditingId)||{}).type)||'INVENTORY',is_active:document.getElementById('cat-f-active').checked,is_vatable:document.getElementById('cat-f-vat').checked};
   try{
     if(cateringEditingId){await sbPatch('catering_products',`id=eq.${cateringEditingId}`,row);}
     else{row.sort_order=(cateringProducts.reduce((m,x)=>Math.max(m,x.sort_order||0),0))+1;await sbPost('catering_products',row);}
@@ -2789,7 +2795,7 @@ async function deleteCateringProduct(){
   try{await sbDelete('catering_products',`id=eq.${cateringEditingId}`);closeModal('cat-product-modal');await loadCateringProducts();}
   catch(e){alert('Error deleting: '+e.message);}
 }
-let cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={};
+let cateringTab='neworder',cateringCart={},cateringOrders=[],cateringOpenOrders={},cateringEditOrderId=null,cateringSnap={};
 function showCateringTab(t){
   cateringTab=t;
   ['neworder','orders','products'].forEach(k=>{
@@ -2797,11 +2803,11 @@ function showCateringTab(t){
     const b=document.getElementById('cat-tab-'+k);
     if(b)b.style.cssText=(k===t)?'background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;':'';
   });
-  if(t==='neworder')renderCateringOrderForm();
+  if(t==='neworder'){cateringUpdateEditUI();renderCateringOrderForm();}
   if(t==='orders')loadCateringOrders();
   if(t==='products')renderCateringProducts();
 }
-function cateringActiveProducts(){return cateringProducts.filter(p=>p.is_active);}
+function cateringActiveProducts(){return cateringProducts.filter(p=>p.is_active||cateringCart[p.id]);}
 function renderCateringOrderForm(){
   const el=document.getElementById('cato-products');if(!el)return;
   const q=((document.getElementById('cato-search')||{}).value||'').trim().toLowerCase();
@@ -2811,7 +2817,7 @@ function renderCateringOrderForm(){
   el.innerHTML=order.length?order.map(c=>`<div style="margin-bottom:14px;">
     <div style="font-weight:700;font-size:13px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.4px;padding:6px 2px;border-bottom:1px solid var(--border);">${fcEsc(c)}</div>
     ${groups[c].map(p=>{const n=cateringCart[p.id]||0;return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border-light,#eee);${n?'background:var(--green-light,#E6F6F0);':''}">
-      <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(p.name)}</div><div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(p.menu_category||'')} • ${cateringPrice(p)}</div></div>
+      <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(p.name)}</div><div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(p.menu_category||'')} • ${cateringNetStr(p)} • ${cateringPrice(p)} inc VAT</div></div>
       <div style="display:flex;align-items:center;gap:6px;flex:none;">
         <button class="btn-sm" onclick="cateringAdj(${p.id},-1)">−</button>
         <input type="number" min="0" step="1" value="${n}" onchange="cateringSet(${p.id},this.value)" style="width:56px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;font-size:14px;"/>
@@ -2826,24 +2832,52 @@ function cateringSet(id,v){
   renderCateringOrderForm();
 }
 function cateringCartLines(){
-  return Object.entries(cateringCart).map(([id,qty])=>{const p=cateringProducts.find(x=>String(x.id)===String(id));return p?{id:p.id,name:p.name,dine_category:p.dine_category,menu_category:p.menu_category,qty,price:p.price_gross==null?null:Number(p.price_gross)}:null;}).filter(Boolean);
+  return Object.entries(cateringCart).map(([id,qty])=>{
+    const snap=cateringSnap[id];
+    if(snap)return Object.assign({},snap,{qty}); // existing line of the order being edited: keep its original name/price/VAT
+    const p=cateringProducts.find(x=>String(x.id)===String(id));return p?{id:p.id,name:p.name,dine_category:p.dine_category,menu_category:p.menu_category,qty,price:p.price_gross==null?null:Number(p.price_gross),vatable:p.is_vatable!==false}:null;}).filter(Boolean);
 }
 function cateringLinesTotal(lines){return lines.reduce((s,l)=>s+(l.price||0)*l.qty,0);}
+function cateringLinesNet(lines){return lines.reduce((s,l)=>s+cateringNet(l.price,l.vatable)*l.qty,0);}
+function cateringTotalsHtml(lines){const g=cateringLinesTotal(lines),n=cateringLinesNet(lines);return `Subtotal (ex VAT) £${n.toFixed(2)} • VAT £${(g-n).toFixed(2)} • <b>Total £${g.toFixed(2)}</b>`;}
 function updateCateringTotal(){
   const lines=cateringCartLines();const el=document.getElementById('cato-total');
-  if(el)el.textContent=lines.length?`${lines.reduce((s,l)=>s+l.qty,0)} items • £${cateringLinesTotal(lines).toFixed(2)}`:'No items yet';
+  if(el)el.innerHTML=lines.length?`${lines.reduce((s,l)=>s+l.qty,0)} items<div style="font-size:12px;font-weight:400;color:var(--text-secondary);">${cateringTotalsHtml(lines)}</div>`:'No items yet';
 }
-function resetCateringOrderForm(){cateringCart={};const n=document.getElementById('cato-number');if(n)n.value='';renderCateringOrderForm();}
+function resetCateringOrderForm(){
+  cateringCart={};cateringSnap={};cateringEditOrderId=null;
+  const n=document.getElementById('cato-number');if(n)n.value='';
+  cateringUpdateEditUI();renderCateringOrderForm();
+}
+function cateringUpdateEditUI(){
+  const ed=!!cateringEditOrderId;
+  const b=document.getElementById('cato-edit-banner');
+  if(b){b.style.display=ed?'block':'none';const o=cateringOrders.find(x=>x.id===cateringEditOrderId);b.textContent=ed?`✏️ Editing order #${o?o.order_number:''} — change quantities, add or remove items, then Save changes.`:'';}
+  const sb=document.getElementById('cato-submit-btn');if(sb)sb.textContent=ed?'Save changes':'Create order';
+  const cb=document.getElementById('cato-clear-btn');if(cb)cb.textContent=ed?'Cancel edit':'Clear';
+}
+function startEditCateringOrder(id){
+  const o=cateringOrders.find(x=>x.id===id);if(!o)return;
+  cateringEditOrderId=id;cateringCart={};cateringSnap={};
+  (o.items||[]).forEach(l=>{cateringCart[l.id]=l.qty;cateringSnap[l.id]=l;});
+  document.getElementById('cato-number').value=o.order_number;
+  showCateringTab('neworder');
+  cateringUpdateEditUI();
+}
 async function submitCateringOrder(){
   const num=document.getElementById('cato-number').value.trim();
   const lines=cateringCartLines();
   if(!num){alert('Enter the order number.');return;}
   if(!lines.length){alert('Add at least one product.');return;}
   try{
-    await sbPost('catering_orders',{order_number:num,items:lines,total:cateringLinesTotal(lines),status:'new'});
+    if(cateringEditOrderId){
+      await sbPatch('catering_orders',`id=eq.${cateringEditOrderId}`,{order_number:num,items:lines,total:cateringLinesTotal(lines)});
+    }else{
+      await sbPost('catering_orders',{order_number:num,items:lines,total:cateringLinesTotal(lines),status:'new'});
+    }
     resetCateringOrderForm();
     showCateringTab('orders');
-  }catch(e){alert('Error creating order: '+e.message+'\n\nHave you run the catering_orders SQL in Supabase?');}
+  }catch(e){alert('Error saving order: '+e.message+'\n\nHave you run the catering_orders SQL in Supabase?');}
 }
 const CATERING_STATUS={new:'🆕 New',production:'🍳 In production',done:'✅ Done'};
 async function loadCateringOrders(){
@@ -2861,15 +2895,17 @@ function renderCateringOrders(){
     const dt=new Date(o.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
     return `<div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;background:#fff;overflow:hidden;">
       <div onclick="cateringToggleOrder(${o.id})" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;flex-wrap:wrap;">
-        <div><div style="font-weight:700;font-size:15px;">#${fcEsc(o.order_number)}</div><div style="font-size:12px;color:var(--text-secondary);">${dt} • ${items.reduce((s,l)=>s+l.qty,0)} items • £${Number(o.total||0).toFixed(2)}</div></div>
+        <div><div style="font-weight:700;font-size:15px;">#${fcEsc(o.order_number)}</div><div style="font-size:12px;color:var(--text-secondary);">${dt} • ${items.reduce((s,l)=>s+l.qty,0)} items • £${Number(o.total||0).toFixed(2)} inc VAT</div></div>
         <div style="font-size:13px;font-weight:600;">${CATERING_STATUS[o.status]||fcEsc(o.status)}</div>
       </div>
       ${open?`<div style="border-top:1px solid var(--border-light,#eee);padding:10px 14px;">
-        ${items.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;"><span><b>${l.qty}×</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);">(${fcEsc(l.dine_category||'')})</span></span><span>${l.price==null?'—':'£'+(l.price*l.qty).toFixed(2)}</span></div>`).join('')}
+        ${items.map(l=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;"><span><b>${l.qty}×</b> ${fcEsc(l.name)} <span style="color:var(--text-tertiary);">(${fcEsc(l.dine_category||'')})</span></span><span>${l.price==null?'—':'£'+(cateringNet(l.price,l.vatable)*l.qty).toFixed(2)}</span></div>`).join('')}
+        <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:13px;text-align:right;color:var(--text-secondary);">Line prices ex VAT<br>${cateringTotalsHtml(items)}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
           ${o.status!=='new'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'new')">🆕 New</button>`:''}
           ${o.status!=='production'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'production')">🍳 In production</button>`:''}
           ${o.status!=='done'?`<button class="btn-sm" onclick="cateringSetStatus(${o.id},'done')">✅ Done</button>`:''}
+          <button class="btn-sm" onclick="startEditCateringOrder(${o.id})">✏️ Edit order</button>
           <button class="btn-sm" onclick="printCateringOrder(${o.id})">🖨 Production sheet</button>
           <button class="btn-sm" style="color:var(--red);" onclick="deleteCateringOrder(${o.id})">🗑 Delete</button>
         </div></div>`:''}
