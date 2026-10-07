@@ -3270,20 +3270,40 @@ async function deleteCateringOrder(id){
   try{await sbDelete('catering_orders',`id=eq.${id}`);cateringOrders=cateringOrders.filter(x=>x.id!==id);renderCateringOrders();}
   catch(e){alert('Error: '+e.message);}
 }
+function catLineRecipe(l){
+  const byName={};cateringProducts.forEach(p=>{const k=cateringNorm(p.name);if(!(k in byName))byName[k]=p;});
+  const p=(l.id!=null&&cateringProducts.find(x=>String(x.id)===String(l.id)))||byName[cateringNorm(l.name)]||null;
+  return catResolveRecipe(p);
+}
+function catAggregate(lines){
+  const totals={};
+  const toBase=(q,u)=>{u=String(u||'').toLowerCase();if(u==='kg')return [q*1000,'g'];if(u==='l'||u==='lt')return [q*1000,'ml'];if(u==='pc'||u==='pcs'||u==='piece'||u==='pieces')return [q,'pcs'];return [q,u];};
+  lines.forEach(({l,recipe})=>recipe.forEach(r=>{const [q,u]=toBase(r.qty*l.qty,r.unit);const k=String(r.name).toLowerCase()+'|'+u;(totals[k]=totals[k]||{name:r.name,qty:0,unit:u}).qty+=q;}));
+  return Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name));
+}
+function catFmtTotal(t){return t.unit==='g'&&t.qty>=1000?catFmtQty(t.qty/1000)+' kg':t.unit==='ml'&&t.qty>=1000?catFmtQty(t.qty/1000)+' l':catFmtQty(t.qty)+' '+t.unit;}
 function printCateringOrder(id){
   const o=cateringOrders.find(x=>x.id===id);if(!o)return;
   const groups={};const order=[];
   const setLine=(o.items||[]).find(l=>l.set);
   (o.items||[]).filter(l=>!l.set).forEach(l=>{const c=l.dine_category||'Other';if(!(c in groups)){groups[c]=[];order.push(c);}groups[c].push(l);});
   const dt=new Date(o.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const recMap=new Map();(o.items||[]).filter(l=>!l.set).forEach(l=>recMap.set(l,catLineRecipe(l)));
+  const totalsList=catAggregate([...recMap.entries()].map(([l,recipe])=>({l,recipe})));
+  const noRec=[...recMap.entries()].filter(([l,r])=>!r.length).map(([l])=>l.name);
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Catering #${fcEsc(o.order_number)}</title>
   <style>body{font-family:Arial,sans-serif;margin:28px;color:#111;}h1{font-size:22px;margin:0 0 4px;}.sub{color:#666;font-size:12px;margin-bottom:18px;}
   h2{font-size:13px;text-transform:uppercase;letter-spacing:.5px;background:#E6F6F0;color:#0F6E56;padding:6px 8px;margin:16px 0 0;}
   table{width:100%;border-collapse:collapse;}td{padding:7px 8px;border-bottom:1px solid #ddd;font-size:14px;}td.q{width:60px;font-weight:700;font-size:16px;}td.m{color:#666;font-size:12px;text-align:right;}
-  .foot{margin-top:18px;font-size:12px;color:#666;}</style></head><body>
+  .foot{margin-top:18px;font-size:12px;color:#666;}td.ing{padding:2px 8px 9px 68px;font-size:12px;color:#444;border-bottom:1px solid #ddd;line-height:1.5;}tr.dish td{border-bottom:none;padding-bottom:3px;}
+  .ing b{color:#0F6E56;}.noRec{color:#92400E;}h3.tot{background:#E6F6F0;color:#0F6E56;padding:7px 8px;font-size:14px;margin:26px 0 4px;page-break-after:avoid;}table.tot td{font-size:13px;}td.n{text-align:right;width:140px;font-weight:700;}
+  .warn{background:#FFF7E0;border:1px solid #F59E0B;padding:6px 10px;font-size:12px;margin:10px 0;}tr{page-break-inside:avoid;}</style></head><body>
   <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}${setLine?` • <b>Set menu: ${fcEsc(setLine.name)} — ${setLine.qty} heads</b>`:''}</div>
-  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
+  ${noRec.length?`<div class="warn">⚠ No recipe yet for: ${noRec.map(fcEsc).join('; ')}</div>`:''}
+  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>{const rec=recMap.get(l)||[];return `<tr class="dish"><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>
+    <tr><td colspan="3" class="ing">${rec.length?rec.map(r=>`<b>${fcEsc(r.name)}</b> ${catFmtQty(r.qty*l.qty)} ${fcEsc(r.unit||'')}`).join(' &nbsp;·&nbsp; '):'<span class="noRec">No recipe yet</span>'}</td></tr>`;}).join('')}</table>`).join('')}
   <div class="foot">Total ${setLine?'portions':'items'}: ${cateringItemCount(o.items||[])}</div>
+  ${totalsList.length?`<h3 class="tot">TOTAL INGREDIENTS — whole order</h3><table class="tot">${totalsList.map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${catFmtTotal(t)}</td></tr>`).join('')}</table>`:''}
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
   w.document.write(html);w.document.close();
