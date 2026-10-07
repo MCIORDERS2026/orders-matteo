@@ -2730,7 +2730,8 @@ async function loadCateringProducts(){
 }
 const CAT_VAT=0.2;
 function cateringPrice(p){return (p.price_gross==null||p.price_gross==='')?'—':'£'+Number(p.price_gross).toFixed(2);}
-function cateringNet(price,vatable){return price==null?0:(vatable===false?Number(price):Number(price)/(1+CAT_VAT));}
+// Net unit price is rounded to the penny (same as &Dine), THEN multiplied by qty; VAT = gross total - net subtotal.
+function cateringNet(price,vatable){if(price==null)return 0;const n=vatable===false?Number(price):Number(price)/(1+CAT_VAT);return Math.round((n+1e-9)*100)/100;}
 function cateringNetStr(p){return (p.price_gross==null||p.price_gross==='')?'':'£'+cateringNet(p.price_gross,p.is_vatable).toFixed(2)+' ex VAT';}
 function renderCateringProducts(){
   const el=document.getElementById('cat-products-list');if(!el)return;
