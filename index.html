@@ -354,18 +354,38 @@
 <div id="pdf-back-btn-wrap" style="display:none;position:fixed;top:16px;right:16px;z-index:99999;">
   <button onclick="closePdfPreview()" style="background:#1D9E75;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);">← Back</button>
 </div>
-<!-- 🍽️ Catering Hub — full-screen view (office catering clients) -->
+<!-- Catering Hub — full-screen view (office catering clients) -->
 <div id="catering-hub" style="display:none;position:fixed;inset:0;z-index:500;background:var(--bg,#fff);flex-direction:column;overflow:hidden;">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:#fff;">
-    <div style="font-size:18px;font-weight:700;">🍽️ Catering <span style="color:var(--green);">Hub</span></div>
+    <div style="font-size:18px;font-weight:700;">Catering <span style="color:var(--green);">Hub</span></div>
     <button class="btn-sm" onclick="closeCateringHub()">✕ Close</button>
   </div>
-  <div id="catering-hub-body" style="flex:1;overflow-y:auto;padding:20px 16px;">
-    <div style="max-width:720px;margin:40px auto;text-align:center;color:var(--text-secondary);">
-      <div style="font-size:44px;">🍽️</div>
-      <div style="font-size:16px;font-weight:600;color:var(--text,#111);margin-top:8px;">Catering Hub</div>
-      <div style="font-size:13px;margin-top:6px;">Office catering clients and their dedicated menu will live here.</div>
+  <div id="catering-hub-body" style="flex:1;overflow-y:auto;padding:16px;">
+    <div style="max-width:900px;margin:0 auto;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+        <input type="text" id="cat-search" placeholder="Search products..." oninput="renderCateringProducts()" style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;background:var(--bg);"/>
+        <button class="btn-sm" style="background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;" onclick="openCateringProductModal()">+ Add product</button>
+      </div>
+      <div id="cat-summary" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;"></div>
+      <div id="cat-products-list"></div>
     </div>
+  </div>
+</div>
+<!-- Catering product add/edit modal -->
+<div class="modal-overlay" id="cat-product-modal" style="z-index:600;">
+  <div class="modal" style="max-width:440px;width:94vw;max-height:90vh;overflow-y:auto;">
+    <h3 id="cat-modal-title">Add product</h3>
+    <div class="field"><label>Name *</label><input type="text" id="cat-f-name"/></div>
+    <div class="field"><label>&amp;Dine category *</label><input type="text" id="cat-f-dine" list="cat-dine-list" placeholder="e.g. Individual Meals"/><datalist id="cat-dine-list"></datalist></div>
+    <div class="field"><label>Menu category</label><input type="text" id="cat-f-menu" list="cat-menu-list" placeholder="e.g. Salad Boxes"/><datalist id="cat-menu-list"></datalist></div>
+    <div class="field"><label>Price (gross, £)</label><input type="number" step="0.01" min="0" id="cat-f-price"/></div>
+    <div class="field"><label>Type</label><select id="cat-f-type"><option>INVENTORY</option><option>BUNDLE</option></select></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="cat-f-active" checked/> Active</label></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('cat-product-modal')">Cancel</button>
+      <button class="primary" onclick="saveCateringProduct()">Save</button>
+    </div>
+    <button id="cat-f-delete" class="btn-sm" style="display:none;margin-top:10px;width:100%;color:var(--red);" onclick="deleteCateringProduct()">🗑 Delete product</button>
   </div>
 </div>
 <div id="app">
@@ -387,7 +407,7 @@
       </div>
       <!-- CATERING HUB — admin only, opens a full-screen view -->
       <div class="notif-bell-wrap" id="catering-btn-wrap" style="display:none;">
-        <button class="btn-sm" onclick="openCateringHub()">🍽️ Catering Hub</button>
+        <button class="btn-sm" onclick="openCateringHub()">HUB</button>
       </div>
       <!-- COMPRAS (Shopping List + Compras CK) — admin only, same gate as the tools themselves -->
       <div class="notif-bell-wrap" id="compras-menu-wrap" style="display:none;">
@@ -2673,6 +2693,84 @@ function openCateringHub(){
   ['notif-dropdown','online-dropdown','admin-menu-dropdown','compras-menu-dropdown'].forEach(id=>document.getElementById(id)?.classList.remove('open'));
   document.getElementById('catering-hub').style.display='flex';
   document.body.style.overflow='hidden';
+  loadCateringProducts();
+}
+let cateringProducts=[],cateringLoaded=false,cateringEditingId=null,cateringCollapsed={};
+async function loadCateringProducts(){
+  const el=document.getElementById('cat-products-list');
+  if(!cateringLoaded&&el)el.innerHTML='<div style="padding:20px;color:var(--text-secondary);">Loading...</div>';
+  try{
+    cateringProducts=await sbGet('catering_products','order=sort_order.asc,name.asc&limit=1000');
+    cateringLoaded=true;
+  }catch(e){
+    if(el)el.innerHTML='<div style="padding:16px;color:var(--red);font-size:13px;">Could not load products. Have you run <b>matteo_migration_catering_products.sql</b> in Supabase?<br><span style="color:var(--text-tertiary);">'+fcEsc(e.message||'')+'</span></div>';
+    return;
+  }
+  renderCateringProducts();
+}
+function cateringPrice(p){return (p.price_gross==null||p.price_gross==='')?'—':'£'+Number(p.price_gross).toFixed(2);}
+function renderCateringProducts(){
+  const el=document.getElementById('cat-products-list');if(!el)return;
+  const q=((document.getElementById('cat-search')||{}).value||'').trim().toLowerCase();
+  const list=cateringProducts.filter(p=>!q||(p.name+' '+p.dine_category+' '+p.menu_category).toLowerCase().includes(q));
+  const groups={};const order=[];
+  cateringProducts.forEach(p=>{const c=p.dine_category||'Uncategorised';if(!(c in groups)){groups[c]=[];order.push(c);}});
+  list.forEach(p=>groups[p.dine_category||'Uncategorised'].push(p));
+  const sum=document.getElementById('cat-summary');
+  if(sum)sum.textContent=`${list.length} of ${cateringProducts.length} products • ${order.length} categories`;
+  if(!cateringProducts.length){el.innerHTML='<div style="padding:20px;color:var(--text-secondary);">No products yet.</div>';return;}
+  el.innerHTML=order.filter(c=>groups[c].length||!q).map(c=>{
+    const items=groups[c];const key=encodeURIComponent(c);const open=q?true:!cateringCollapsed[c];
+    return `<div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;background:#fff;overflow:hidden;">
+      <div onclick="toggleCateringCat(decodeURIComponent('${key}'))" style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;cursor:pointer;background:var(--green-light,#E6F6F0);">
+        <div style="font-weight:700;font-size:14px;">${open?'▾':'▸'} ${fcEsc(c)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);">${items.length} item${items.length===1?'':'s'}</div>
+      </div>
+      ${open?items.map(p=>`<div onclick="openCateringProductModal(${p.id})" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border-light,#eee);cursor:pointer;${p.is_active?'':'opacity:.5;'}">
+        <div style="min-width:0;"><div style="font-size:14px;font-weight:500;">${fcEsc(p.name)}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);">${fcEsc(p.menu_category||'')}${p.type==='BUNDLE'?' • Bundle':''}${p.is_active?'':' • Inactive'}</div></div>
+        <div style="font-size:14px;font-weight:600;white-space:nowrap;">${cateringPrice(p)}</div>
+      </div>`).join(''):''}
+    </div>`;
+  }).join('');
+}
+function toggleCateringCat(c){cateringCollapsed[c]=!cateringCollapsed[c];renderCateringProducts();}
+function openCateringProductModal(id){
+  cateringEditingId=id||null;
+  const p=id?cateringProducts.find(x=>x.id===id):null;
+  document.getElementById('cat-modal-title').textContent=p?'Edit product':'Add product';
+  document.getElementById('cat-f-name').value=p?p.name:'';
+  document.getElementById('cat-f-dine').value=p?p.dine_category:'';
+  document.getElementById('cat-f-menu').value=p?p.menu_category:'';
+  document.getElementById('cat-f-price').value=p&&p.price_gross!=null?p.price_gross:'';
+  document.getElementById('cat-f-type').value=p?p.type:'INVENTORY';
+  document.getElementById('cat-f-active').checked=p?!!p.is_active:true;
+  document.getElementById('cat-f-delete').style.display=p?'block':'none';
+  const uniq=k=>[...new Set(cateringProducts.map(x=>x[k]).filter(Boolean))].sort();
+  document.getElementById('cat-dine-list').innerHTML=uniq('dine_category').map(v=>`<option value="${fcEsc(v)}">`).join('');
+  document.getElementById('cat-menu-list').innerHTML=uniq('menu_category').map(v=>`<option value="${fcEsc(v)}">`).join('');
+  openModal('cat-product-modal');
+}
+async function saveCateringProduct(){
+  const name=document.getElementById('cat-f-name').value.trim();
+  const dine=document.getElementById('cat-f-dine').value.trim();
+  if(!name||!dine){alert('Name and &Dine category are required.');return;}
+  const pr=document.getElementById('cat-f-price').value;
+  const row={name,dine_category:dine,menu_category:document.getElementById('cat-f-menu').value.trim(),
+    price_gross:pr===''?null:parseFloat(pr),type:document.getElementById('cat-f-type').value,is_active:document.getElementById('cat-f-active').checked};
+  try{
+    if(cateringEditingId){await sbPatch('catering_products',`id=eq.${cateringEditingId}`,row);}
+    else{row.sort_order=(cateringProducts.reduce((m,x)=>Math.max(m,x.sort_order||0),0))+1;await sbPost('catering_products',row);}
+    closeModal('cat-product-modal');
+    await loadCateringProducts();
+  }catch(e){alert('Error saving: '+e.message);}
+}
+async function deleteCateringProduct(){
+  if(!cateringEditingId)return;
+  const p=cateringProducts.find(x=>x.id===cateringEditingId);
+  if(!confirm(`Delete "${p?p.name:'this product'}"?`))return;
+  try{await sbDelete('catering_products',`id=eq.${cateringEditingId}`);closeModal('cat-product-modal');await loadCateringProducts();}
+  catch(e){alert('Error deleting: '+e.message);}
 }
 function closeCateringHub(){
   document.getElementById('catering-hub').style.display='none';
