@@ -421,7 +421,7 @@
 <div class="modal-overlay" id="cat-totals-modal" style="z-index:600;">
   <div class="modal" style="max-width:480px;width:94vw;max-height:92vh;overflow-y:auto;">
     <h3>Ingredients in total</h3>
-    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">Tick the ingredients that should appear in the <b>TOTAL INGREDIENTS</b> list at the end of the kitchen sheets, and use <b>▲ ▼</b> to set their order. If every ingredient is ticked, all of them are shown (in this order).</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;"><b>1.</b> Tick the ingredients that should appear in the <b>TOTAL INGREDIENTS</b> list. <b>2.</b> In each row, pick its <b>Group</b> (Veg, Protein...) in the dropdown. <b>3.</b> Use <b>▲ ▼</b> to set the order. Then <b>Save</b>. If every ingredient is ticked, all of them are shown (in this order).</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
       <input type="text" id="cattot-search" placeholder="Search ingredients..." oninput="catTotRender()" style="flex:1;min-width:140px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px;font-size:13px;background:var(--bg);"/>
       <button type="button" class="btn-sm" onclick="catTotAll(true)">All</button>
@@ -435,12 +435,13 @@
         <button type="button" class="btn-sm" onclick="catTotAddGroup()">+ Add group</button>
       </div>
       <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">
-        <span style="font-size:12px;color:var(--text-secondary);">Put the ticked ingredients shown below into</span>
+        <span style="font-size:12px;color:var(--text-secondary);">Shortcut: search an ingredient (e.g. "potato"), then put <b>all ticked ✓ ingredients in the list</b> into</span>
         <select id="cattot-bulk" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px;font-size:13px;background:var(--bg);"></select>
         <button type="button" class="btn-sm" onclick="catTotBulkApply()">Apply</button>
       </div>
     </div>
     <div id="cattot-count" style="font-size:12px;color:var(--text-tertiary);"></div>
+    <div style="display:flex;gap:6px;padding:0 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;"><span style="flex:1;">✓ Show in total</span><span style="width:110px;">Group (choose here)</span><span style="width:74px;"></span></div>
     <div id="cattot-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;"></div>
     <div class="modal-btns">
       <button onclick="closeModal('cat-totals-modal')">Cancel</button>
@@ -3382,7 +3383,7 @@ function catTotRender(){
   const opts=k=>'<option value="">—</option>'+cateringTotGroupOrder.map(g=>`<option value="${fcEsc(g)}"${cateringTotGroups[k]===g?' selected':''}>${fcEsc(g)}</option>`).join('');
   el.innerHTML=cateringTotNames.map((x,idx)=>({x,idx})).filter(o=>!q||o.x.n.toLowerCase().includes(q)).map(({x,idx})=>`<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid var(--border-light,#eee);font-size:13px;">
     <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer;"><input type="checkbox" style="width:auto;flex:none;" ${cateringTotSel.has(x.k)?'checked':''} onchange="catTotToggle('${encodeURIComponent(x.k)}',this.checked)"/> ${fcEsc(x.n)}</label>
-    <select onchange="catTotSetGroup('${encodeURIComponent(x.k)}',this.value)" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px;font-size:12px;background:var(--bg);max-width:90px;">${opts(x.k)}</select>
+    <select onchange="catTotSetGroup('${encodeURIComponent(x.k)}',this.value)" style="border:1.5px solid ${cateringTotGroups[x.k]?'var(--green)':'var(--border)'};border-radius:var(--radius-sm);padding:4px;font-size:13px;background:${cateringTotGroups[x.k]?'var(--green-light,#E6F6F0)':'var(--bg)'};width:110px;">${opts(x.k)}</select>
     <button type="button" class="btn-sm" style="padding:2px 8px;" onclick="catTotMove(${idx},-1)" title="Move up">▲</button>
     <button type="button" class="btn-sm" style="padding:2px 8px;" onclick="catTotMove(${idx},1)" title="Move down">▼</button></div>`).join('')||'<div style="padding:12px;font-size:12px;color:var(--text-tertiary);">No ingredients found.</div>';
   el.scrollTop=keep;
