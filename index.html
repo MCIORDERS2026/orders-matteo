@@ -383,7 +383,9 @@
         <button class="btn-sm" style="background:var(--green);border-color:var(--green);color:#fff;font-weight:600;" onclick="submitCateringOrder()" id="cato-submit-btn">Create order</button></div>
       </div>
      </div>
-     <div id="cat-panel-orders" style="display:none;"><div id="cat-orders-list"></div></div>
+     <div id="cat-panel-orders" style="display:none;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn-sm" onclick="openCateringTotalsModal()" title="Choose which ingredients appear in the TOTAL INGREDIENTS list of the kitchen sheets">⚙ Ingredients in total</button></div>
+      <div id="cat-orders-list"></div></div>
      <div id="cat-panel-components" style="display:none;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
         <div style="font-size:13px;color:var(--text-secondary);max-width:560px;">Reusable parts (Broccoli, Sweet Potato, Chicken Cacciatora...). Give each one a recipe for 1 unit and pick the dishes that use it &mdash; each dish's recipe is then built automatically.</div>
@@ -412,6 +414,24 @@
     <div class="modal-btns">
       <button onclick="closeModal('cat-import-modal')">Cancel</button>
       <button class="primary" onclick="runCateringImport()">Read order</button>
+    </div>
+  </div>
+</div>
+<!-- Catering: choose which ingredients show in the kitchen sheet totals -->
+<div class="modal-overlay" id="cat-totals-modal" style="z-index:600;">
+  <div class="modal" style="max-width:480px;width:94vw;max-height:92vh;overflow-y:auto;">
+    <h3>Ingredients in total</h3>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">Tick the ingredients that should appear in the <b>TOTAL INGREDIENTS</b> list at the end of the kitchen sheets. If every ingredient is ticked, all of them are shown.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <input type="text" id="cattot-search" placeholder="Search ingredients..." oninput="catTotRender()" style="flex:1;min-width:140px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px;font-size:13px;background:var(--bg);"/>
+      <button type="button" class="btn-sm" onclick="catTotAll(true)">All</button>
+      <button type="button" class="btn-sm" onclick="catTotAll(false)">None</button>
+    </div>
+    <div id="cattot-count" style="font-size:12px;color:var(--text-tertiary);"></div>
+    <div id="cattot-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:#fff;"></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('cat-totals-modal')">Cancel</button>
+      <button class="primary" onclick="saveCateringTotals()">Save</button>
     </div>
   </div>
 </div>
@@ -2791,6 +2811,7 @@ async function loadCateringProducts(){
     cateringLoaded=true;
     try{cateringComponents=await sbGet('catering_components','order=sort_order.asc,name.asc&limit=500');cateringCompError='';}
     catch(e2){cateringComponents=[];cateringCompError=e2.message||'error';}
+    try{const st=await sbGet('app_settings','key=eq.catering_totals_filter');cateringTotalsFilter=(st&&st[0]&&Array.isArray(st[0].value))?st[0].value.map(x=>String(x).toLowerCase()):null;}catch(e3){cateringTotalsFilter=null;}
   }catch(e){
     if(el)el.innerHTML='<div style="padding:16px;color:var(--red);font-size:13px;">Could not load products. Have you run <b>matteo_migration_catering_products.sql</b> in Supabase?<br><span style="color:var(--text-tertiary);">'+fcEsc(e.message||'')+'</span></div>';
     return;
@@ -2970,7 +2991,7 @@ function cateringUpdateEditUI(){
   const sb=document.getElementById('cato-submit-btn');if(sb)sb.textContent=ed?'Save changes':'Create order';
   const cb=document.getElementById('cato-clear-btn');if(cb)cb.textContent=ed?'Cancel edit':'Clear';
 }
-let cateringRecipeRows=[],cateringComponents=[],cateringCompError='',cateringCompEditId=null,cateringCompRows=[],cateringCompSel=new Set();
+let cateringTotalsFilter=null,cateringTotSel=new Set(),cateringTotNames=[],cateringRecipeRows=[],cateringComponents=[],cateringCompError='',cateringCompEditId=null,cateringCompRows=[],cateringCompSel=new Set();
 function catCompsOf(p){return cateringComponents.filter(c=>(c.product_ids||[]).map(String).includes(String(p.id)));}
 function catHasRecipe(p){return (p.recipe&&p.recipe.length)||catCompsOf(p).some(c=>(c.recipe||[]).length);}
 function catResolveRecipe(p){
@@ -3106,12 +3127,10 @@ function printCateringRecipes(id){
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recipes #${fcEsc(o.order_number)}</title>
   <style>body{font-family:Arial,sans-serif;margin:28px;color:#111;}h1{font-size:22px;margin:0 0 4px;}.sub{color:#666;font-size:12px;margin-bottom:16px;}
   h2{font-size:15px;margin:18px 0 4px;}h2 span{color:#0F6E56;}table{width:100%;border-collapse:collapse;margin-bottom:6px;}td{padding:5px 8px;border-bottom:1px solid #e2e2e2;font-size:13px;}td.n{text-align:right;width:130px;font-weight:700;}
-  .warn{background:#FFF7E0;border:1px solid #F59E0B;padding:6px 10px;font-size:12px;margin:6px 0;}.tot{page-break-before:always;}h3{background:#E6F6F0;color:#0F6E56;padding:6px 8px;font-size:14px;margin:0 0 4px;}</style></head><body>
+  .warn{background:#FFF7E0;border:1px solid #F59E0B;padding:6px 10px;font-size:12px;margin:6px 0;}.tot{}h3{background:#E6F6F0;color:#0F6E56;padding:6px 8px;font-size:14px;margin:0 0 4px;}</style></head><body>
   <h1>Recipe sheet — order #${fcEsc(o.order_number)}</h1><div class="sub">${dt}${setLine?` • Set menu: ${fcEsc(setLine.name)} — ${setLine.qty} heads`:''}</div>
   ${noRecipe.length?`<div class="warn">⚠ No recipe yet for: ${noRecipe.map(d=>fcEsc(d.l.name)).join('; ')}. Ingredients below do not include these.</div>`:''}
-  ${dishes.map(d=>`<h2><span>${d.l.qty}${d.l.component?' portions':'×'}</span> ${fcEsc(d.l.name)}</h2>
-   ${d.recipe.length?`<table>${d.recipe.map(r=>`<tr><td>${fcEsc(r.name)}${r.from?` <span style="color:#888;font-size:11px;">(${fcEsc(r.from)})</span>`:''}</td><td class="n">${catFmtQty(r.qty*d.l.qty)} ${fcEsc(r.unit||'')}</td></tr>`).join('')}</table>`:'<div style="font-size:12px;color:#92400E;">No recipe yet</div>'}`).join('')}
-  <div class="tot"><h3>TOTAL INGREDIENTS — all dishes</h3><table>${Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name)).map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${fmtTotal(t)}</td></tr>`).join('')||'<tr><td>No recipes found for this order.</td></tr>'}</table></div>
+  <div class="tot"><h3>TOTAL INGREDIENTS — whole order</h3>${cateringTotalsFilter?'<div style="font-size:11px;color:#888;margin-bottom:4px;">Selected ingredients only</div>':''}<table>${catFilterTotals(Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name))).map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${fmtTotal(t)}</td></tr>`).join('')||'<tr><td>No recipes found for this order.</td></tr>'}</table></div>
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
   w.document.write(html);w.document.close();
@@ -3270,6 +3289,48 @@ async function deleteCateringOrder(id){
   try{await sbDelete('catering_orders',`id=eq.${id}`);cateringOrders=cateringOrders.filter(x=>x.id!==id);renderCateringOrders();}
   catch(e){alert('Error: '+e.message);}
 }
+function catFilterTotals(list){
+  if(!cateringTotalsFilter)return list;
+  const set=new Set(cateringTotalsFilter);
+  return list.filter(t=>set.has(String(t.name).trim().toLowerCase()));
+}
+function catAllIngredientNames(){
+  const seen=new Map();
+  const add=r=>{const k=String(r.name||'').trim().toLowerCase();if(k&&!seen.has(k))seen.set(k,String(r.name).trim());};
+  cateringProducts.forEach(p=>(p.recipe||[]).forEach(add));
+  cateringComponents.forEach(c=>(c.recipe||[]).forEach(add));
+  return [...seen.entries()].map(([k,n])=>({k,n})).sort((a,b)=>a.n.localeCompare(b.n));
+}
+function openCateringTotalsModal(){
+  cateringTotNames=catAllIngredientNames();
+  if(!cateringTotNames.length){alert('No ingredients yet. Add recipes to products or components first.');return;}
+  cateringTotSel=new Set(cateringTotalsFilter?cateringTotalsFilter:cateringTotNames.map(x=>x.k));
+  document.getElementById('cattot-search').value='';
+  catTotRender();openModal('cat-totals-modal');
+}
+function catTotRender(){
+  const q=(document.getElementById('cattot-search').value||'').trim().toLowerCase();
+  const el=document.getElementById('cattot-list');
+  el.innerHTML=cateringTotNames.filter(x=>!q||x.n.toLowerCase().includes(q)).map(x=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border-light,#eee);font-size:13px;cursor:pointer;"><input type="checkbox" style="width:auto;flex:none;" ${cateringTotSel.has(x.k)?'checked':''} onchange="catTotToggle('${encodeURIComponent(x.k)}',this.checked)"/> ${fcEsc(x.n)}</label>`).join('')||'<div style="padding:12px;font-size:12px;color:var(--text-tertiary);">No ingredients found.</div>';
+  catTotCount();
+}
+function catTotCount(){document.getElementById('cattot-count').textContent=`${cateringTotSel.size} of ${cateringTotNames.length} ingredients selected`;}
+function catTotToggle(k,on){k=decodeURIComponent(k);if(on)cateringTotSel.add(k);else cateringTotSel.delete(k);catTotCount();}
+function catTotAll(on){
+  const q=(document.getElementById('cattot-search').value||'').trim().toLowerCase();
+  cateringTotNames.filter(x=>!q||x.n.toLowerCase().includes(q)).forEach(x=>{if(on)cateringTotSel.add(x.k);else cateringTotSel.delete(x.k);});
+  catTotRender();
+}
+async function saveCateringTotals(){
+  const all=cateringTotNames.length&&cateringTotNames.every(x=>cateringTotSel.has(x.k));
+  const value=all?{all:true}:[...cateringTotSel];
+  try{
+    const res=await sbPatch('app_settings','key=eq.catering_totals_filter',{value});
+    if(!res||!res.length)await sbPost('app_settings',{key:'catering_totals_filter',value});
+    cateringTotalsFilter=all?null:value.map(x=>String(x).toLowerCase());
+    closeModal('cat-totals-modal');
+  }catch(e){alert('Error saving: '+e.message);}
+}
 function catLineRecipe(l){
   const byName={};cateringProducts.forEach(p=>{const k=cateringNorm(p.name);if(!(k in byName))byName[k]=p;});
   const p=(l.id!=null&&cateringProducts.find(x=>String(x.id)===String(l.id)))||byName[cateringNorm(l.name)]||null;
@@ -3279,7 +3340,7 @@ function catAggregate(lines){
   const totals={};
   const toBase=(q,u)=>{u=String(u||'').toLowerCase();if(u==='kg')return [q*1000,'g'];if(u==='l'||u==='lt')return [q*1000,'ml'];if(u==='pc'||u==='pcs'||u==='piece'||u==='pieces')return [q,'pcs'];return [q,u];};
   lines.forEach(({l,recipe})=>recipe.forEach(r=>{const [q,u]=toBase(r.qty*l.qty,r.unit);const k=String(r.name).toLowerCase()+'|'+u;(totals[k]=totals[k]||{name:r.name,qty:0,unit:u}).qty+=q;}));
-  return Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name));
+  return catFilterTotals(Object.values(totals).sort((a,b)=>a.name.localeCompare(b.name)));
 }
 function catFmtTotal(t){return t.unit==='g'&&t.qty>=1000?catFmtQty(t.qty/1000)+' kg':t.unit==='ml'&&t.qty>=1000?catFmtQty(t.qty/1000)+' l':catFmtQty(t.qty)+' '+t.unit;}
 function printCateringOrder(id){
@@ -3300,10 +3361,9 @@ function printCateringOrder(id){
   .warn{background:#FFF7E0;border:1px solid #F59E0B;padding:6px 10px;font-size:12px;margin:10px 0;}tr{page-break-inside:avoid;}</style></head><body>
   <h1>Catering order #${fcEsc(o.order_number)}</h1><div class="sub">Production sheet • ${dt}${setLine?` • <b>Set menu: ${fcEsc(setLine.name)} — ${setLine.qty} heads</b>`:''}</div>
   ${noRec.length?`<div class="warn">⚠ No recipe yet for: ${noRec.map(fcEsc).join('; ')}</div>`:''}
-  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>{const rec=recMap.get(l)||[];return `<tr class="dish"><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>
-    <tr><td colspan="3" class="ing">${rec.length?rec.map(r=>`<b>${fcEsc(r.name)}</b> ${catFmtQty(r.qty*l.qty)} ${fcEsc(r.unit||'')}`).join(' &nbsp;·&nbsp; '):'<span class="noRec">No recipe yet</span>'}</td></tr>`;}).join('')}</table>`).join('')}
+  ${order.map(c=>`<h2>${fcEsc(c)}</h2><table>${groups[c].map(l=>`<tr><td class="q">${l.qty}${l.component?' <span style="font-size:11px;font-weight:400;">portions</span>':'×'}</td><td>${fcEsc(l.name)}</td><td class="m">${fcEsc(l.menu_category||'')}</td></tr>`).join('')}</table>`).join('')}
   <div class="foot">Total ${setLine?'portions':'items'}: ${cateringItemCount(o.items||[])}</div>
-  ${totalsList.length?`<h3 class="tot">TOTAL INGREDIENTS — whole order</h3><table class="tot">${totalsList.map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${catFmtTotal(t)}</td></tr>`).join('')}</table>`:''}
+  ${totalsList.length?`<h3 class="tot">TOTAL INGREDIENTS — whole order</h3>${cateringTotalsFilter?'<div style="font-size:11px;color:#888;margin-bottom:4px;">Selected ingredients only</div>':''}<table class="tot">${totalsList.map(t=>`<tr><td>${fcEsc(t.name)}</td><td class="n">${catFmtTotal(t)}</td></tr>`).join('')}</table>`:''}
   <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){alert('Allow pop-ups to print.');return;}
   w.document.write(html);w.document.close();
