@@ -369,6 +369,8 @@
     <div style="max-width:900px;margin:0 auto;">
      <div id="cat-panel-neworder" style="display:none;">
       <div id="cato-edit-banner" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FFF7E0;border:1.5px solid #F59E0B;border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:#92400E;"></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn-sm" style="background:var(--green-light);border-color:var(--green);color:var(--green-dark);font-weight:600;" onclick="openCateringImport()">📥 Import from &amp;Dine</button></div>
+      <div id="cato-import-result" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;line-height:1.5;"></div>
       <div class="field" style="margin-bottom:12px;"><label>Order number *</label>
         <input type="text" id="cato-number" placeholder="Type the order number" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:15px;background:var(--bg);width:100%;"/></div>
       <input type="text" id="cato-search" placeholder="Search products..." oninput="renderCateringOrderForm()" style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:14px;background:var(--bg);margin-bottom:12px;"/>
@@ -388,6 +390,18 @@
       <div id="cat-summary" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;"></div>
       <div id="cat-products-list"></div>
      </div>
+    </div>
+  </div>
+</div>
+<!-- Catering: import an order pasted from the &Dine hub -->
+<div class="modal-overlay" id="cat-import-modal" style="z-index:600;">
+  <div class="modal" style="max-width:520px;width:94vw;max-height:90vh;overflow-y:auto;">
+    <h3>Import from &amp;Dine</h3>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">On the order page in the &amp;Dine hub, open the <b>Order Summary</b> tab, press <b>⌘A</b> then <b>⌘C</b> (Ctrl+A / Ctrl+C on Windows), and paste everything here.</div>
+    <textarea id="cat-import-text" rows="10" placeholder="Paste the order page text here..." style="width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px;background:var(--bg);font-family:inherit;"></textarea>
+    <div class="modal-btns">
+      <button onclick="closeModal('cat-import-modal')">Cancel</button>
+      <button class="primary" onclick="runCateringImport()">Read order</button>
     </div>
   </div>
 </div>
@@ -2848,6 +2862,7 @@ function updateCateringTotal(){
 function resetCateringOrderForm(){
   cateringCart={};cateringSnap={};cateringEditOrderId=null;
   const n=document.getElementById('cato-number');if(n)n.value='';
+  const ir=document.getElementById('cato-import-result');if(ir)ir.style.display='none';
   cateringUpdateEditUI();renderCateringOrderForm();
 }
 function cateringUpdateEditUI(){
@@ -2856,6 +2871,58 @@ function cateringUpdateEditUI(){
   if(b){b.style.display=ed?'block':'none';const o=cateringOrders.find(x=>x.id===cateringEditOrderId);b.textContent=ed?`✏️ Editing order #${o?o.order_number:''} — change quantities, add or remove items, then Save changes.`:'';}
   const sb=document.getElementById('cato-submit-btn');if(sb)sb.textContent=ed?'Save changes':'Create order';
   const cb=document.getElementById('cato-clear-btn');if(cb)cb.textContent=ed?'Cancel edit':'Clear';
+}
+function cateringNorm(x){return String(x||'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').trim();}
+function openCateringImport(){document.getElementById('cat-import-text').value='';openModal('cat-import-modal');setTimeout(()=>document.getElementById('cat-import-text').focus(),50);}
+// Parses the text copied from a &Dine hub order page: order reference (MAT-XXXXX) and the "N ×" / name / "£x / unit" blocks.
+function parseDineOrderText(text){
+  const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\u00a0/g,' ').trim()).filter(l=>l!=='');
+  const refM=String(text||'').match(/\bMAT-[A-Z0-9]{3,}\b/i);
+  const items=[];
+  for(let i=0;i<lines.length;i++){
+    let m=lines[i].match(/^(\d+)\s*[×xX]\s*(.*)$/);
+    if(!m)continue;
+    const qty=parseInt(m[1],10);
+    let name=m[2].trim(),j=i+1;
+    if(!name){name=lines[j]||'';j++;}
+    let price=null;
+    for(let k=j;k<Math.min(j+3,lines.length);k++){const pm=lines[k].match(/£\s*([\d.,]+)\s*\/\s*unit/i);if(pm){price=parseFloat(pm[1].replace(/,/g,''));break;}}
+    if(name&&qty>0)items.push({name,qty,hubNet:price});
+  }
+  return {ref:refM?refM[0].toUpperCase():'',items};
+}
+function runCateringImport(){
+  const parsed=parseDineOrderText(document.getElementById('cat-import-text').value);
+  if(!parsed.items.length){alert('Could not find any items in the pasted text. Make sure the Order Summary tab was open when you copied.');return;}
+  // merge repeated lines (the hub lists each person's meal separately)
+  const merged=[];
+  parsed.items.forEach(it=>{const k=cateringNorm(it.name);const ex=merged.find(x=>x.k===k);if(ex)ex.qty+=it.qty;else merged.push({k,name:it.name,qty:it.qty,hubNet:it.hubNet});});
+  const byName={};cateringProducts.forEach(p=>{const k=cateringNorm(p.name);if(!(k in byName))byName[k]=p;});
+  cateringCart={};cateringSnap={};cateringEditOrderId=null;
+  const missing=[],priceDiff=[];
+  merged.forEach(it=>{
+    const p=byName[it.k];
+    if(!p){missing.push(it);return;}
+    cateringCart[p.id]=(cateringCart[p.id]||0)+it.qty;
+    if(it.hubNet!=null&&p.price_gross!=null){
+      const ours=cateringNet(p.price_gross,p.is_vatable);
+      if(Math.abs(ours-it.hubNet)>0.011)priceDiff.push(`${p.name}: &Dine £${it.hubNet.toFixed(2)} vs ours £${ours.toFixed(2)} (ex VAT)`);
+    }
+  });
+  document.getElementById('cato-number').value=parsed.ref||'';
+  closeModal('cat-import-modal');
+  cateringUpdateEditUI();
+  renderCateringOrderForm();
+  const box=document.getElementById('cato-import-result');
+  const okCount=merged.length-missing.length;
+  let html=`📥 Imported ${okCount} of ${merged.length} products${parsed.ref?` for <b>${fcEsc(parsed.ref)}</b>`:' (order number not found — type it above)'}. Check the list below, then press <b>Create order</b>.`;
+  if(missing.length)html+=`<div style="margin-top:6px;color:#991B1B;"><b>Not found in our catalogue (add them manually or create the product):</b><br>${missing.map(m=>`${m.qty}× ${fcEsc(m.name)}`).join('<br>')}</div>`;
+  if(priceDiff.length)html+=`<div style="margin-top:6px;color:#92400E;"><b>Price differs from &amp;Dine:</b><br>${priceDiff.map(fcEsc).join('<br>')}</div>`;
+  box.innerHTML=html;
+  box.style.display='block';
+  box.style.background=(missing.length||priceDiff.length)?'#FFF7E0':'#E6F6F0';
+  box.style.border='1.5px solid '+((missing.length||priceDiff.length)?'#F59E0B':'var(--green)');
+  box.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function startEditCateringOrder(id){
   const o=cateringOrders.find(x=>x.id===id);if(!o)return;
