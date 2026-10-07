@@ -3182,16 +3182,22 @@ function parseDineSetOrder(text){
 function parseDineOrderText(text){
   const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\u00a0/g,' ').trim()).filter(l=>l!=='');
   const refM=String(text||'').match(/\bMAT-[A-Z0-9]{3,}\b/i);
-  const items=[];
+  const items=[];let section='';
+  const tcase=x=>x.toLowerCase().replace(/(^|[\s(&])([a-z])/g,(m0,p,c)=>p+c.toUpperCase());
   for(let i=0;i<lines.length;i++){
+    const sm=lines[i].match(/^(.+?)\s*\d+\s+items?$/i);
+    if(sm){section=tcase(sm[1]);continue;}
+    if(/^\d+\s+items?$/i.test(lines[i])&&i>0){section=tcase(lines[i-1]);continue;}
     let m=lines[i].match(/^(\d+)\s*[×xX]\s*(.*)$/);
     if(!m)continue;
     const qty=parseInt(m[1],10);
     let name=m[2].trim(),j=i+1;
     if(!name){name=lines[j]||'';j++;}
     let price=null;
-    for(let k=j;k<Math.min(j+3,lines.length);k++){const pm=lines[k].match(/£\s*([\d.,]+)\s*\/\s*unit/i);if(pm){price=parseFloat(pm[1].replace(/,/g,''));break;}}
-    if(name&&qty>0)items.push({name,qty,hubNet:price});
+    const inl=name.match(/^(.*?)\s*£\s*([\d.,]+)\s*\/\s*unit/i); // "Beef Lasagna Bowl£12.46 / unit Excl. VAT" on one line
+    if(inl){name=inl[1].trim();price=parseFloat(inl[2].replace(/,/g,''));}
+    for(let k=j;price===null&&k<Math.min(j+3,lines.length);k++){const pm=lines[k].match(/£\s*([\d.,]+)\s*\/\s*unit/i);if(pm){price=parseFloat(pm[1].replace(/,/g,''));break;}}
+    if(name&&qty>0)items.push({name,qty,hubNet:price,section});
   }
   return {ref:refM?refM[0].toUpperCase():'',items};
 }
@@ -3217,7 +3223,7 @@ function runCateringImport(){
   if(!parsed.items.length){alert('Could not find any items in the pasted text. Make sure the Order Summary tab was open when you copied.');return;}
   // merge repeated lines (the hub lists each person's meal separately)
   const merged=[];
-  parsed.items.forEach(it=>{const k=cateringNorm(it.name);const ex=merged.find(x=>x.k===k);if(ex)ex.qty+=it.qty;else merged.push({k,name:it.name,qty:it.qty,hubNet:it.hubNet});});
+  parsed.items.forEach(it=>{const k=cateringNorm(it.name);const ex=merged.find(x=>x.k===k);if(ex)ex.qty+=it.qty;else merged.push({k,name:it.name,qty:it.qty,hubNet:it.hubNet,section:it.section||''});});
   const byName={};cateringProducts.forEach(p=>{const k=cateringNorm(p.name);if(!(k in byName))byName[k]=p;});
   cateringCart={};cateringSnap={};cateringEditOrderId=null;
   const missing=[],priceDiff=[];
@@ -3235,16 +3241,40 @@ function runCateringImport(){
   closeModal('cat-import-modal');
   cateringUpdateEditUI();
   renderCateringOrderForm();
-  const box=document.getElementById('cato-import-result');
-  const okCount=merged.length-missing.length;
-  let html=`📥 Imported ${okCount} of ${merged.length} products${parsed.ref?` for <b>${fcEsc(parsed.ref)}</b>`:' (order number not found — type it above)'}. Check the list below, then press <b>Create order</b>.`;
-  if(missing.length)html+=`<div style="margin-top:6px;color:#991B1B;"><b>Not found in our catalogue (add them manually or create the product):</b><br>${missing.map(m=>`${m.qty}× ${fcEsc(m.name)}`).join('<br>')}</div>`;
-  if(priceDiff.length)html+=`<div style="margin-top:6px;color:#92400E;"><b>Price differs from &amp;Dine:</b><br>${priceDiff.map(fcEsc).join('<br>')}</div>`;
+  cateringImportState={ref:parsed.ref,total:merged.length,missing,priceDiff};
+  cateringRenderImportBox();
+}
+let cateringImportState=null;
+function cateringRenderImportBox(){
+  const st=cateringImportState;const box=document.getElementById('cato-import-result');
+  if(!st||!box)return;
+  const okCount=st.total-st.missing.length;
+  let html=`📥 Imported ${okCount} of ${st.total} products${st.ref?` for <b>${fcEsc(st.ref)}</b>`:' (order number not found — type it above)'}. Check the list below, then press <b>Create order</b>.`;
+  if(st.missing.length)html+=`<div style="margin-top:8px;color:#991B1B;"><b>Not in our catalogue yet:</b>${st.missing.map((m,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;"><span>${m.qty}× ${fcEsc(m.name)}${m.hubNet!=null?` <span style="color:#666;">(&amp;Dine £${m.hubNet.toFixed(2)} ex VAT${m.section?' • '+fcEsc(m.section):''})</span>`:''}</span><button class="btn-sm" style="background:#fff;" onclick="createMissingCateringProduct(${i})">➕ Create product</button></div>`).join('')}</div>`;
+  if(st.priceDiff.length)html+=`<div style="margin-top:6px;color:#92400E;"><b>Price differs from &amp;Dine:</b><br>${st.priceDiff.map(fcEsc).join('<br>')}</div>`;
   box.innerHTML=html;
+  const warn=st.missing.length||st.priceDiff.length;
   box.style.display='block';
-  box.style.background=(missing.length||priceDiff.length)?'#FFF7E0':'#E6F6F0';
-  box.style.border='1.5px solid '+((missing.length||priceDiff.length)?'#F59E0B':'var(--green)');
+  box.style.background=warn?'#FFF7E0':'#E6F6F0';
+  box.style.border='1.5px solid '+(warn?'#F59E0B':'var(--green)');
   box.scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function createMissingCateringProduct(i){
+  const st=cateringImportState;if(!st||!st.missing[i])return;
+  const m=st.missing[i];
+  const gross=m.hubNet!=null?Math.round(m.hubNet*(1+CAT_VAT)*100)/100:null;
+  const known=[...new Set(cateringProducts.map(p=>p.dine_category).filter(Boolean))];
+  const cat=known.find(c=>c.toLowerCase()===String(m.section||'').toLowerCase())||m.section||'';
+  try{
+    const res=await sbPost('catering_products',{name:m.name,dine_category:cat,menu_category:'',type:'INVENTORY',price_gross:gross,is_active:true,is_vatable:true,
+      sort_order:cateringProducts.reduce((mx,x)=>Math.max(mx,x.sort_order||0),0)+1});
+    const p=Array.isArray(res)?res[0]:res;
+    cateringProducts.push(p);
+    cateringCart[p.id]=(cateringCart[p.id]||0)+m.qty;
+    st.missing.splice(i,1);
+    renderCateringOrderForm();
+    cateringRenderImportBox();
+  }catch(e){alert('Could not create the product: '+e.message);}
 }
 function startEditCateringOrder(id){
   const o=cateringOrders.find(x=>x.id===id);if(!o)return;
