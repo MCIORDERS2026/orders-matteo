@@ -8391,7 +8391,9 @@ async function loadSalesMetrics(){
       // no-op passthrough (raw units) — see smIsTrayPriced above.
       const prod=findProductAny(id);
       const price=smEffectivePrice(o,prod,id);
-      const unitCost=smCostOf(prod,smOrderDate(o));
+      // Per-order cost override (orders_history.item_cost_overrides, jsonb keyed by product id) wins over the cost history.
+      const _co=o.item_cost_overrides?o.item_cost_overrides[String(id)]:null;
+      const unitCost=(_co!=null&&!isNaN(Number(_co)))?Number(_co):smCostOf(prod,smOrderDate(o));
       if(unitCost!=null)perProductCost[id]=(perProductCost[id]||0)+smMoneyQty(prod,qty)*unitCost;
       if(price!=null){
         const lineRevenue=smMoneyQty(prod,qty)*price;
