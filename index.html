@@ -5654,7 +5654,7 @@ async function saveCostInline(id,inputEl){
   const value=raw?Math.max(0,parseFloat(raw)||0):null;
   inputEl.disabled=true;
   try{
-    await sbPatch('products',`id=eq.${id}`,{cost_price:value});
+    await sbPatch('products',`id=eq.${id}`,costPatchFor(id,value));
     const p=supplierInfoCache.find(x=>x.id===id);
     if(p)p.cost_price=value;
     const ap=adminProductsCache.find(x=>x.id===id);
@@ -7857,7 +7857,36 @@ function smEffectivePrice(o,p,productId){
   const override=itemPriceOverride(o,productId);
   return override!=null?override:smPriceOf(p,o.username,smOrderDate(o));
 }
-function smCostOf(p){return p&&p.cost_price!=null?Number(p.cost_price):null;}
+// Cost history (products.cost_history, jsonb [{price,from:'YYYY-MM-DD'}] ascending) works like
+// client price history: smCostOf(p,dateStr) returns the cost in effect on that date (default today),
+// so changing a product's cost today doesn't retroactively change past orders in Food Cost reports.
+// Dates before the first entry use the first entry's price; no history -> plain cost_price.
+function smCostOf(p,dateStr){
+  if(!p)return null;
+  const h=p.cost_history;
+  if(Array.isArray(h)&&h.length){
+    const target=dateStr||new Date().toISOString().slice(0,10);
+    let hit=h[0];
+    for(const e of h){if(e&&e.from<=target)hit=e;else break;}
+    return hit&&hit.price!=null?Number(hit.price):null;
+  }
+  return p.cost_price!=null?Number(p.cost_price):null;
+}
+// Patch body for a cost change: keeps the old cost as a dated history entry (effective from today for
+// the new one). First-time costs (old cost empty) and unchanged costs don't create history.
+function costPatchFor(id,newCost){
+  const lists=[typeof supplierInfoCache!=='undefined'?supplierInfoCache:[],typeof adminProductsCache!=='undefined'?adminProductsCache:[],typeof allProducts!=='undefined'?allProducts:[]];
+  const copies=lists.map(l=>(l||[]).find(x=>String(x.id)===String(id))).filter(Boolean);
+  const base=copies[0];
+  let hist=null;
+  if(base){
+    const oldRaw=(Array.isArray(base.cost_history)&&base.cost_history.length)?base.cost_history:(base.cost_price!=null?Number(base.cost_price):null);
+    if(oldRaw!=null&&newCost!=null){const r=cpApplyPriceEdit(oldRaw,newCost);hist=Array.isArray(r)?r:null;}
+    else if(Array.isArray(oldRaw)&&newCost==null)hist=null;
+  }
+  copies.forEach(c=>{c.cost_history=hist;});
+  return {cost_price:newCost,cost_history:hist};
+}
 function smFmtMoney(v){return v==null?'—':('£'+Number(v).toFixed(2));}
 function smRound2(v){return Math.round((v+Number.EPSILON)*100)/100;}
 // Empty since 2026-09-21. Lasagna and Focaccia used to live here (their price
@@ -8239,7 +8268,7 @@ function smTrendChart(labels,data,revenueData){
 // some revenue computed are included in the priced list/totals; everything else is
 // surfaced separately as a "missing price data" note so the admin knows which
 // products to fill in for a complete report. ──
-function computeFoodCostReport(perProduct,perProductRevenue){
+function computeFoodCostReport(perProduct,perProductRevenue,perProductCost){
   const rows=allProducts.map(p=>{
     const raw=perProduct[p.id]||0;
     if(raw<=0)return null;
@@ -8252,10 +8281,11 @@ function computeFoodCostReport(perProduct,perProductRevenue){
     // see smIsRawDisplay above; does not affect the £ figures).
     const qty=smIsRawDisplay(p)?raw:moneyQty;
     const cost=smCostOf(p);
+    const histCost=(perProductCost&&perProductCost[p.id]!=null)?perProductCost[p.id]:null; // date-aware total (cost history)
     const revenue=(perProductRevenue&&perProductRevenue[p.id]!=null)?smRound2(perProductRevenue[p.id]):null;
     const name=p.name+fmtDesc(p.description);
     if(cost==null||revenue==null)return{id:p.id,name,raw,qty,missing:true};
-    const costTotal=smRound2(moneyQty*cost);
+    const costTotal=histCost!=null?smRound2(histCost):smRound2(moneyQty*cost);
     const profit=smRound2(revenue-costTotal);
     // pct = PROFIT % of revenue (inverted from the old "cost % of revenue" reading —
     // e.g. £108 cost on £120 revenue now shows as 10% profit instead of 90% cost).
@@ -8345,6 +8375,7 @@ async function loadSalesMetrics(){
   const ordersCount=rows.length;
   const perProduct={};
   const perProductRevenue={};
+  const perProductCost={};
   const trendBuckets={};
   const trendRevenueBuckets={};
   let unitsSold=0;
@@ -8360,6 +8391,8 @@ async function loadSalesMetrics(){
       // no-op passthrough (raw units) — see smIsTrayPriced above.
       const prod=findProductAny(id);
       const price=smEffectivePrice(o,prod,id);
+      const unitCost=smCostOf(prod,smOrderDate(o));
+      if(unitCost!=null)perProductCost[id]=(perProductCost[id]||0)+smMoneyQty(prod,qty)*unitCost;
       if(price!=null){
         const lineRevenue=smMoneyQty(prod,qty)*price;
         rowRevenue+=lineRevenue;
@@ -8385,7 +8418,7 @@ async function loadSalesMetrics(){
   // custom price when set, else default sale_price), restricted to products that
   // actually have a cost_price and some computed revenue (so the % is meaningful
   // rather than silently treating missing prices as £0 cost).
-  const fc=computeFoodCostReport(perProduct,perProductRevenue);
+  const fc=computeFoodCostReport(perProduct,perProductRevenue,perProductCost);
   renderFoodCostReport(fc);
   document.getElementById('sm-kpi-revenue').textContent=smFmtMoney(fc.totalRevenue);
   document.getElementById('sm-kpi-profit').textContent=smFmtMoney(fc.totalProfit);
@@ -11033,7 +11066,7 @@ async function fcCascadeIngredientUpdate(ing){
     const computed=smComputeRecipeCost({ingredients:newIngredients,yield_qty:r.yield_qty,sell_qty:r.sell_qty});
     try{
       await sbPatch('recipes',`id=eq.${r.id}`,{ingredients:newIngredients,total_cost:computed.batchTotal,cost_per_unit:computed.costPerPack,updated_at:new Date().toISOString()});
-      await sbPatch('products',`id=eq.${r.product_id}`,{cost_price:computed.costPerPack});
+      await sbPatch('products',`id=eq.${r.product_id}`,costPatchFor(r.product_id,computed.costPerPack));
       const p=allProducts.find(x=>String(x.id)===String(r.product_id));
       if(p)p.cost_price=computed.costPerPack;
     }catch(e){/* best-effort cascade — one failed product shouldn't block the ingredient save itself */}
@@ -11199,7 +11232,7 @@ async function saveRecipe(){
     }
     foodCostRecipesCache[String(fcCurrentProductId)]=savedRecipe;
     // Write the computed cost into the product's Cost field — used everywhere Profit is shown.
-    await sbPatch('products',`id=eq.${fcCurrentProductId}`,{cost_price:computed.costPerPack});
+    await sbPatch('products',`id=eq.${fcCurrentProductId}`,costPatchFor(fcCurrentProductId,computed.costPerPack));
     const p=allProducts.find(x=>String(x.id)===String(fcCurrentProductId));
     if(p)p.cost_price=computed.costPerPack;
     // Upsert each ingredient (matched by name) into the shared library so other
@@ -11317,7 +11350,7 @@ async function saveOtherProductPrice(){
   const cost_price=costRaw?Math.max(0,parseFloat(costRaw)||0):null;
   const sale_price=saleRaw?Math.max(0,parseFloat(saleRaw)||0):null;
   try{
-    await sbPatch('products',`id=eq.${fcOtherPriceProductId}`,{cost_price,sale_price});
+    await sbPatch('products',`id=eq.${fcOtherPriceProductId}`,Object.assign(costPatchFor(fcOtherPriceProductId,cost_price),{sale_price}));
     const p=allProducts.find(x=>String(x.id)===String(fcOtherPriceProductId));
     if(p){p.cost_price=cost_price;p.sale_price=sale_price;}
     closeModal('other-product-price-modal');
