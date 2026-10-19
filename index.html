@@ -8269,7 +8269,9 @@ function smTrendChart(labels,data,revenueData){
 // surfaced separately as a "missing price data" note so the admin knows which
 // products to fill in for a complete report. ──
 function computeFoodCostReport(perProduct,perProductRevenue,perProductCost){
-  const rows=allProducts.map(p=>{
+  // Includes inactive (archived) products too, so their historical sales still count in Revenue/Profit.
+  const _fcProducts=allProducts.concat((typeof allProductsArchive!=='undefined'?allProductsArchive:[]).filter(a=>!allProducts.some(p=>String(p.id)===String(a.id))));
+  const rows=_fcProducts.map(p=>{
     const raw=perProduct[p.id]||0;
     if(raw<=0)return null;
     // moneyQty = pack-adjusted quantity used ONLY for the cost calculation below.
@@ -9703,7 +9705,10 @@ async function saveClientPrices(){
   if(!clientPricesCurrentUser)return;
   const inputs=[...document.querySelectorAll('#prices-list input[data-price-prod-id]')];
   const today=new Date().toISOString().slice(0,10);
+  // Start from the stored prices so products NOT shown in the list (inactive/hidden) keep their entries instead of being wiped on save.
+  const shownIds=new Set(inputs.map(i=>i.getAttribute('data-price-prod-id')));
   const updated={};
+  Object.keys(clientPricesOriginal||{}).forEach(k=>{if(!shownIds.has(k)&&clientPricesOriginal[k]!=null)updated[k]=clientPricesOriginal[k];});
   inputs.forEach(inp=>{
     const productId=inp.getAttribute('data-price-prod-id');
     const val=inp.value.trim();
