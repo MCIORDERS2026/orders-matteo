@@ -4868,7 +4868,7 @@ function renderShoppingListModal(){
     const lineTotal=r.price!=null?r.price*r.qty:null;
     html+=`<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-light);cursor:pointer;background:${isChecked?'var(--green-light)':'transparent'};">
       <input type="checkbox" ${isChecked?'checked':''} onchange="toggleShoppingListItem('${r.id}',this.checked)" style="width:17px;height:17px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
-      <span style="flex:1;font-size:13px;${isChecked?'text-decoration:line-through;color:var(--text-secondary);':''}">${name}</span>
+      <span onmouseenter="slShowTip(event,'${r.id}')" onmousemove="slMoveTip(event)" onmouseleave="slHideTip()" style="flex:1;font-size:13px;${isChecked?'text-decoration:line-through;color:var(--text-secondary);':''}">${name}<span style="font-size:11px;color:var(--text-tertiary);font-weight:400;text-decoration:none;display:inline-block;margin-left:6px;">· ${r.orderIds.length} client${r.orderIds.length>1?'s':''}</span></span>
       <span style="font-size:11px;color:var(--text-tertiary);white-space:nowrap;">${catLabel}</span>
       ${r.supplier_code?`<span class="copy-value-box" title="Click to copy" onclick="event.preventDefault();event.stopPropagation();copyValueToClipboard(this,'${String(r.supplier_code).replace(/'/g,"\\'")}')" style="min-width:50px;justify-content:flex-end;font-size:12px;font-weight:400;padding:3px 6px;border-color:var(--border-light);color:var(--text-secondary);">${r.supplier_code} <span class="copy-value-icon">📋</span></span>`:`<span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;min-width:50px;text-align:right;">—</span>`}
       <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;min-width:55px;text-align:right;">${r.price!=null?smFmtMoney(r.price):'—'}</span>
@@ -4881,6 +4881,29 @@ function renderShoppingListModal(){
   if(progressEl)progressEl.textContent=`${checkedCount} / ${shoppingListItems.length} checked`;
 }
 
+// Hover tooltip on a Shopping List row: which clients ordered this product, and how much each.
+let _slTipEl=null;
+function slShowTip(ev,itemId){
+  const row=shoppingListItems.find(r=>String(r.id)===String(itemId));if(!row)return;
+  const lines=row.orderIds.map(oid=>{
+    const o=shoppingOrderLookup(oid);if(!o)return null;
+    const q=parseFloat((o.items||{})[String(itemId)])||0;
+    return {name:displayNameFor(o.username),qty:q,num:o.order_number||''};
+  }).filter(Boolean).sort((a,b)=>b.qty-a.qty);
+  if(!_slTipEl){_slTipEl=document.createElement('div');_slTipEl.style.cssText='position:fixed;z-index:9999;background:#111827;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5;box-shadow:0 4px 14px rgba(0,0,0,.25);pointer-events:none;max-width:260px;';document.body.appendChild(_slTipEl);}
+  const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  _slTipEl.innerHTML=`<div style="font-weight:600;margin-bottom:3px;">${esc(row.name)} — ${row.qty} total</div>`+lines.map(l=>`<div style="display:flex;justify-content:space-between;gap:14px;"><span>${esc(l.name)}${l.num?' <span style="opacity:.6;">#'+esc(l.num)+'</span>':''}</span><b>${l.qty}</b></div>`).join('');
+  _slTipEl.style.display='block';slMoveTip(ev);
+}
+function slMoveTip(ev){
+  if(!_slTipEl)return;
+  const w=_slTipEl.offsetWidth,h=_slTipEl.offsetHeight;
+  let x=ev.clientX+14,y=ev.clientY+14;
+  if(x+w>window.innerWidth-8)x=ev.clientX-w-14;
+  if(y+h>window.innerHeight-8)y=ev.clientY-h-14;
+  _slTipEl.style.left=Math.max(8,x)+'px';_slTipEl.style.top=Math.max(8,y)+'px';
+}
+function slHideTip(){if(_slTipEl)_slTipEl.style.display='none';}
 async function toggleShoppingListItem(itemId,checked){
   const row=shoppingListItems.find(r=>String(r.id)===String(itemId));
   if(!row)return;
