@@ -690,6 +690,7 @@
       <div class="section-toolbar">
         <h2>New Orders</h2>
         <button class="btn-sm" onclick="loadAdminOrders()">↻ Refresh</button>
+        <button class="btn-sm green kitchen-hide" onclick="openNewClientOrder()" title="Create an order on behalf of a client">➕ New order for client</button>
         <button class="btn-sm" onclick="mergeSelectedOrders()" title="Select 2+ orders from the same client to merge">🔀 Merge</button>
         <button class="btn-sm red kitchen-hide-delete" onclick="promptDeleteSelected()">🗑 Delete</button>
         <button class="btn-sm amber" onclick="exportToGoogleSheets()">📊 Google Sheets</button>
@@ -1320,6 +1321,37 @@
     </div>
     <div class="modal-error" id="suppliers-error" style="display:none;"></div>
     <div class="modal-btns"><button onclick="closeModal('manage-suppliers-modal')">Close</button></div>
+  </div>
+</div>
+
+<!-- ➕ New order for a client — admin places an order on behalf of a client (only the products that client can see) -->
+<div class="modal-overlay" id="new-client-order-modal">
+  <div class="modal" style="max-width:640px;width:95vw;max-height:90vh;overflow-y:auto;">
+    <h3>➕ New order for a client</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">The order is created as <b>pending</b> in New Orders, exactly as if the client had placed it. Cut-off times and the minimum order are not applied.</p>
+    <div class="field">
+      <label>Client</label>
+      <select id="nco-client" onchange="ncoClientChanged()" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:13px;background:var(--bg);color:var(--text);"></select>
+    </div>
+    <div class="field">
+      <label>Placed by (name shown on the order)</label>
+      <input type="text" id="nco-by" placeholder="e.g. Manager name, or Admin" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:13px;box-sizing:border-box;"/>
+    </div>
+    <div class="field">
+      <label>Add products</label>
+      <div id="nco-prod-wrap"></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+        <span style="font-size:12px;color:var(--text-secondary);">Qty</span>
+        <input type="number" id="nco-qty" min="0.1" step="any" value="1" style="width:90px;flex:none;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:13px;text-align:center;background:var(--bg);color:var(--text);box-sizing:border-box;"/>
+        <button class="btn-sm green" onclick="ncoAddItem()" style="padding:8px 18px;">Add to order</button>
+      </div>
+    </div>
+    <div id="nco-items" style="margin-top:6px;"></div>
+    <div class="modal-error" id="nco-error" style="display:none;"></div>
+    <div class="modal-btns">
+      <button onclick="closeModal('new-client-order-modal')">Cancel</button>
+      <button class="primary" id="nco-submit" onclick="ncoSubmit()">Create order</button>
+    </div>
   </div>
 </div>
 
@@ -4347,6 +4379,136 @@ async function updateOrderItem(orderId,productId,newVal){
     renderOrdersList();
     logKitchenActivity(order,'items_changed',summarizeItemsDiff(oldItems,items).join('; '));
   }catch(e){alert('Error updating order.');}
+}
+// ── ADMIN: create an order on behalf of a client (same rules as the client's own catalogue) ──
+let ncoItems={},ncoClients=[];
+function ncoAllowed(p,c){
+  if(!p||!c)return false;
+  const cats=c.visible_categories||[],prods=(c.visible_products||[]).map(String);
+  if(cats.length&&!cats.includes(p.cat))return false;
+  if(prods.length&&!prods.includes(String(p.id)))return false;
+  return true;
+}
+function ncoCurClient(){const u=document.getElementById('nco-client').value;return ncoClients.find(x=>x.username===u)||null;}
+// Searchable product box limited to the chosen client's products
+let _ncoBox=null;
+function ncoProdHtml(){
+  return `<div style="position:relative;"><input type="text" id="nco-prod-q" placeholder="🔍 Search product to add..." autocomplete="off" style="width:100%;box-sizing:border-box;display:block;border:1px solid var(--border);border-radius:6px;padding:9px 10px;font-size:13px;background:var(--bg);color:var(--text);" oninput="ncoSearch()" onfocus="ncoSearch(true)" onclick="event.stopPropagation()"/><input type="hidden" id="nco-prod" value=""/></div>`;
+}
+function ncoCloseBox(){if(_ncoBox)_ncoBox.style.display='none';}
+function ncoSearch(keep){
+  const inp=document.getElementById('nco-prod-q'),hid=document.getElementById('nco-prod');if(!inp||!hid)return;
+  if(!keep)hid.value='';
+  const c=ncoCurClient();
+  const q=inp.value.trim().toLowerCase();
+  const esc=t=>String(t).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+  const items=c?allProducts.filter(p=>ncoAllowed(p,c)).filter(p=>!q||(p.name||'').toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)||(p.cat||'').toLowerCase().includes(q)).slice(0,60):[];
+  if(!_ncoBox){
+    _ncoBox=document.createElement('div');
+    _ncoBox.style.cssText='position:fixed;z-index:10000;background:#fff;border:1px solid var(--border);border-radius:6px;max-height:240px;overflow-y:auto;box-shadow:0 6px 18px rgba(0,0,0,.18);';
+    document.body.appendChild(_ncoBox);
+    document.addEventListener('click',e=>{if(_ncoBox&&!_ncoBox.contains(e.target)&&e.target.id!=='nco-prod-q')ncoCloseBox();});
+  }
+  const r=inp.getBoundingClientRect();
+  _ncoBox.style.left=r.left+'px';_ncoBox.style.width=Math.max(r.width,260)+'px';
+  const below=window.innerHeight-r.bottom;
+  if(below<250&&r.top>below){_ncoBox.style.top='';_ncoBox.style.bottom=(window.innerHeight-r.top+2)+'px';}
+  else{_ncoBox.style.bottom='';_ncoBox.style.top=(r.bottom+2)+'px';}
+  _ncoBox.innerHTML=!c?'<div style="padding:10px 12px;font-size:13px;color:var(--text-tertiary);">Select a client first.</div>':(items.length?items.map(p=>`<div onmousedown="event.preventDefault();ncoPick('${p.id}')" onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background=''" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border-light);"><span style="min-width:0;">${esc(p.name)}${p.description?` <span style="color:var(--text-tertiary);font-size:11px;">(${esc(p.description)})</span>`:''}</span><span style="flex:none;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;">${esc(p.cat||'')}</span></div>`).join(''):'<div style="padding:10px 12px;font-size:13px;color:var(--text-tertiary);">No products found.</div>');
+  _ncoBox.style.display='block';
+}
+function ncoPick(pid){
+  const p=allProducts.find(x=>String(x.id)===String(pid));
+  const inp=document.getElementById('nco-prod-q'),hid=document.getElementById('nco-prod');
+  if(!p||!inp||!hid)return;
+  hid.value=p.id;inp.value=p.name+(p.description?' ('+p.description+')':'');
+  ncoCloseBox();
+  const qty=document.getElementById('nco-qty');if(qty){qty.focus();qty.select();}
+}
+async function openNewClientOrder(){
+  ncoItems={};
+  const sel=document.getElementById('nco-client');
+  sel.innerHTML='<option value="">Loading clients...</option>';
+  document.getElementById('nco-error').style.display='none';
+  document.getElementById('nco-by').value='';
+  document.getElementById('nco-qty').value='1';
+  document.getElementById('nco-prod-wrap').innerHTML=ncoProdHtml();
+  openModal('new-client-order-modal');
+  try{
+    await ensureClientPricesCache();
+    const rows=await sbGet('users','deleted_at=is.null&order=sort_order.asc,created_at.asc');
+    ncoClients=rows.filter(u=>!['kitchen','invoicer','admin'].includes(u.role));
+    sel.innerHTML='<option value="">Select a client...</option>'+ncoClients.map(u=>`<option value="${String(u.username).replace(/"/g,'&quot;')}">${u.display_name||u.username}</option>`).join('');
+  }catch(e){sel.innerHTML='<option value="">Error loading clients</option>';}
+  ncoRender();
+}
+function ncoClientChanged(){
+  // Items already added that this client can't order are removed; the product search restarts
+  const c=ncoCurClient();const removed=[];
+  Object.keys(ncoItems).forEach(pid=>{const p=allProducts.find(x=>String(x.id)===pid);if(!p||!ncoAllowed(p,c)){removed.push(p?p.name:pid);delete ncoItems[pid];}});
+  const q=document.getElementById('nco-prod-q'),h=document.getElementById('nco-prod');
+  if(q)q.value='';if(h)h.value='';
+  const errEl=document.getElementById('nco-error');
+  if(removed.length){errEl.textContent='Removed (not available to this client): '+removed.join(', ');errEl.style.display='block';}else errEl.style.display='none';
+  ncoRender();
+}
+function ncoAddItem(){
+  const pid=String(document.getElementById('nco-prod').value||'');
+  if(!document.getElementById('nco-client').value){alert('Select a client first.');return;}
+  const p=allProducts.find(x=>String(x.id)===pid);
+  const qty=isDecimalQtyProduct(p)?(parseFloat(document.getElementById('nco-qty').value)||0):(parseInt(document.getElementById('nco-qty').value)||0);
+  if(!pid||!p||qty<=0){const q=document.getElementById('nco-prod-q');q.style.borderColor='var(--red)';setTimeout(()=>q.style.borderColor='',1500);return;}
+  ncoItems[pid]=Math.round(((ncoItems[pid]||0)+qty)*1000)/1000;
+  document.getElementById('nco-prod').value='';document.getElementById('nco-prod-q').value='';document.getElementById('nco-qty').value='1';
+  ncoRender();
+  document.getElementById('nco-prod-q').focus();
+}
+function ncoSetQty(pid,v){
+  const p=allProducts.find(x=>String(x.id)===pid);
+  const n=isDecimalQtyProduct(p)?(parseFloat(v)||0):(parseInt(v)||0);
+  if(n<=0)delete ncoItems[pid];else ncoItems[pid]=n;
+  ncoRender();
+}
+function ncoRender(){
+  const el=document.getElementById('nco-items');if(!el)return;
+  const user=document.getElementById('nco-client').value;
+  const d=new Date().toISOString().slice(0,10);
+  const ids=Object.keys(ncoItems);
+  if(!ids.length){el.innerHTML='<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0;">No products added yet.</div>';return;}
+  let total=0,anyPrice=false;
+  const rows=ids.map(pid=>{
+    const p=allProducts.find(x=>String(x.id)===pid);
+    const unit=p&&user?smPriceOf(p,user,d):null;
+    const line=unit!=null?unit*ncoItems[pid]:null;
+    if(line!=null){total+=line;anyPrice=true;}
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light);font-size:13px;">
+      <span style="flex:1;">${p?p.name+(p.description?' <span style="color:var(--text-tertiary);font-size:11px;">('+p.description+')</span>':''):'#'+pid}</span>
+      <span style="font-size:12px;color:var(--text-secondary);min-width:55px;text-align:right;">${unit!=null?smFmtMoney(unit):''}</span>
+      <input type="number" min="0" step="any" value="${ncoItems[pid]}" onchange="ncoSetQty('${pid}',this.value)" class="admin-qty-input" style="width:60px;"/>
+      <span style="font-weight:600;min-width:60px;text-align:right;">${line!=null?smFmtMoney(line):''}</span>
+      <button type="button" onclick="ncoSetQty('${pid}',0)" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:16px;">×</button>
+    </div>`;
+  }).join('');
+  el.innerHTML=rows+(user&&anyPrice?`<div style="display:flex;justify-content:flex-end;padding:10px 0 0;font-size:14px;font-weight:700;">Total: <span style="margin-left:8px;color:var(--green-dark);">${smFmtMoney(total)}</span></div>`:'');
+}
+async function ncoSubmit(){
+  const errEl=document.getElementById('nco-error');errEl.style.display='none';
+  const client=ncoCurClient();
+  const by=document.getElementById('nco-by').value.trim()||'Admin';
+  if(!client){errEl.textContent='Select a client.';errEl.style.display='block';return;}
+  if(!Object.keys(ncoItems).length){errEl.textContent='Add at least one product.';errEl.style.display='block';return;}
+  const btn=document.getElementById('nco-submit');btn.disabled=true;btn.textContent='Creating...';
+  try{
+    const now=new Date(),ts=now.toLocaleDateString('en-GB')+' '+now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const row={username:client.username,items:{...ncoItems},timestamp:ts,status:'pending',ordered_by:by+' (placed by admin)'};
+    if(client.auth_user_id)row.user_id=client.auth_user_id;
+    await sbPost('orders_history',row);
+    closeModal('new-client-order-modal');
+    ncoItems={};
+    await loadAdminOrders();
+    if(typeof checkAdminPendingNotifications==='function')checkAdminPendingNotifications();
+  }catch(e){errEl.textContent='Error creating order: '+(e.message||e);errEl.style.display='block';}
+  btn.disabled=false;btn.textContent='Create order';
 }
 async function addItemToOrder(orderId){
   const select=document.getElementById('add-prod-'+orderId);
