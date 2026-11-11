@@ -955,7 +955,7 @@
         <div class="sm-card"><div class="sm-card-label">Products sold</div><div class="sm-card-value" id="sm-kpi-products">0</div></div>
         <div class="sm-card"><div class="sm-card-label">Revenue</div><div class="sm-card-value" id="sm-kpi-revenue">£0.00</div><div class="sm-card-sub" id="sm-kpi-revenue-sub">priced products only</div></div>
         <div class="sm-card"><div class="sm-card-label">Profit</div><div class="sm-card-value" id="sm-kpi-profit">£0.00</div><div class="sm-card-sub" id="sm-kpi-profit-sub">priced products only</div></div>
-        <div class="sm-card"><div class="sm-card-label">Profit %</div><div class="sm-card-value" id="sm-kpi-foodcost">—</div><div class="sm-card-sub" id="sm-kpi-foodcost-sub">profit ÷ revenue</div></div>
+        <div class="sm-card"><div class="sm-card-label">Markup</div><div class="sm-card-value" id="sm-kpi-foodcost">—</div><div class="sm-card-sub" id="sm-kpi-foodcost-sub">profit ÷ cost</div></div>
       </div>
 
       <div id="sm-content">
@@ -1024,8 +1024,8 @@
 
       <!-- FOOD COST REPORT -->
       <div class="sm-chart-box" style="margin-top:16px;">
-        <h3>💷 Food cost report <span style="font-weight:400;font-size:12px;color:var(--text-tertiary);">— profit % of revenue, per product</span></h3>
-        <p class="sm-fc-note">Uses the Client and date range filters set above. Only products with both Food Cost and Sale Value set are included; sorted by lowest profit % first.</p>
+        <h3>💷 Food cost report <span style="font-weight:400;font-size:12px;color:var(--text-tertiary);">— markup (profit ÷ cost), per product</span></h3>
+        <p class="sm-fc-note">Uses the Client and date range filters set above. Only products with both Food Cost and Sale Value set are included; sorted by lowest markup first.</p>
         <div id="sm-fc-content" style="display:none;">
           <div class="sm-fc-table-wrap">
             <table class="sm-fc-table">
@@ -1036,7 +1036,7 @@
                   <th class="num">Cost</th>
                   <th class="num">Revenue</th>
                   <th class="num">Profit</th>
-                  <th class="num">Profit %</th>
+                  <th class="num">Markup</th>
                 </tr>
               </thead>
               <tbody id="sm-fc-tbody"></tbody>
@@ -8479,7 +8479,7 @@ function computeFoodCostReport(perProduct,perProductRevenue,perProductCost){
     const profit=smRound2(revenue-costTotal);
     // pct = PROFIT % of revenue (inverted from the old "cost % of revenue" reading —
     // e.g. £108 cost on £120 revenue now shows as 10% profit instead of 90% cost).
-    const pct=revenue>0?(profit/revenue*100):0;
+    const pct=costTotal>0?(profit/costTotal*100):0; // MARKUP: profit ÷ cost
     return{id:p.id,name,raw,qty,revenue,cost:costTotal,profit,pct,missing:false};
   }).filter(Boolean);
   // Worst performers (lowest/most negative profit %) surfaced first.
@@ -8488,7 +8488,7 @@ function computeFoodCostReport(perProduct,perProductRevenue,perProductCost){
   const totalRevenue=smRound2(priced.reduce((a,r)=>a+r.revenue,0));
   const totalCost=smRound2(priced.reduce((a,r)=>a+r.cost,0));
   const totalProfit=smRound2(totalRevenue-totalCost);
-  const totalPct=totalRevenue>0?(totalProfit/totalRevenue*100):0;
+  const totalPct=totalCost>0?(totalProfit/totalCost*100):0; // markup: profit ÷ cost
   return{priced,missing,totalRevenue,totalCost,totalProfit,totalPct};
 }
 function smFcPctColor(pct){
@@ -8733,7 +8733,7 @@ function generateSalesMetricsPDF(){
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Products sold</div><div style="font-size:22px;font-weight:800;">${a.productsSoldCount}</div></div>
         ${hasMoney?`<div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Revenue</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.revenue)}</div></div>
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Profit</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.profit)}</div></div>
-        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Profit %</div><div style="font-size:22px;font-weight:800;">${a.foodCostPct!=null?a.foodCostPct.toFixed(1)+'%':'—'}</div></div>`:''}
+        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Markup</div><div style="font-size:22px;font-weight:800;">${a.foodCostPct!=null?a.foodCostPct.toFixed(1)+'%':'—'}</div></div>`:''}
       </div>`;
   }
 
@@ -8817,7 +8817,7 @@ function generateSalesMetricsPDF(){
     sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">💷 Food cost report</h3>
       <table style="width:100%;border-collapse:collapse;">
-        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit %</th></tr>
+        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Markup</th></tr>
         ${fcRows}${fcTotalRow}
       </table>
       ${fc.missing.length?`<p style="font-size:11px;color:#999;margin-top:8px;">⚠ ${fc.missing.length} product(s) sold without Food Cost / Sale Value set are excluded above.</p>`:''}
@@ -9455,8 +9455,8 @@ function productRow(p){
   }
   const hasBoth=cost!=null&&sale!=null;
   const profit=hasBoth?sale-cost:null;
-  // Profit % of sale price — same "profit ÷ revenue" reading used in Sales Metrics.
-  const profitPct=(profit!=null&&sale>0)?(profit/sale*100):null;
+  // Markup % = profit ÷ cost.
+  const profitPct=(profit!=null&&cost>0)?(profit/cost*100):null; // markup: profit ÷ cost
   const profitColor=profit==null?'var(--text-tertiary)':(profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)'));
   // Label stays short and fixed-width regardless of which client is selected (the
   // client name is already shown once in the "Profit for" dropdown above the list) —
@@ -9620,7 +9620,7 @@ function cpComputeProfit(cost,price){
   const p=(price!=null&&price!=='')?Number(price):null;
   if(c==null||p==null)return{profit:null,pct:null,color:'var(--text-tertiary)',text:'—'};
   const profit=p-c;
-  const pct=p>0?(profit/p*100):null;
+  const pct=c>0?(profit/c*100):null; // markup: profit ÷ cost
   const color=profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)');
   const text='£'+profit.toFixed(2)+(pct!=null?' ('+pct.toFixed(0)+'%)':'');
   return{profit,pct,color,text};
@@ -9657,7 +9657,7 @@ function updateClientPricesAvgProfit(){
   const color=avg>0?'var(--green-dark)':(avg<0?'var(--red)':'var(--text-secondary)');
   el.style.display='block';
   el.style.color=color;
-  el.textContent=`Average profit margin: ${avg.toFixed(1)}% (${count} priced product${count>1?'s':''})`;
+  el.textContent=`Average markup: ${avg.toFixed(1)}% (${count} priced product${count>1?'s':''})`;
 }
 function cpBuildExportRows(){
   const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
@@ -9705,7 +9705,7 @@ function exportClientPricesExcel(){
     ]);
   });
   aoa.push(['']);
-  aoa.push(['','','','','Average profit margin:',avgPct!=null?avgPct.toFixed(1)+'%':'—']);
+  aoa.push(['','','','','Average markup:',avgPct!=null?avgPct.toFixed(1)+'%':'—']);
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols']=[{wch:16},{wch:28},{wch:10},{wch:10},{wch:10},{wch:12}];
@@ -9744,11 +9744,11 @@ function printClientPricesPDF(){
           <th style="padding:6px 8px;text-align:right;">Cost</th>
           <th style="padding:6px 8px;text-align:right;">Price</th>
           <th style="padding:6px 8px;text-align:right;">Profit</th>
-          <th style="padding:6px 8px;text-align:right;">Profit %</th>
+          <th style="padding:6px 8px;text-align:right;">Markup</th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <div style="margin-top:14px;text-align:right;font-weight:700;font-size:13px;">Average profit margin: ${avgText}</div>
+      <div style="margin-top:14px;text-align:right;font-weight:700;font-size:13px;">Average markup: ${avgText}</div>
       <div style="margin-top:16px;font-size:10px;color:#888;">Generated ${new Date().toLocaleDateString('en-GB')}</div>
     </div>`;
   const area=document.getElementById('pdf-print-area');
