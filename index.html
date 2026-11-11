@@ -956,6 +956,7 @@
         <div class="sm-card"><div class="sm-card-label">Revenue</div><div class="sm-card-value" id="sm-kpi-revenue">£0.00</div><div class="sm-card-sub" id="sm-kpi-revenue-sub">priced products only</div></div>
         <div class="sm-card"><div class="sm-card-label">Profit</div><div class="sm-card-value" id="sm-kpi-profit">£0.00</div><div class="sm-card-sub" id="sm-kpi-profit-sub">priced products only</div></div>
         <div class="sm-card"><div class="sm-card-label">Markup</div><div class="sm-card-value" id="sm-kpi-foodcost">—</div><div class="sm-card-sub" id="sm-kpi-foodcost-sub">profit ÷ cost</div></div>
+        <div class="sm-card"><div class="sm-card-label">Margin</div><div class="sm-card-value" id="sm-kpi-margin">—</div><div class="sm-card-sub">profit ÷ revenue</div></div>
       </div>
 
       <div id="sm-content">
@@ -1037,6 +1038,7 @@
                   <th class="num">Revenue</th>
                   <th class="num">Profit</th>
                   <th class="num">Markup</th>
+                  <th class="num">Margin</th>
                 </tr>
               </thead>
               <tbody id="sm-fc-tbody"></tbody>
@@ -8480,7 +8482,8 @@ function computeFoodCostReport(perProduct,perProductRevenue,perProductCost){
     // pct = PROFIT % of revenue (inverted from the old "cost % of revenue" reading —
     // e.g. £108 cost on £120 revenue now shows as 10% profit instead of 90% cost).
     const pct=costTotal>0?(profit/costTotal*100):0; // MARKUP: profit ÷ cost
-    return{id:p.id,name,raw,qty,revenue,cost:costTotal,profit,pct,missing:false};
+    const mpct=revenue>0?(profit/revenue*100):0; // MARGIN: profit ÷ revenue
+    return{id:p.id,name,raw,qty,revenue,cost:costTotal,profit,pct,mpct,missing:false};
   }).filter(Boolean);
   // Worst performers (lowest/most negative profit %) surfaced first.
   const priced=rows.filter(r=>!r.missing).sort((a,b)=>a.pct-b.pct);
@@ -8489,7 +8492,8 @@ function computeFoodCostReport(perProduct,perProductRevenue,perProductCost){
   const totalCost=smRound2(priced.reduce((a,r)=>a+r.cost,0));
   const totalProfit=smRound2(totalRevenue-totalCost);
   const totalPct=totalCost>0?(totalProfit/totalCost*100):0; // markup: profit ÷ cost
-  return{priced,missing,totalRevenue,totalCost,totalProfit,totalPct};
+  const totalMPct=totalRevenue>0?(totalProfit/totalRevenue*100):0;
+  return{priced,missing,totalRevenue,totalCost,totalProfit,totalPct,totalMPct};
 }
 function smFcPctColor(pct){
   if(pct<0)return{bg:'#FEE2E2',fg:'#B91C1C'};
@@ -8517,6 +8521,7 @@ function renderFoodCostReport(fc){
       <td class="num">${smFmtMoney(r.revenue)}</td>
       <td class="num">${smFmtMoney(r.profit)}</td>
       <td class="num"><span class="sm-fc-pct-badge" style="background:${c.bg};color:${c.fg};">${r.pct.toFixed(1)}%</span></td>
+      <td class="num"><span class="sm-fc-pct-badge" style="background:${smFcPctColor(r.mpct).bg};color:${smFcPctColor(r.mpct).fg};">${r.mpct.toFixed(1)}%</span></td>
     </tr>`;
   }).join('');
   const totalC=smFcPctColor(fc.totalPct);
@@ -8527,6 +8532,7 @@ function renderFoodCostReport(fc){
     <td class="num">${smFmtMoney(fc.totalRevenue)}</td>
     <td class="num">${smFmtMoney(fc.totalProfit)}</td>
     <td class="num"><span class="sm-fc-pct-badge" style="background:${totalC.bg};color:${totalC.fg};">${fc.totalPct.toFixed(1)}%</span></td>
+    <td class="num"><span class="sm-fc-pct-badge" style="background:${smFcPctColor(fc.totalMPct).bg};color:${smFcPctColor(fc.totalMPct).fg};">${fc.totalMPct.toFixed(1)}%</span></td>
   </tr>`;
   document.getElementById('sm-fc-tbody').innerHTML=rowsHtml+totalRow;
   missingEl.innerHTML=fc.missing.length
@@ -8615,6 +8621,7 @@ async function loadSalesMetrics(){
   document.getElementById('sm-kpi-revenue').textContent=smFmtMoney(fc.totalRevenue);
   document.getElementById('sm-kpi-profit').textContent=smFmtMoney(fc.totalProfit);
   document.getElementById('sm-kpi-foodcost').textContent=fc.priced.length?fc.totalPct.toFixed(1)+'%':'—';
+  const _mk=document.getElementById('sm-kpi-margin');if(_mk)_mk.textContent=fc.priced.length?fc.totalMPct.toFixed(1)+'%':'—';
 
   const contentEl=document.getElementById('sm-content');
   const emptyEl=document.getElementById('sm-empty');
@@ -8661,7 +8668,7 @@ async function loadSalesMetrics(){
   else if(selectedClients.length>3)clientLabel=selectedClients.length+' clients selected';
   salesLastAggregate={
     ordersCount,unitsSold,productsSoldCount,best,worst,trendLabels,trendData,trendRevenueData,
-    revenue:fc.totalRevenue,profit:fc.totalProfit,foodCostPct:fc.priced.length?fc.totalPct:null,
+    revenue:fc.totalRevenue,profit:fc.totalProfit,foodCostPct:fc.priced.length?fc.totalPct:null,marginPct:fc.priced.length?fc.totalMPct:null,
     client:clientLabel,
     fromVal,toVal
   };
@@ -8733,7 +8740,8 @@ function generateSalesMetricsPDF(){
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Products sold</div><div style="font-size:22px;font-weight:800;">${a.productsSoldCount}</div></div>
         ${hasMoney?`<div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Revenue</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.revenue)}</div></div>
         <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Profit</div><div style="font-size:22px;font-weight:800;">${smFmtMoney(a.profit)}</div></div>
-        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Markup</div><div style="font-size:22px;font-weight:800;">${a.foodCostPct!=null?a.foodCostPct.toFixed(1)+'%':'—'}</div></div>`:''}
+        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Markup</div><div style="font-size:22px;font-weight:800;">${a.foodCostPct!=null?a.foodCostPct.toFixed(1)+'%':'—'}</div></div>
+        <div style="flex:1;min-width:130px;border:1px solid #e5e5e3;border-radius:10px;padding:14px 16px;"><div style="font-size:11px;color:#888;text-transform:uppercase;">Margin</div><div style="font-size:22px;font-weight:800;">${a.marginPct!=null?a.marginPct.toFixed(1)+'%':'—'}</div></div>`:''}
       </div>`;
   }
 
@@ -8812,12 +8820,12 @@ function generateSalesMetricsPDF(){
 
   if(opts.foodcost&&salesFoodCostLastAggregate&&salesFoodCostLastAggregate.priced.length){
     const fc=salesFoodCostLastAggregate;
-    const fcRows=fc.priced.map(r=>`<tr><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #eee;">${r.name}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${r.qty}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.cost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.revenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.profit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.pct.toFixed(1)}%</td></tr>`).join('');
-    const fcTotalRow=`<tr><td style="padding:6px 10px;font-size:13px;font-weight:800;border-top:2px solid #ccc;">Total</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.priced.reduce((a,r)=>a+r.qty,0)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalCost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalRevenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalProfit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalPct.toFixed(1)}%</td></tr>`;
+    const fcRows=fc.priced.map(r=>`<tr><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #eee;">${r.name}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${r.qty}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.cost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.revenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;">${smFmtMoney(r.profit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.pct.toFixed(1)}%</td><td style="padding:6px 10px;font-size:13px;text-align:right;border-bottom:1px solid #eee;font-weight:700;">${r.mpct.toFixed(1)}%</td></tr>`).join('');
+    const fcTotalRow=`<tr><td style="padding:6px 10px;font-size:13px;font-weight:800;border-top:2px solid #ccc;">Total</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.priced.reduce((a,r)=>a+r.qty,0)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalCost)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalRevenue)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${smFmtMoney(fc.totalProfit)}</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalPct.toFixed(1)}%</td><td style="padding:6px 10px;font-size:13px;text-align:right;font-weight:800;border-top:2px solid #ccc;">${fc.totalMPct.toFixed(1)}%</td></tr>`;
     sections+=`<div style="margin-bottom:24px;page-break-inside:avoid;">
       <h3 style="font-size:14px;margin-bottom:8px;">💷 Food cost report</h3>
       <table style="width:100%;border-collapse:collapse;">
-        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Markup</th></tr>
+        <tr><th style="text-align:left;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Product</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Units</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Cost</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Revenue</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Profit</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Markup</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#888;text-transform:uppercase;">Margin</th></tr>
         ${fcRows}${fcTotalRow}
       </table>
       ${fc.missing.length?`<p style="font-size:11px;color:#999;margin-top:8px;">⚠ ${fc.missing.length} product(s) sold without Food Cost / Sale Value set are excluded above.</p>`:''}
@@ -9472,7 +9480,7 @@ function productRow(p){
     <span style="font-size:12px;color:var(--text-secondary)">${p.cat}</span>
     ${priceCell('Cost',cost)}
     ${priceCell(saleLabel,sale)}
-    <span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">Profit</div><div style="color:${profitColor};font-weight:600;">${profit!=null?'£'+profit.toFixed(2):'—'}${profitPct!=null?' <span style="font-weight:400;font-size:10px;">('+profitPct.toFixed(0)+'%)</span>':''}</div></span>
+    <span style="font-size:11px;line-height:1.3;"><div style="color:var(--text-tertiary);font-size:9px;text-transform:uppercase;">Profit</div><div style="color:${profitColor};font-weight:600;">${profit!=null?'£'+profit.toFixed(2):'—'}${profitPct!=null?' <span style="font-weight:400;font-size:10px;">(markup '+profitPct.toFixed(0)+'%'+(sale>0?' · margin '+(profit/sale*100).toFixed(0)+'%':'')+')</span>':''}</div></span>
     <span><button class="toggle-btn${p.active?' on':''}" onclick="toggleProduct(${p.id},${p.active})">${p.active?'✅ Active':'⛔ Hidden'}</button></span>
     <span><button class="toggle-btn${!p.out_of_stock?' on':''}" onclick="toggleOutOfStock(${p.id},${!!p.out_of_stock})">${p.out_of_stock?'🚫 Out of stock':'✅ In stock'}</button></span>
     <span class="prod-actions">
@@ -9622,8 +9630,9 @@ function cpComputeProfit(cost,price){
   const profit=p-c;
   const pct=c>0?(profit/c*100):null; // markup: profit ÷ cost
   const color=profit>0?'var(--green-dark)':(profit<0?'var(--red)':'var(--text-secondary)');
-  const text='£'+profit.toFixed(2)+(pct!=null?' ('+pct.toFixed(0)+'%)':'');
-  return{profit,pct,color,text};
+  const text='£'+profit.toFixed(2)+(pct!=null?' (markup '+pct.toFixed(0)+'%'+(p>0?' · margin '+(profit/p*100).toFixed(0)+'%':'')+')':'');
+  const mpct=p>0?(profit/p*100):null; // margin: profit ÷ price
+  return{profit,pct,mpct,color,text};
 }
 function updateClientPriceProfitRow(productId){
   const p=allProducts.find(x=>String(x.id)===String(productId));
@@ -9642,7 +9651,7 @@ function updateClientPricesAvgProfit(){
   const el=document.getElementById('prices-avg-profit');
   if(!el)return;
   if(!allProducts.length){el.style.display='none';return;}
-  let sum=0,count=0;
+  let sum=0,count=0,msum=0,mcount=0;
   allProducts.forEach(p=>{
     const cost=p.cost_price!=null?Number(p.cost_price):null;
     const input=document.querySelector(`input[data-price-prod-id="${p.id}"]`);
@@ -9651,13 +9660,14 @@ function updateClientPricesAvgProfit(){
     const effective=(val!==''&&val!=null)?val:defaultPrice;
     const result=cpComputeProfit(cost,effective);
     if(result.pct!=null){sum+=result.pct;count++;}
+    if(result.mpct!=null){msum+=result.mpct;mcount++;}
   });
   if(!count){el.style.display='none';return;}
   const avg=sum/count;
   const color=avg>0?'var(--green-dark)':(avg<0?'var(--red)':'var(--text-secondary)');
   el.style.display='block';
   el.style.color=color;
-  el.textContent=`Average markup: ${avg.toFixed(1)}% (${count} priced product${count>1?'s':''})`;
+  el.textContent=`Average markup: ${avg.toFixed(1)}%`+(mcount?` · Average margin: ${(msum/mcount).toFixed(1)}%`:'')+` (${count} priced product${count>1?'s':''})`;
 }
 function cpBuildExportRows(){
   const catOrder=CATEGORIES.filter(c=>c.id!=='all').map(c=>c.id);
@@ -9665,7 +9675,7 @@ function cpBuildExportRows(){
   allProducts.forEach(p=>{if(!grouped[p.cat])grouped[p.cat]=[];grouped[p.cat].push(p);});
   const allCats=[...new Set([...catOrder,...Object.keys(grouped)])].filter(c=>grouped[c]&&grouped[c].length);
   const out=[];
-  let sumPct=0,countPct=0;
+  let sumPct=0,countPct=0,sumM=0,countM=0;
   allCats.forEach(catId=>{
     const catLabel=CATEGORIES.find(c=>c.id===catId)?.label||catId;
     grouped[catId].forEach(p=>{
@@ -9676,23 +9686,25 @@ function cpBuildExportRows(){
       const effective=(val!==''&&val!=null)?Number(val):defaultPrice;
       const result=cpComputeProfit(cost,effective);
       if(result.pct!=null){sumPct+=result.pct;countPct++;}
-      out.push({catLabel,name:p.name,cost,price:effective,profit:result.profit,pct:result.pct});
+      if(result.mpct!=null){sumM+=result.mpct;countM++;}
+      out.push({catLabel,name:p.name,cost,price:effective,profit:result.profit,pct:result.pct,mpct:result.mpct});
     });
   });
   const avgPct=countPct?(sumPct/countPct):null;
-  return{rows:out,avgPct};
+  const avgMPct=countM?(sumM/countM):null;
+  return{rows:out,avgPct,avgMPct};
 }
 function exportClientPricesExcel(){
   if(!clientPricesCurrentUser){alert('Please select a client first.');return;}
   if(!allProducts.length){alert('No products found.');return;}
-  const{rows,avgPct}=cpBuildExportRows();
+  const{rows,avgPct,avgMPct}=cpBuildExportRows();
   const date=new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
   const aoa=[
     ['MATTEO ORDERS — CLIENT PRICES'],
     ['Client: '+clientPricesCurrentUser.toUpperCase()],
     ['Date: '+date],
     [''],
-    ['CATEGORY','PRODUCT','COST','PRICE','PROFIT','PROFIT %']
+    ['CATEGORY','PRODUCT','COST','PRICE','PROFIT','MARKUP %','MARGIN %']
   ];
   rows.forEach(r=>{
     aoa.push([
@@ -9701,11 +9713,13 @@ function exportClientPricesExcel(){
       r.cost!=null?r.cost:'',
       r.price!=null?r.price:'',
       r.profit!=null?Number(r.profit.toFixed(2)):'',
-      r.pct!=null?Number(r.pct.toFixed(1)):''
+      r.pct!=null?Number(r.pct.toFixed(1)):'',
+      r.mpct!=null?Number(r.mpct.toFixed(1)):''
     ]);
   });
   aoa.push(['']);
   aoa.push(['','','','','Average markup:',avgPct!=null?avgPct.toFixed(1)+'%':'—']);
+  aoa.push(['','','','','Average margin:',avgMPct!=null?avgMPct.toFixed(1)+'%':'—']);
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols']=[{wch:16},{wch:28},{wch:10},{wch:10},{wch:10},{wch:12}];
@@ -9715,7 +9729,7 @@ function exportClientPricesExcel(){
 function printClientPricesPDF(){
   if(!clientPricesCurrentUser){alert('Please select a client first.');return;}
   if(!allProducts.length){alert('No products found.');return;}
-  const{rows,avgPct}=cpBuildExportRows();
+  const{rows,avgPct,avgMPct}=cpBuildExportRows();
   let rowsHtml='';
   let lastCat=null;
   rows.forEach(r=>{
@@ -9729,6 +9743,7 @@ function printClientPricesPDF(){
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.price!=null?'£'+Number(r.price).toFixed(2):'—'}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.profit!=null?'£'+r.profit.toFixed(2):'—'}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.pct!=null?r.pct.toFixed(1)+'%':'—'}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;">${r.mpct!=null?r.mpct.toFixed(1)+'%':'—'}</td>
     </tr>`;
   });
   const avgText=avgPct!=null?avgPct.toFixed(1)+'%':'—';
@@ -9745,10 +9760,11 @@ function printClientPricesPDF(){
           <th style="padding:6px 8px;text-align:right;">Price</th>
           <th style="padding:6px 8px;text-align:right;">Profit</th>
           <th style="padding:6px 8px;text-align:right;">Markup</th>
+          <th style="padding:6px 8px;text-align:right;">Margin</th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <div style="margin-top:14px;text-align:right;font-weight:700;font-size:13px;">Average markup: ${avgText}</div>
+      <div style="margin-top:14px;text-align:right;font-weight:700;font-size:13px;">Average markup: ${avgText} · Average margin: ${avgMPct!=null?avgMPct.toFixed(1)+'%':'—'}</div>
       <div style="margin-top:16px;font-size:10px;color:#888;">Generated ${new Date().toLocaleDateString('en-GB')}</div>
     </div>`;
   const area=document.getElementById('pdf-print-area');
